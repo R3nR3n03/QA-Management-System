@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "commands": {
+    "setup": "npm install && npm run prisma:generate",
+    "build": "npm run build",
+    "test": "npm run test",
+    "lint": "npm run lint"
+  },
+  "gates": {
+    "required": ["build", "lint", "test"]
+  },
+  "git": {
+    "defaultBranch": "main"
+  },
+  "ship": { "stopAfter": "commit" }
+}

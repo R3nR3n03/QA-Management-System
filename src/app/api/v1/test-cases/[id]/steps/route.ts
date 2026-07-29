@@ -1,0 +1,21 @@
+import { replaceSteps } from "@/domain/test-cases";
+import { parseJson } from "@/lib/request";
+import { withRoute } from "@/lib/route";
+
+type Params = { params: Promise<{ id: string }> };
+
+export async function PUT(request: Request, context: Params) {
+  return withRoute(request, async ({ auth, requestId }) => {
+    const { id } = await context.params;
+    const body = await parseJson<{
+      version: number;
+      steps: Array<{ sequence: number; action: string; expectedResult: string }>;
+    }>(request);
+    const result = await replaceSteps(id, body.steps, body.version, {
+      userId: auth.userId,
+      role: auth.role,
+      requestId
+    });
+    return Response.json(result);
+  });
+}

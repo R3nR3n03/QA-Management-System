@@ -1,0 +1,319 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum QamsRole {
+  QA_TESTER
+  QA_ENGINEER
+  SENIOR_QA_ENGINEER
+  QA_LEAD
+}
+
+enum TestCaseLifecycleState {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  RETIRED
+}
+
+enum ExecutionLifecycleState {
+  PLANNED
+  IN_PROGRESS
+  FINALIZED
+}
+
+enum ExecutionOutcome {
+  PASS
+  FAIL
+  BLOCKED
+}
+
+enum DefectLifecycleState {
+  NEW
+  TRIAGED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  displayName  String
+  passwordHash String
+  role         QamsRole
+  active       Boolean  @default(true)
+  version      Int      @default(1)
+  createdAt    DateTime @default(now())
+  createdBy    String
+  updatedAt    DateTime @updatedAt
+  updatedBy    String
+
+  executions TestExecution[] @relation("ExecutionTester")
+}
+
+model ControlledValue {
+  id        String   @id @default(uuid())
+  catalogue String
+  value     String
+  active    Boolean  @default(true)
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  createdBy String
+  updatedAt DateTime @updatedAt
+  updatedBy String
+
+  @@unique([catalogue, value])
+}
+
+model Product {
+  id         String   @id @default(uuid())
+  businessId String   @unique
+  name       String
+  versionTag String
+  status     String
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  createdBy  String
+  updatedAt  DateTime @updatedAt
+  updatedBy  String
+
+  modules   Module[]
+  testCases TestCase[]
+}
+
+model Module {
+  id         String   @id @default(uuid())
+  businessId String   @unique
+  name       String
+  productId  String
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  createdBy  String
+  updatedAt  DateTime @updatedAt
+  updatedBy  String
+
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  features Feature[]
+  testCases TestCase[]
+}
+
+model Feature {
+  id         String   @id @default(uuid())
+  businessId String   @unique
+  name       String
+  moduleId   String
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  createdBy  String
+  updatedAt  DateTime @updatedAt
+  updatedBy  String
+
+  module       Module        @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  requirements Requirement[]
+  testCases    TestCase[]
+}
+
+model Requirement {
+  id         String   @id @default(uuid())
+  businessId String   @unique
+  statement  String
+  featureId  String
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  createdBy  String
+  updatedAt  DateTime @updatedAt
+  updatedBy  String
+
+  feature  Feature   @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  testCases TestCase[]
+  rtmLinks  RequirementTraceLink[]
+}
+
+model TestCase {
+  id              String                 @id @default(uuid())
+  businessId      String                 @unique
+  productId       String
+  moduleId        String
+  featureId       String
+  requirementId   String
+  cycle           String
+  sprint          String
+  release         String
+  environment     String
+  priority        String
+  severity        String
+  title           String
+  objective       String
+  expectedResult  String
+  lifecycleState  TestCaseLifecycleState @default(DRAFT)
+  authorUserId    String
+  reviewReason    String?
+  retirementReason String?
+  revisesTestCaseId String?
+  version         Int                    @default(1)
+  createdAt       DateTime               @default(now())
+  createdBy       String
+  updatedAt       DateTime               @updatedAt
+  updatedBy       String
+
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  module       Module       @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  feature      Feature      @relation(fields: [featureId], references: [id], onDelete: Restrict)
+  requirement  Requirement  @relation(fields: [requirementId], references: [id], onDelete: Restrict)
+  revisesTestCase   TestCase?  @relation("TestCaseRevision", fields: [revisesTestCaseId], references: [id], onDelete: SetNull)
+  revisions         TestCase[] @relation("TestCaseRevision")
+  steps            TestStep[]
+  executions       TestExecution[]
+  executionHistory ExecutionHistory[]
+  defects          Defect[]
+  rtmLinks         RequirementTraceLink[]
+}
+
+model TestStep {
+  id             String   @id @default(uuid())
+  testCaseId     String
+  sequence       Int
+  action         String
+  expectedResult String
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  createdBy      String
+  updatedAt      DateTime @updatedAt
+  updatedBy      String
+
+  testCase TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+
+  @@unique([testCaseId, sequence])
+}
+
+model TestExecution {
+  id               String                  @id @default(uuid())
+  businessId       String                  @unique
+  testCaseId       String
+  testerId         String
+  state            ExecutionLifecycleState @default(PLANNED)
+  result           ExecutionOutcome?
+  actualResult     String?
+  blockReason      String?
+  startedAt        DateTime?
+  finalizedAt      DateTime?
+  version          Int                     @default(1)
+  createdAt        DateTime                @default(now())
+  createdBy        String
+  updatedAt        DateTime                @updatedAt
+  updatedBy        String
+
+  testCase   TestCase           @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+  tester     User               @relation("ExecutionTester", fields: [testerId], references: [id], onDelete: Restrict)
+  history    ExecutionHistory[]
+  defects    DefectExecutionLink[]
+}
+
+model ExecutionHistory {
+  id          String   @id @default(uuid())
+  executionId String
+  testCaseId  String
+  result      ExecutionOutcome
+  occurredAt  DateTime
+  createdAt   DateTime @default(now())
+  createdBy   String
+
+  execution TestExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  testCase  TestCase      @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+}
+
+model Defect {
+  id                String               @id @default(uuid())
+  businessId        String               @unique
+  testCaseId        String
+  summary           String
+  status            DefectLifecycleState @default(NEW)
+  priority          String
+  severity          String
+  investigationOwnerId String?
+  resolutionSummary String?
+  closureRationale  String?
+  retestEvidenceRef String?
+  version           Int                  @default(1)
+  createdAt         DateTime             @default(now())
+  createdBy         String
+  updatedAt         DateTime             @updatedAt
+  updatedBy         String
+
+  testCase  TestCase                 @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+  executions DefectExecutionLink[]
+  rtmLinks  RequirementTraceLink[]
+}
+
+model DefectExecutionLink {
+  defectId    String
+  executionId String
+  createdAt   DateTime @default(now())
+  createdBy   String
+
+  defect    Defect        @relation(fields: [defectId], references: [id], onDelete: Cascade)
+  execution TestExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@id([defectId, executionId])
+}
+
+model RequirementTraceLink {
+  id            String   @id @default(uuid())
+  requirementId String
+  testCaseId    String
+  defectId      String?
+  createdAt     DateTime @default(now())
+  createdBy     String
+
+  requirement Requirement @relation(fields: [requirementId], references: [id], onDelete: Restrict)
+  testCase    TestCase    @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+  defect      Defect?     @relation(fields: [defectId], references: [id], onDelete: SetNull)
+
+  @@unique([requirementId, testCaseId, defectId])
+}
+
+model ImportRun {
+  id            String   @id @default(uuid())
+  sourceFileName String
+  sourceFileHash String?
+  actorId       String
+  status        String
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  reportJson    Json
+  createdAt     DateTime @default(now())
+  createdBy     String
+
+  rows ImportRowReport[]
+}
+
+model ImportRowReport {
+  id           String   @id @default(uuid())
+  importRunId  String
+  sourceSheet  String
+  sourceRow    Int
+  outcome      String
+  errorCode    String?
+  recordId     String?
+  details      String?
+  createdAt    DateTime @default(now())
+  createdBy    String
+
+  importRun ImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+}
+
+model AuditEvent {
+  id              String   @id @default(uuid())
+  occurredAt      DateTime @default(now())
+  actorId         String
+  action          String
+  entityType      String
+  entityId        String
+  requestId       String
+  beforeAfterJson Json
+}
