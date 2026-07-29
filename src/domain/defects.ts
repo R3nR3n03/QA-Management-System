@@ -5,6 +5,7 @@ import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
+import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
@@ -25,8 +26,8 @@ export async function createDefect(
   const testCase = await prisma.testCase.findUnique({ where: { id: input.testCaseId } });
   if (!testCase) throw new AppError(404, "REFERENCE_NOT_FOUND", "Test case not found.", "testCaseId");
 
-  if (input.priority?.trim()) await ensureActiveControlledValue("Priority", input.priority.trim(), "priority");
-  if (input.severity?.trim()) await ensureActiveControlledValue("Severity", input.severity.trim(), "severity");
+  if (input.priority?.trim()) await ensureActiveControlledValue(CATALOGUE_PRIORITY, input.priority.trim(), "priority");
+  if (input.severity?.trim()) await ensureActiveControlledValue(CATALOGUE_SEVERITY, input.severity.trim(), "severity");
 
   const existing = await prisma.defect.findUnique({ where: { businessId: input.businessId } });
   if (existing) {
@@ -72,8 +73,8 @@ export async function updateDefectDetails(
   }
   ensureVersion(current.version, input.version);
 
-  if (input.priority?.trim()) await ensureActiveControlledValue("Priority", input.priority.trim(), "priority");
-  if (input.severity?.trim()) await ensureActiveControlledValue("Severity", input.severity.trim(), "severity");
+  if (input.priority?.trim()) await ensureActiveControlledValue(CATALOGUE_PRIORITY, input.priority.trim(), "priority");
+  if (input.severity?.trim()) await ensureActiveControlledValue(CATALOGUE_SEVERITY, input.severity.trim(), "severity");
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.defect.update({
@@ -133,8 +134,8 @@ export async function transitionDefect(
     ensureRole([...RoleSets.canTriageDefect], actor.role);
     requireNonBlank(defect.priority, "priority", "Priority is required before triage.");
     requireNonBlank(defect.severity, "severity", "Severity is required before triage.");
-    await ensureActiveControlledValue("Priority", defect.priority, "priority");
-    await ensureActiveControlledValue("Severity", defect.severity, "severity");
+    await ensureActiveControlledValue(CATALOGUE_PRIORITY, defect.priority, "priority");
+    await ensureActiveControlledValue(CATALOGUE_SEVERITY, defect.severity, "severity");
   }
 
   const statesRequiringAdvanceRole: DefectLifecycleState[] = [

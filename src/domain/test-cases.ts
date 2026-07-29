@@ -5,6 +5,7 @@ import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence, ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
+import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
@@ -66,8 +67,8 @@ export async function createTestCase(input: CreateTestCaseInput, actor: Actor) {
 
   await validateHierarchy(input.productId, input.moduleId, input.featureId, input.requirementId);
 
-  if (input.priority?.trim()) await ensureActiveControlledValue("Priority", input.priority.trim(), "priority");
-  if (input.severity?.trim()) await ensureActiveControlledValue("Severity", input.severity.trim(), "severity");
+  if (input.priority?.trim()) await ensureActiveControlledValue(CATALOGUE_PRIORITY, input.priority.trim(), "priority");
+  if (input.severity?.trim()) await ensureActiveControlledValue(CATALOGUE_SEVERITY, input.severity.trim(), "severity");
 
   if (input.revisesTestCaseId) {
     const priorCase = await prisma.testCase.findUnique({ where: { id: input.revisesTestCaseId } });
@@ -148,8 +149,8 @@ export async function updateTestCaseDraft(
   }
   ensureVersion(current.version, input.version);
 
-  if (input.priority?.trim()) await ensureActiveControlledValue("Priority", input.priority.trim(), "priority");
-  if (input.severity?.trim()) await ensureActiveControlledValue("Severity", input.severity.trim(), "severity");
+  if (input.priority?.trim()) await ensureActiveControlledValue(CATALOGUE_PRIORITY, input.priority.trim(), "priority");
+  if (input.severity?.trim()) await ensureActiveControlledValue(CATALOGUE_SEVERITY, input.severity.trim(), "severity");
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.testCase.update({
@@ -249,8 +250,8 @@ export async function submitTestCase(testCaseId: string, version: number, actor:
   requireNonBlank(tc.environment, "environment", "Environment is required before review.");
   requireNonBlank(tc.priority, "priority", "Priority is required before review.");
   requireNonBlank(tc.severity, "severity", "Severity is required before review.");
-  await ensureActiveControlledValue("Priority", tc.priority, "priority");
-  await ensureActiveControlledValue("Severity", tc.severity, "severity");
+  await ensureActiveControlledValue(CATALOGUE_PRIORITY, tc.priority, "priority");
+  await ensureActiveControlledValue(CATALOGUE_SEVERITY, tc.severity, "severity");
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.testCase.update({

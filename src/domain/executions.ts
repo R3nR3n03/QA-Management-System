@@ -5,6 +5,7 @@ import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank } from "@/lib/validation";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
+import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
@@ -139,10 +140,10 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
     requireNonBlank(input.createDefect.summary, "createDefect.summary", "Defect summary is required.");
     ensureBusinessIdFormat(input.createDefect.businessId, BUSINESS_ID_PATTERNS.defect, "createDefect.businessId", "BUG-####");
     if (input.createDefect.priority?.trim()) {
-      await ensureActiveControlledValue("Priority", input.createDefect.priority.trim(), "createDefect.priority");
+      await ensureActiveControlledValue(CATALOGUE_PRIORITY, input.createDefect.priority.trim(), "createDefect.priority");
     }
     if (input.createDefect.severity?.trim()) {
-      await ensureActiveControlledValue("Severity", input.createDefect.severity.trim(), "createDefect.severity");
+      await ensureActiveControlledValue(CATALOGUE_SEVERITY, input.createDefect.severity.trim(), "createDefect.severity");
     }
     const existingDefect = await prisma.defect.findUnique({ where: { businessId: input.createDefect.businessId } });
     if (existingDefect) {
