@@ -1,6 +1,7 @@
 # QAMS Implementation Re-Audit — Docs vs. Code
 
 **Date:** 2026-07-31 · **Revised:** 2026-07-31 — §5.10 added (the documented web interface does not exist), missed by the original pass. §5 retitled and §7 extended accordingly; no other finding changed.
+**Revised 2026-08-01:** every finding that is an implementation decision is now **RESOLVED** and struck through in place (§2 all, §3 all, §4.2, §5.1, §5.3, §5.5–§5.9, §6.8). Still open: §4.1 and §6.1–§6.7 (QA Lead escalations), §5.2 (reconciliation policy), §5.4 (pagination — "documented fields" never enumerated), and §5.10 (the web interface — blocked on the five documented decisions). The W1 seed-import lifecycle question from `WORKBOOK-IMPORT-AUDIT-2026-07-31.md` was put to the project owner, ruled Approved-on-import, and ratified in `docs/roles-workflows.md`.
 **Scope:** `src/`, `prisma/schema.prisma`, `prisma/seed.ts`, and the route tree under `src/app/api/v1`, checked against `docs/` in the authority order defined in `docs/README.md`. The original pass scoped itself to the API, domain services and schema, and did not check `docs/` for commitments about the user interface — that omission is what §5.10 corrects.
 **Baseline:** the previous audit at `.relay/runs/2026-07-29-workbook-import/implementation-audit.md` (2026-07-29). This document supersedes it.
 **Repository state at audit:** `db79c32` — "Bootstrap the documented controlled-value catalogues".
@@ -164,7 +165,14 @@ This is the root cause of §2.1, §3.3 and §3.7, and of the systematic 500-inst
 
 ## 3. HIGH
 
-### 3.1 Optimistic concurrency is not atomic — lost updates are possible
+### 3.1 ~~Optimistic concurrency is not atomic~~ — **RESOLVED 2026-07-31**
+
+> **Fixed in `c4d7421`** (production readiness B1): every versioned write goes through
+> `withVersionCheck` with the expected version in the `WHERE` clause, and the losing
+> writer receives `409 VERSION_CONFLICT`.
+
+The original finding follows.
+
 
 **Where:** every mutating domain function. Representative: `src/domain/catalogue.ts:65-79`; identical pattern in `test-cases.ts:145-171`, `:192-220`, `:236-264`, `:279-297`, `:317-333`, `:353-369`; `executions.ts:72-89`, `:120-193`; `defects.ts:69-89`, `:125-188`; `admin.ts:17-29`, `:46-54`.
 
@@ -186,7 +194,14 @@ The read happens outside the transaction and the version never reaches the `WHER
 
 **Fix.** Move the check into the write: `where: { id, version: expected }`, and treat Prisma's "record not found" (P2025) as `409 VERSION_CONFLICT`. Do the read inside the transaction too.
 
-### 3.2 Uniqueness races return 500 instead of 409
+### 3.2 ~~Uniqueness races return 500 instead of 409~~ — **RESOLVED 2026-07-31**
+
+> **Fixed in `98aca44`** (production readiness B2): `src/lib/prisma-errors.ts` maps
+> `P2002` → 409 `ID_DUPLICATE`, `P2003` → 422, `P2025` → 404, verified live under
+> 12 rounds of 6 concurrent duplicate creates with zero 500s.
+
+The original finding follows.
+
 
 **Where:** `catalogue.ts:26-29`, `:108-109`, `:173-174`, `:238-239`; `test-cases.ts:88-91`; `executions.ts:36-39`; `defects.ts:32-35`; `executions.ts:148-151`.
 
@@ -196,7 +211,14 @@ Each does `findUnique` for an existing business ID, then `create` inside the tra
 
 **Fix.** Map `P2002` → `409 ID_DUPLICATE` (field from `err.meta.target`), `P2025` → `409 VERSION_CONFLICT`, `P2003` → `422 REFERENCE_NOT_FOUND`, in `asErrorResponse`.
 
-### 3.3 `POST /executions/{id}/finalize` returns 500 on three ordinary bad inputs
+### 3.3 ~~`POST /executions/{id}/finalize` returns 500 on three ordinary bad inputs~~ — **RESOLVED**
+
+> **Fixed with §2.3.** The strict boundary schema rejects an omitted or non-enum
+> `result` with 422, and the guard/use mismatch is gone — `executions.ts` now uses
+> `?.trim() ?? ""` at the write, matching `defects.ts`.
+
+The original finding follows.
+
 
 **Where:** `src/domain/executions.ts:116-215`.
 
@@ -208,7 +230,15 @@ Each does `findUnique` for an existing business ID, then `create` inside the tra
 
 The `priority`/`severity` pair at `:142-147` and `:163-164` is a straightforward guard/use mismatch: the guard admits `undefined`, the use assumes a string. `defects.ts:43-44` handles the identical case correctly with `?? ""` — the two paths disagree.
 
-### 3.4 Reopen reason is required, validated, then discarded
+### 3.4 ~~Reopen reason is required, validated, then discarded~~ — **RESOLVED 2026-08-01**
+
+> **Fixed.** `transitionDefect`'s audit event now records `reopenReason` — the doc
+> says "recorded", and the event is where it survives — together with
+> `resolutionSummary`, `closureRationale`, `retestEvidenceRef` and
+> `investigationOwnerId` when the transition supplied them.
+
+The original finding follows.
+
 
 **Where:** `src/domain/defects.ts:172-174`, audit at `:189-196`.
 
@@ -226,7 +256,14 @@ The same audit event also omits `resolutionSummary`, `closureRationale`, and `re
 
 **Fix.** Either add a `reopenReason` column (mirroring `reviewReason`/`retirementReason` on `TestCase`) or record it in the audit event — the doc says "recorded", not "stored on the record", so either satisfies it. Include the other transition rationales in the audit payload while there.
 
-### 3.5 The RTM uniqueness constraint does not work for the common case
+### 3.5 ~~The RTM uniqueness constraint does not work for the common case~~ — **RESOLVED 2026-07-31**
+
+> **Fixed in `66b7871`** (production readiness B3): the unique index is rebuilt with
+> `NULLS NOT DISTINCT`, and `createRtmLink` gained a friendly duplicate pre-check;
+> the raced duplicate surfaces as 409 via the §3.2 mapping.
+
+The original finding follows.
+
 
 **Where:** `prisma/schema.prisma:277`, `src/domain/traceability.ts:55-63`.
 
@@ -238,7 +275,13 @@ When the constraint *does* fire (same requirement + test case + same non-null de
 
 **Fix.** Add a partial unique index for the `defectId IS NULL` case, or make the column non-nullable with a sentinel; plus an explicit duplicate check in the service.
 
-### 3.6 No structured logging exists
+### 3.6 ~~No structured logging exists~~ — **RESOLVED 2026-07-31**
+
+> **Fixed in `0e61724`** (production readiness C1): one structured line per request
+> outcome at both boundaries, with the caught error's detail on the 500 path.
+
+The original finding follows.
+
 
 **Where:** nowhere. `src/` contains no logger, and no `console.*` call.
 
@@ -248,7 +291,13 @@ When the constraint *does* fire (same requirement + test case + same non-null de
 
 **Fix.** Log at the `withRoute` boundary (`src/lib/route.ts:17-19`) — one structured line per request outcome, and the caught error's detail on the 500 path. The audit event covers *business* history; this covers *operational* history, and they are not substitutes.
 
-### 3.7 Malformed request bodies produce 500
+### 3.7 ~~Malformed request bodies produce 500~~ — **RESOLVED**
+
+> **Fixed with §2.3** — `parseWith` + strict schemas reject parseable non-object JSON
+> with 422; `parseJson` no longer exists.
+
+The original finding follows.
+
 
 **Where:** `src/lib/request.ts:10-16`, `src/app/api/v1/auth/login/route.ts:12`.
 
@@ -264,7 +313,16 @@ Seeded per `docs/excel-source-map.md:44` (`Pass`, `Fail`, `Blocked`) by `src/lib
 
 **NOTE — needs a QA Lead ruling.** `docs/data-model.md:40` says both that "Controlled catalogues initially contain the workbook values for priority, severity, and **execution result**" and that "The application also owns lifecycle values defined in `roles-workflows.md`; they are not editable configuration in v1." Execution result sits in the overlap. Either the Result catalogue should not be seeded, or the enum should be validated against it — that is a policy decision, not an implementation one. Do not resolve it in code.
 
-### 4.2 Direct-ORM GET handlers: seven routes, not one
+### 4.2 ~~Direct-ORM GET handlers: seven routes, not one~~ — **RESOLVED 2026-08-01**
+
+> **Fixed.** All seven single-record GETs call domain getters (`getProduct`,
+> `getModule`, `getFeature`, `getRequirement`, `getTestCase`, `getDefect`,
+> `getImportRun`) that throw `AppError`, so a missing record returns the standard
+> error body with `requestId`. No route handler touches Prisma. `auth/login`'s
+> credential check remains the documented, defensible exception.
+
+The original finding follows.
+
 
 The previous audit reported this for `imports/[id]` alone. It applies to every single-record GET:
 
@@ -286,20 +344,24 @@ Response.json({ error: { code: "REFERENCE_NOT_FOUND", message: "…" } }, { stat
 
 ## 5. OPEN — larger gaps
 
-Items 5.1–5.9 are carried unchanged from the 2026-07-29 audit. **Item 5.10 is new to this
+Items 5.1–5.9 were carried unchanged from the 2026-07-29 audit. **Item 5.10 is new to this
 revision** — it was missed by both audits and is recorded in full below the table.
+
+**Status as of 2026-08-01:** 5.1, 5.3, 5.5, 5.6, 5.7, 5.8 and 5.9 are **RESOLVED** (struck
+through below, with what landed). 5.2, 5.4 and 5.10 remain open — each is blocked on a QA Lead
+decision the docs reserve, not on implementation.
 
 | # | Item | Evidence |
 | --- | --- | --- |
-| 5.1 | **Workbook import is still a stub.** `src/domain/imports.ts` is 52 lines: it checks the 13 sheet names exist and writes one `ImportRun` with `status: "VALIDATED"`. No header validation, row parsing, staging, dependency-ordered atomic commit, `SKIPPED_UNCHANGED`/`RECONCILIATION_REQUIRED` outcomes, `ImportRowReport` rows, rejection handling, dashboard recalculation, `sourceFileHash`, or `completedAt`. | `docs/excel-source-map.md:25-34`, `business-rules-and-validation.md:40-46`, `api-and-security.md:45-47`, 4 acceptance scenarios in `testing-and-acceptance.md:8-10` |
+| 5.1 | ~~**Workbook import is still a stub.**~~ **RESOLVED 2026-08-01** — `feature/workbook-import` merged after its own audit (`WORKBOOK-IMPORT-AUDIT-2026-07-31.md`); W1 ruled and ratified in `docs/roles-workflows.md`, W2 boundary recorded in `docs/architecture.md`, W4/W5/W7/W9 fixed. Header validation, staging, dependency-ordered atomic batches, idempotency, reconciliation reporting, row-level reports, `sourceFileHash`, `completedAt` and dashboard recalculation all exist and are covered by the acceptance suite. Original finding: `src/domain/imports.ts` is 52 lines: it checks the 13 sheet names exist and writes one `ImportRun` with `status: "VALIDATED"`. No header validation, row parsing, staging, dependency-ordered atomic commit, `SKIPPED_UNCHANGED`/`RECONCILIATION_REQUIRED` outcomes, `ImportRowReport` rows, rejection handling, dashboard recalculation, `sourceFileHash`, or `completedAt`. | `docs/excel-source-map.md:25-34`, `business-rules-and-validation.md:40-46`, `api-and-security.md:45-47`, 4 acceptance scenarios in `testing-and-acceptance.md:8-10` |
 | 5.2 | **Reconciliation follow-up operation absent.** A well-formed proposal exists at `RECONCILIATION-POLICY-AMENDMENT-DRAFT.md`, correctly parked outside `docs/` pending QA Lead approval. Two of its eight decisions are conflicts between authoritative documents and must be settled by the QA Lead regardless. | `api-and-security.md:47` |
-| 5.3 | **`GET /users/{id}/role` not implemented** — only `PATCH` exists. | `api-and-security.md:16` |
+| 5.3 | ~~**`GET /users/{id}/role` not implemented**~~ **RESOLVED 2026-08-01** — implemented with the same `USER_RESPONSE_SELECT` projection as `PATCH`, gate in the domain service. Original finding: only `PATCH` existed. | `api-and-security.md:16` |
 | 5.4 | **No pagination, filtering, or sorting** on any collection endpoint. Every list is an unbounded `findMany` with a fixed `orderBy`. **NOTE:** the docs never enumerate the "documented fields" per resource — escalate before implementing. | `api-and-security.md:5` |
-| 5.5 | **No rate limiting** on auth or import endpoints, and no upload size limit — `imports/workbook/route.ts:14` reads the whole file into memory via `arrayBuffer()`. No middleware exists. | `api-and-security.md:43` |
-| 5.6 | **Dashboard metrics do not state filters, numerator, denominator.** `dashboardSnapshot` (`traceability.ts:78-93`) returns `asOfUtc` and grouped counts only. The non-retired product/test-case counts and `releaseReadinessSnapshot`'s `POLICY_NOT_DEFINED` advisory are correct. | `business-rules-and-validation.md:37` |
-| 5.7 | **Zero acceptance-scenario coverage.** 9 tests across 2 files, both pure unit tests (`validation.test.ts`, `controlled-value-catalogues.test.ts`). No DB test harness. None of the 17 scenarios is automated — and `docs/testing-and-acceptance.md:38` makes them the definition of done. §2.1 would have been caught by scenario `testing-and-acceptance.md:12`. | `testing-and-acceptance.md:5-23, 38` |
-| 5.8 | **No Prisma migration baseline.** `prisma/migrations/` does not exist; no versioned DDL is committed. | `CLAUDE.md:21`, `architecture.md:5` |
-| 5.9 | **Admin RBAC lives in routes, not domain services.** `updateControlledValue` and `updateUserRole` (`admin.ts`) and `createImportRun` (`imports.ts`) contain no `ensureRole`; the QA Lead gate exists only in `controlled-values/route.ts:16`, `users/[id]/role/route.ts:11`, and `imports/workbook/route.ts:8`. Any future caller of these domain functions bypasses authorization entirely. Every other domain service checks internally. | `api-and-security.md:38`, `CLAUDE.md:38` |
+| 5.5 | ~~**No rate limiting**~~ **RESOLVED 2026-07-31** — production readiness A2/A3: login and import limiters plus the two-stage upload size check landed in `c4e9993` and on `main`. Original finding: no rate limiting on auth or import endpoints, and no upload size limit — `imports/workbook/route.ts:14` reads the whole file into memory via `arrayBuffer()`. No middleware exists. | `api-and-security.md:43` |
+| 5.6 | ~~**Dashboard metrics do not state filters, numerator, denominator.**~~ **RESOLVED 2026-08-01** — both dashboard and release-readiness metric groups now carry filters, numerator, denominator, denominator count and as-of time, verified live. Original finding: `dashboardSnapshot` (`traceability.ts:78-93`) returns `asOfUtc` and grouped counts only. The non-retired product/test-case counts and `releaseReadinessSnapshot`'s `POLICY_NOT_DEFINED` advisory are correct. | `business-rules-and-validation.md:37` |
+| 5.7 | ~~**Zero acceptance-scenario coverage.**~~ **RESOLVED 2026-08-01** — `tests/acceptance/` automates all 17 scenarios (21 tests) against a dedicated `qams_test` PostgreSQL database via `npm run test:acceptance`, with a matching CI job. Original finding: 9 tests across 2 files, both pure unit tests (`validation.test.ts`, `controlled-value-catalogues.test.ts`). No DB test harness. None of the 17 scenarios is automated — and `docs/testing-and-acceptance.md:38` makes them the definition of done. §2.1 would have been caught by scenario `testing-and-acceptance.md:12`. | `testing-and-acceptance.md:5-23, 38` |
+| 5.8 | ~~**No Prisma migration baseline.**~~ **RESOLVED 2026-07-31** — `prisma/migrations/` holds three committed migrations; the acceptance harness applies them with `migrate deploy`. Original finding: `prisma/migrations/` does not exist; no versioned DDL is committed. | `CLAUDE.md:21`, `architecture.md:5` |
+| 5.9 | ~~**Admin RBAC lives in routes, not domain services.**~~ **RESOLVED 2026-08-01** — `updateControlledValue`, `updateUserRole`, `getUserRole` and `createImportRun` all `ensureRole` internally; the routes no longer duplicate the gate. Verified live with a QA_ENGINEER session (403 from the domain). Original finding: `updateControlledValue` and `updateUserRole` (`admin.ts`) and `createImportRun` (`imports.ts`) contain no `ensureRole`; the QA Lead gate exists only in `controlled-values/route.ts:16`, `users/[id]/role/route.ts:11`, and `imports/workbook/route.ts:8`. Any future caller of these domain functions bypasses authorization entirely. Every other domain service checks internally. | `api-and-security.md:38`, `CLAUDE.md:38` |
 | 5.10 | **The documented web interface does not exist** — new to this revision, see below. | `architecture.md:5`, `:9-13`, `:24-31` |
 
 ### 5.10 — The documented web interface does not exist
@@ -377,7 +439,7 @@ the QA Lead, per `docs/README.md` § "Versioning and change control".
 5. **Product `status` still has no catalogue.** `data-model.md:16` requires it be "a configured catalogue value", but the workbook seeds only Priority, Severity, and Result (`excel-source-map.md:44`). `dashboardSnapshot` (`traceability.ts:80`) works around this with a case-insensitive string match on `"Retired"`. Unresolvable as written — carried from the previous audit.
 6. **`ImportRun.status` and `ImportRowReport.outcome` are unconstrained `String` columns.** No enum pins the documented vocabulary (`SKIPPED_UNCHANGED`, `RECONCILIATION_REQUIRED`, …). Carried from the previous audit.
 7. **Tester identity on import.** `data-model.md:5` requires users be referenced by internal ID "never free-text names after import reconciliation", but the Test Execution sheet carries a free-text Tester column and the workbook defines no user accounts (`excel-source-map.md:50`). Carried from the previous audit.
-8. **`dotenv` is undeclared.** `prisma/seed.ts:1` imports `dotenv/config`; `dotenv` is in neither `dependencies` nor `devDependencies`. It currently resolves transitively through `node_modules`, so `npm run prisma:seed` works today and will break on a dependency-tree change. Not a policy question — just add it.
+8. ~~**`dotenv` is undeclared.**~~ **RESOLVED 2026-08-01** — declared in `devDependencies`.
 
 ---
 

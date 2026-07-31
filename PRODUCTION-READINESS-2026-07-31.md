@@ -15,8 +15,10 @@ cross-referenced rather than restated.
 
 **Original verdict (2026-07-31): not deployable to a production environment in its current
 state.** All nine blockers have since been closed — see the table below. The verdict now is
-**no longer blocked, but not yet proven in production**: seven HIGH findings remain, the CI
-pipeline has never executed, and nothing here has run behind a real proxy or over HTTPS.
+**no longer blocked, but not yet proven in production**: four HIGH findings remain (C2, C3, D2,
+E1), the CI pipeline has never executed, and nothing here has run behind a real proxy or over
+HTTPS. *(Updated 2026-08-01: B3/B4/F1/F3/F4 have since been resolved — see their sections; the
+implementation audit's remaining items are likewise closed except the QA Lead escalations.)*
 
 The domain layer was already well built — lifecycle rules, RBAC, audit emission and validation are
 coherent and well covered by unit tests. What was missing was nearly everything *around* it: no
@@ -33,8 +35,8 @@ None of it was a criticism of the sequencing — the project built the domain fi
 |---|---|---|---|
 | **BLOCKER** | 0 *(was 9)* | — | Must be resolved before any deployment reachable by real users |
 | **HIGH** | 4 | C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
-| **MEDIUM** | 9 | B4, B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
-| **MISSING** | 5 | F1–F5 | Documented or implied functionality that does not exist yet |
+| **MEDIUM** | 8 | B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
+| **MISSING** | 2 | F2, F5 | Documented or implied functionality that does not exist yet |
 
 Thirty findings in total, **all nine blockers now resolved** — see the marked sections:
 
@@ -408,7 +410,15 @@ those. Unlimited identical `(requirement, testCase, null)` rows are insertable, 
 
 **Fix.** A partial unique index for the `defectId IS NULL` case, plus an explicit service-level check.
 
-### B4. MEDIUM · Reopen reasons are demanded and discarded
+### B4. ~~MEDIUM~~ **RESOLVED 2026-08-01** · Reopen reasons are demanded and discarded
+
+> **Fixed.** The `DEFECT_TRANSITIONED` audit event now records `reopenReason` —
+> which has no column, so the event is where "recorded" (`roles-workflows.md:49`)
+> can be satisfied — plus `resolutionSummary`, `closureRationale`,
+> `retestEvidenceRef` and `investigationOwnerId` when the transition supplied them.
+
+The original finding follows.
+
 
 **CODE-READ** — `src/domain/defects.ts:172-174` requires `reopenReason` to be non-blank, then never
 persists it: there is no column on `Defect`, and the audit event at `:189-196` records only
@@ -620,7 +630,16 @@ untidy.
 
 ## F. Missing implementation
 
-### F1. MISSING · Workbook import is a stub — the primary documented data path
+### F1. ~~MISSING~~ **RESOLVED 2026-08-01** · Workbook import is a stub — the primary documented data path
+
+> **Landed.** `feature/workbook-import` was audited (`WORKBOOK-IMPORT-AUDIT-2026-07-31.md`),
+> its W1 blocker was ruled by the project owner (Approved-on-import, ratified in
+> `docs/roles-workflows.md`), W4/W5/W7/W9 were fixed, and the branch merged. Every
+> absent capability in the finding below now exists and is exercised by the
+> acceptance suite against a real workbook and database.
+
+The original finding follows.
+
 
 `src/domain/imports.ts` is 52 lines: it checks 13 sheet names exist and writes one `ImportRun` row
 with `status: "VALIDATED"`. Absent: header validation, row parsing for all 11 imported sheets,
@@ -638,7 +657,16 @@ nowhere. `RECONCILIATION-POLICY-AMENDMENT-DRAFT.md` proposes it in full and is a
 approval. **Two of its eight open decisions are conflicts between authoritative documents** and must
 be settled regardless of what else is accepted.
 
-### F3. MISSING · The acceptance suite
+### F3. ~~MISSING~~ **RESOLVED 2026-08-01** · The acceptance suite
+
+> **Built.** `npm run test:acceptance` runs all 17 documented scenarios (21 tests)
+> from `tests/acceptance/` against a dedicated `qams_test` database that its global
+> setup creates and migrates with `prisma migrate deploy`. CI gained a matching job
+> with a postgres:18 service container (which, like the rest of the workflow, has
+> never executed — no remote).
+
+The original finding follows.
+
 
 **VERIFIED** — 14 test files, 167 tests, **all pure unit tests**. There is no API test, no
 integration test, and no end-to-end test.
@@ -650,7 +678,13 @@ are automated.** A database is now available locally for the first time, so this
 This is the finding that most directly threatens everything else in this document: without it, every
 fix listed here is verified once, manually, and then unprotected.
 
-### F4. MISSING · `GET /users/{id}/role`
+### F4. ~~MISSING~~ **RESOLVED 2026-08-01** · `GET /users/{id}/role`
+
+> **Implemented**, with the QA-Lead gate in the domain service and the same
+> six-field projection as `PATCH`.
+
+The original finding follows.
+
 
 `docs/api-and-security.md:16` lists `GET/PATCH`. Only `PATCH` is implemented.
 
@@ -713,7 +747,7 @@ Ordered by dependency, not by severity alone.
 6. **B2, Prisma error mapping** (prerequisite for B1).
 7. **B1, atomic version checks.** Mechanical, touches every mutation, prevents silent data loss.
 8. **C4, indexes.** One migration; far cheaper now than later.
-9. **F3, the acceptance suite.** Now possible for the first time. Protects phases 1–2.
+9. ~~**F3, the acceptance suite.**~~ *(resolved 2026-08-01 — 21 tests over the 17 scenarios.)*
 
 **Phase 3 — deployable posture**
 
@@ -725,10 +759,10 @@ Ordered by dependency, not by severity alone.
 
 **Phase 4 — feature completeness**
 
-15. **F1, the workbook import** (audit `feature/workbook-import` first).
+15. ~~**F1, the workbook import**~~ *(resolved 2026-08-01 — audited, ruled, merged).*
 16. **E1, pagination** — needs the QA Lead decision in E1's note first.
 17. **F5, the web interface** — needs the five decisions in §5.10 of the implementation audit.
-18. **B4, F4, E2, E3, D3, D4.** *(B3 resolved 2026-07-31.)*
+18. **E2, E3, D3, D4.** *(B3 resolved 2026-07-31; B4 and F4 resolved 2026-08-01.)*
 
 **Standing escalations to the QA Lead** — none of these may be resolved by implementation choice:
 the reconciliation policy (F2), the "documented fields" for filtering (E1), backup retention (B5),
