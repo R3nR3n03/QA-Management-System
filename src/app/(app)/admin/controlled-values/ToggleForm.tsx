@@ -20,7 +20,7 @@ export function ToggleForm({ id, version, active }: { id: string; version: numbe
       <input type="hidden" name="active" value={String(!active)} />
       <FormNotice state={state} />
       <button
-        className="btn btn-secondary"
+        className={active ? "btn btn-danger" : "btn btn-secondary"}
         type="submit"
         disabled={pending}
         style={{ fontSize: 13, padding: "4px 10px" }}

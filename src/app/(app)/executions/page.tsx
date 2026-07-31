@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { listExecutionsWithCase } from "@/domain/executions";
-import { ExecutionStateChip, OutcomeChip } from "@/ui/chips";
+import { ExecutionList } from "@/ui/record-list";
 import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
@@ -23,46 +23,17 @@ export default async function ExecutionsPage() {
         is a new execution against the same approved case.
       </p>
 
-      {rows.length === 0 ? (
-        <div className="card">
-          <p className="muted" style={{ margin: 0 }}>No executions yet. Plan one against an approved test case.</p>
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 0 }}>
-          {rows.map((execution) => (
-            <div
-              key={execution.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--sp-4)",
-                padding: "var(--sp-3) var(--sp-5)",
-                borderBottom: "1px solid var(--line-soft)",
-                flexWrap: "wrap"
-              }}
-            >
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", flexWrap: "wrap" }}>
-                  <span className="bid">{execution.businessId}</span>
-                  <ExecutionStateChip state={execution.state} />
-                  {execution.result ? <OutcomeChip outcome={execution.result} /> : null}
-                </div>
-                <div style={{ fontWeight: 600, color: "var(--ink)", marginTop: 2 }}>
-                  {execution.testCase.title}
-                </div>
-                <div className="muted">
-                  <span className="bid">{execution.testCase.businessId}</span>
-                  {" · "}
-                  {execution.tester.displayName}
-                </div>
-              </div>
-              <Link href={`/executions/${execution.id}`} style={{ fontSize: 14 }}>
-                View
-              </Link>
-            </div>
-          ))}
-        </div>
-      )}
+      <ExecutionList
+        rows={rows.map((execution) => ({
+          id: execution.id,
+          businessId: execution.businessId,
+          state: execution.state,
+          result: execution.result,
+          caseBusinessId: execution.testCase.businessId,
+          caseTitle: execution.testCase.title,
+          testerName: execution.tester.displayName
+        }))}
+      />
     </>
   );
 }

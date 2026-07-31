@@ -6,6 +6,7 @@ import { defectDetail } from "@/domain/defects";
 import { listAssignableTesters } from "@/domain/executions";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { DefectStatusChip } from "@/ui/chips";
+import { Breadcrumbs } from "@/ui/breadcrumbs";
 import { requireSession } from "@/ui/session";
 import { DefectEditForm, TransitionForm } from "./DefectForms";
 
@@ -32,6 +33,7 @@ export default async function DefectPage({ params }: { params: Promise<{ id: str
 
   return (
     <>
+      <Breadcrumbs trail={[{ href: "/defects", label: "Defects" }]} here={defect.businessId} />
       <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
         <span className="bid" style={{ fontSize: 15 }}>{defect.businessId}</span>
         <DefectStatusChip status={status} />

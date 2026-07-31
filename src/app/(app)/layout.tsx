@@ -40,13 +40,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
       <Sidebar
         groups={groups}
         badges={badges}
         user={{ displayName: me.displayName, roleLabel: roleLabel(me.role) }}
         signOutAction={signOut}
       />
-      <main className="shell-main">{children}</main>
+      <main id="main" className="shell-main">
+        {children}
+      </main>
     </div>
   );
 }

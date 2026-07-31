@@ -273,7 +273,7 @@ export function RetireForm({ testCaseId, version }: { testCaseId: string; versio
         <strong>Retiring preserves the case.</strong> Historical executions keep referencing it; it
         simply stops counting as active.
       </p>
-      <button className="btn btn-secondary" type="submit" disabled={pending}>
+      <button className="btn btn-danger" type="submit" disabled={pending}>
         {pending ? "Retiring…" : "Retire this case"}
       </button>
     </form>

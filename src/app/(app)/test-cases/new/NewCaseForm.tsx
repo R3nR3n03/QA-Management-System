@@ -45,12 +45,17 @@ export function NewCaseForm({
       {revisesTestCaseId ? <input type="hidden" name="revisesTestCaseId" value={revisesTestCaseId} /> : null}
       <FormNotice state={state} />
 
-      <label className={bad("businessId")}>
-        <span>Test case ID</span>
-        <input name="businessId" placeholder="TC-PROD001-0001" required disabled={pending} />
-        <span className="hint">Format TC-&lt;product tag&gt;-#### — unique across the repository.</span>
-      </label>
+      <fieldset className="form-section">
+        <legend>Identity</legend>
+        <label className={bad("businessId")}>
+          <span>Test case ID</span>
+          <input name="businessId" placeholder="TC-PROD001-0001" required disabled={pending} />
+          <span className="hint">Format TC-&lt;product tag&gt;-#### — unique across the repository.</span>
+        </label>
+      </fieldset>
 
+      <fieldset className="form-section">
+        <legend>Where it belongs</legend>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
         <label className={bad("productId")}>
           <span>Product</span>
@@ -133,7 +138,10 @@ export function NewCaseForm({
           </select>
         </label>
       </div>
+      </fieldset>
 
+      <fieldset className="form-section">
+        <legend>Planning</legend>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0 var(--sp-3)" }}>
         <label className={bad("cycle")}>
           <span>Cycle</span>
@@ -152,7 +160,10 @@ export function NewCaseForm({
           <input name="environment" required disabled={pending} />
         </label>
       </div>
+      </fieldset>
 
+      <fieldset className="form-section">
+        <legend>Classification</legend>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
         <label className={bad("priority")}>
           <span>Priority</span>
@@ -181,7 +192,10 @@ export function NewCaseForm({
           </select>
         </label>
       </div>
+      </fieldset>
 
+      <fieldset className="form-section">
+        <legend>What it verifies</legend>
       <label className={bad("title")}>
         <span>Title</span>
         <input name="title" required disabled={pending} />
@@ -194,6 +208,7 @@ export function NewCaseForm({
         <span>Expected result</span>
         <textarea name="expectedResult" rows={2} required disabled={pending} />
       </label>
+      </fieldset>
 
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         The case is created in Draft. Add steps on the next screen — it needs at least one before it

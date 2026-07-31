@@ -44,7 +44,19 @@
   --sp-5: 24px;
   --sp-6: 32px;
   --sp-7: 48px;
-  --radius: 3px;
+
+  /* Radius scale: containers 10, controls 8, chips 6. One scale, three steps. */
+  --radius: 10px;
+  --radius-ctl: 8px;
+  --radius-sm: 6px;
+
+  /* Elevation: resting and raised. Interactive surfaces move one step on hover. */
+  --elev-1: 0 1px 2px rgba(23, 26, 33, 0.06), 0 4px 16px rgba(23, 26, 33, 0.05);
+  --elev-2: 0 2px 4px rgba(23, 26, 33, 0.08), 0 8px 24px rgba(23, 26, 33, 0.08);
+  --shadow: var(--elev-1);
+
+  /* One motion voice for the whole application. */
+  --ease: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Dark tokens apply two ways and must agree: the system preference (unless the user
@@ -69,7 +81,9 @@
     --fail-wash: #2a1b19;
     --blocked: #d8a94e;
     --blocked-wash: #282018;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
+    --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
+    --elev-2: 0 2px 4px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow: var(--elev-1);
   }
 }
 
@@ -92,7 +106,9 @@
   --fail-wash: #2a1b19;
   --blocked: #d8a94e;
   --blocked-wash: #282018;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
+  --elev-2: 0 2px 4px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow: var(--elev-1);
 }
 
 * {
@@ -172,7 +188,7 @@ a {
   font-size: 13px;
   font-weight: 600;
   padding: 3px 10px 3px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--ink-2);
@@ -218,29 +234,64 @@ a {
   background: var(--blocked);
 }
 
+/* Button system: primary (accent), secondary (outlined), ghost (bare), danger
+   (destructive). One radius, one motion voice, a pressed nudge, and hover
+   elevation on the filled variants. Loading is expressed by disabling and
+   changing the label ("Saving…") — a working convention, kept. */
 .btn {
   font: inherit;
   font-size: 14px;
   font-weight: 600;
   padding: 8px 16px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-ctl);
   border: 1px solid var(--accent);
   background: var(--accent);
   color: var(--on-accent);
   cursor: pointer;
   text-decoration: none;
   display: inline-block;
+  transition: background var(--ease), border-color var(--ease), box-shadow var(--ease), transform var(--ease);
+}
+.btn:hover:not(:disabled) {
+  box-shadow: var(--elev-2);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 .btn-secondary {
   background: var(--surface);
   color: var(--ink);
   border-color: var(--line);
 }
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--accent-2);
+  box-shadow: var(--elev-1);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: transparent;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--accent-wash);
+  box-shadow: none;
+}
+.btn-danger {
+  background: var(--fail);
+  border-color: var(--fail);
+  color: #fff;
+}
+.btn-danger:hover:not(:disabled) {
+  box-shadow: var(--elev-2);
+}
 .btn:disabled {
   background: var(--surface-2);
   color: var(--ink-3);
   border-color: var(--line);
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
 /* A blocked action always carries its reason inline, never in a tooltip. */
@@ -284,9 +335,17 @@ a {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-ctl);
   background: var(--surface);
   color: var(--ink);
+  transition: border-color var(--ease), box-shadow var(--ease);
+}
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px var(--accent-wash);
 }
 .field .hint {
   font-size: 12.5px;
@@ -333,6 +392,225 @@ a {
 .muted {
   color: var(--ink-3);
   font-size: 13px;
+}
+
+/* ---------- lists, sections, and states ---------- */
+
+/* A record row inside a padding-0 card. Hover marks the row as interactive without
+   moving anything; the last row keeps the card's rounded bottom. */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--line-soft);
+  flex-wrap: wrap;
+  transition: background var(--ease);
+}
+.list-row:hover {
+  background: var(--accent-wash);
+}
+.list-row:last-child {
+  border-bottom: none;
+}
+
+/* The list toolbar: a filter field above a record list. Same shape as the rail's. */
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  padding: 0 var(--sp-2) 0 10px;
+  max-width: 360px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+  background: var(--surface);
+  transition: border-color var(--ease), box-shadow var(--ease);
+}
+.list-toolbar:focus-within {
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+.list-toolbar svg {
+  color: var(--ink-3);
+  flex: none;
+}
+.list-toolbar input {
+  font: inherit;
+  font-size: 13.5px;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+}
+.list-toolbar input:focus {
+  outline: none;
+}
+.list-toolbar input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* Form sections: related fields grouped under a named heading, so long forms read
+   as steps instead of a wall of inputs. */
+.form-section {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  margin: 0 0 var(--sp-4);
+}
+.form-section > legend {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 var(--sp-2);
+}
+
+/* Empty state: one calm sentence and, when useful, the action that fills it. */
+.empty {
+  padding: var(--sp-6) var(--sp-5);
+  text-align: center;
+}
+.empty p {
+  margin: 0 auto var(--sp-3);
+  color: var(--ink-3);
+}
+
+/* Loading skeletons: shape-of-the-page placeholders instead of a spinner. */
+.skeleton {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--line-soft) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.2s ease-in-out infinite;
+}
+@keyframes skeleton-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Breadcrumbs on detail screens: where am I, one click back to the list. */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+  margin-bottom: var(--sp-3);
+}
+.crumbs a {
+  color: var(--ink-3);
+  text-decoration: none;
+}
+.crumbs a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.crumbs span[aria-hidden] {
+  color: var(--ink-3);
+}
+.crumbs .crumb-here {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+/* ---------- dashboard ---------- */
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-6);
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--elev-1);
+}
+.kpi-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  margin-bottom: var(--sp-1);
+}
+.kpi-value {
+  font-size: 30px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+/* Labeled horizontal bars. Identity is the row's label and chip — the fill color is
+   reinforcement, never the only channel. Thin marks, rounded data end, spaced rows. */
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-5);
+}
+.bar-head {
+  flex: 0 0 110px;
+  display: flex;
+  align-items: center;
+}
+.bar-track {
+  flex: 1;
+  height: 10px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--accent);
+  transition: width var(--ease);
+}
+.bar-count {
+  flex: 0 0 64px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  text-align: right;
+}
+
+.quick-actions {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-6);
+}
+
+/* ---------- accessibility ---------- */
+
+/* Keyboard users skip the rail with one Tab. Visible only while focused. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--sp-3);
+  z-index: 10;
+  padding: 8px 14px;
+  border-radius: var(--radius-ctl);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-link:focus-visible {
+  left: var(--sp-3);
 }
 
 /* ---------- authenticated shell ---------- */

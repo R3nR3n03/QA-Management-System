@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getImportRun } from "@/domain/imports";
 import { AppError } from "@/lib/errors";
 import { requireSession } from "@/ui/session";
+import { Breadcrumbs } from "@/ui/breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,7 @@ export default async function ImportRunPage({ params }: { params: Promise<{ id: 
 
   return (
     <>
+      <Breadcrumbs trail={[{ href: "/admin/imports", label: "Workbook imports" }]} here={run.sourceFileName} />
       <h1>{run.sourceFileName}</h1>
       <p className="muted">
         {run.status} · started {run.startedAt.toISOString()}

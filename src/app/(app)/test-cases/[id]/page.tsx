@@ -7,6 +7,7 @@ import { getTestCase } from "@/domain/test-cases";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { AppError } from "@/lib/errors";
 import { TestCaseStateChip } from "@/ui/chips";
+import { Breadcrumbs } from "@/ui/breadcrumbs";
 import { requireSession } from "@/ui/session";
 import { DraftEditForm, LifecycleButton, RetireForm, ReturnToDraftForm, StepsEditor } from "./CaseForms";
 
@@ -43,6 +44,7 @@ export default async function TestCasePage({ params }: { params: Promise<{ id: s
 
   return (
     <>
+      <Breadcrumbs trail={[{ href: "/test-cases", label: "Test cases" }]} here={testCase.businessId} />
       <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
         <span className="bid" style={{ fontSize: 15 }}>{testCase.businessId}</span>
         <TestCaseStateChip state={state} />

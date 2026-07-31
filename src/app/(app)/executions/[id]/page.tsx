@@ -4,6 +4,7 @@ import { listControlledValues } from "@/domain/admin";
 import { executionDetail } from "@/domain/executions";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { ExecutionStateChip, OutcomeChip, TestCaseStateChip } from "@/ui/chips";
+import { Breadcrumbs } from "@/ui/breadcrumbs";
 import { requireSession } from "@/ui/session";
 import { FinalizeForm } from "./FinalizeForm";
 import { StartForm } from "./StartForm";
@@ -39,6 +40,7 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
 
   return (
     <>
+      <Breadcrumbs trail={[{ href: "/executions", label: "Executions" }]} here={execution.businessId} />
       <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
         <span className="bid">{execution.businessId}</span>
         <ExecutionStateChip state={execution.state} />
