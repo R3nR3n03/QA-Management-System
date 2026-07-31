@@ -1,12 +1,13 @@
 import { ExecutionLifecycleState, QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listControlledValues } from "@/domain/admin";
-import { executionDetail } from "@/domain/executions";
+import { executionDetail, listAssignableTesters } from "@/domain/executions";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { ExecutionStateChip, OutcomeChip, TestCaseStateChip } from "@/ui/chips";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
 import { requireSession } from "@/ui/session";
 import { FinalizeForm } from "./FinalizeForm";
+import { ReassignForm } from "./ReassignForm";
 import { StartForm } from "./StartForm";
 
 const RAIL: { state: ExecutionLifecycleState; label: string }[] = [
@@ -35,6 +36,11 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
   // explain why it is unavailable.
   const isAssignee = execution.testerId === auth.userId;
   const mayAct = auth.role !== QamsRole.QA_TESTER || isAssignee;
+
+  // Reassignment is offered only while Planned (the domain refuses it afterwards),
+  // so the tester list is fetched only when the form will render.
+  const assignableTesters =
+    mayAct && execution.state === ExecutionLifecycleState.PLANNED ? await listAssignableTesters() : [];
 
   const currentIndex = RAIL.findIndex((step) => step.state === execution.state);
 
@@ -133,6 +139,12 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
               <>
                 <h3>Ready to start</h3>
                 <StartForm executionId={execution.id} version={execution.version} />
+                <ReassignForm
+                  executionId={execution.id}
+                  version={execution.version}
+                  currentTesterId={execution.testerId}
+                  testers={assignableTesters}
+                />
               </>
             ) : execution.state === ExecutionLifecycleState.IN_PROGRESS ? (
               <>

@@ -2,6 +2,7 @@ import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listControlledValues } from "@/domain/admin";
 import { requireSession } from "@/ui/session";
+import { AddValueForm } from "./AddValueForm";
 import { ToggleForm } from "./ToggleForm";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,11 @@ export default async function ControlledValuesPage() {
         Deactivating a value stops new records from using it; existing records keep it. The workbook
         seed never reactivates a value deactivated here.
       </p>
+
+      <h2>Add a value</h2>
+      <div className="card" style={{ marginBottom: "var(--sp-6)" }}>
+        <AddValueForm />
+      </div>
 
       {catalogues.map((catalogue) => (
         <div key={catalogue}>

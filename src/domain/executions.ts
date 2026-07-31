@@ -62,6 +62,49 @@ export async function createExecution(
   });
 }
 
+/**
+ * Reassign a Planned execution to a different tester. The same roles that may plan an
+ * execution may reassign one (`roles-workflows.md:13` — planning is open to every
+ * role), and the tester rule is identical to `createExecution`: the assignee must
+ * exist and be active. Once a run leaves Planned its tester is part of the record —
+ * reassignment after start would rewrite who did the work, so it is refused.
+ */
+export async function updateExecution(
+  executionId: string,
+  input: { testerId: string; version?: number },
+  actor: Actor
+) {
+  ensureRole([...RoleSets.canExecute], actor.role);
+
+  const execution = await prisma.testExecution.findUnique({ where: { id: executionId } });
+  if (!execution) throw new AppError(404, "REFERENCE_NOT_FOUND", "Execution not found.", "executionId");
+  if (execution.state !== ExecutionLifecycleState.PLANNED) {
+    throw new AppError(422, "FORBIDDEN_TRANSITION", "Only Planned executions can be reassigned.");
+  }
+  const expectedVersion = ensureVersion(execution.version, input.version);
+
+  const tester = await prisma.user.findUnique({ where: { id: input.testerId } });
+  if (!tester || !tester.active) {
+    throw new AppError(422, "REFERENCE_INACTIVE", "Assigned tester is invalid.", "testerId");
+  }
+
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
+    const updated = await tx.testExecution.update({
+      where: { id: executionId, version: expectedVersion },
+      data: { testerId: input.testerId, version: { increment: 1 }, updatedBy: actor.userId }
+    });
+    await appendAudit(tx, {
+      actorId: actor.userId,
+      action: "EXECUTION_REASSIGNED",
+      entityType: "Execution",
+      entityId: executionId,
+      requestId: actor.requestId,
+      beforeAfterJson: { before: { testerId: execution.testerId }, after: { testerId: updated.testerId } }
+    });
+    return updated;
+  }));
+}
+
 function ensureAssignedTester(execution: { testerId: string }, actor: Actor) {
   if (actor.role === QamsRole.QA_TESTER && execution.testerId !== actor.userId) {
     throw new AppError(403, "UNAUTHORIZED", "Assigned tester mismatch.");

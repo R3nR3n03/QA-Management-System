@@ -2,9 +2,10 @@ import { QamsRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
+import type { ControlledCatalogue } from "@/lib/controlled-value-catalogues";
 import { hashPassword, MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { ensureRole, RoleSets } from "@/lib/rbac";
-import { ensureVersion, requireNonBlank } from "@/lib/validation";
+import { ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 
 export async function listControlledValues() {
@@ -45,6 +46,49 @@ export async function updateControlledValue(
     });
     return updated;
   }));
+}
+
+/**
+ * Add a value to one of the three documented catalogues. QA-Lead-gated like every
+ * other administration mutation (`roles-workflows.md:16`). The value is trimmed and
+ * compared exactly as `ensureActiveControlledValue` will later compare it — case- and
+ * whitespace-sensitively against the `(catalogue, value)` unique key — so a value that
+ * can be created here is exactly the value test cases and defects can then use.
+ * Created active; deactivation is the only removal path (`updateControlledValue`).
+ */
+export async function createControlledValue(
+  input: { catalogue: ControlledCatalogue; value: string; actorId: string; actorRole: QamsRole; requestId: string }
+) {
+  ensureRole([...RoleSets.canAdmin], input.actorRole);
+  requireNonBlank(input.value, "value", "A value is required.");
+  const value = input.value.trim();
+
+  const existing = await prisma.controlledValue.findUnique({
+    where: { catalogue_value: { catalogue: input.catalogue, value } }
+  });
+  if (existing) {
+    throw new AppError(409, "ID_DUPLICATE", "That value already exists in this catalogue.", "value");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.controlledValue.create({
+      data: {
+        catalogue: input.catalogue,
+        value,
+        createdBy: input.actorId,
+        updatedBy: input.actorId
+      }
+    });
+    await appendAudit(tx, {
+      actorId: input.actorId,
+      action: "CONTROLLED_VALUE_CREATED",
+      entityType: "ControlledValue",
+      entityId: created.id,
+      requestId: input.requestId,
+      beforeAfterJson: { after: { catalogue: created.catalogue, value: created.value, active: created.active } }
+    });
+    return created;
+  });
 }
 
 /**
@@ -184,6 +228,142 @@ export async function updateUserRole(
       // Already narrow, and deliberately so: data-model.md:35 bars the hash from the
       // audit log as well as from responses.
       beforeAfterJson: { before: { role: user.role }, after: { role: updated.role } }
+    });
+    return updated;
+  }));
+}
+
+/**
+ * Update a person's display name and/or email. User management is a QA-Lead
+ * capability (`roles-workflows.md:16`); there is no self-service profile edit in v1.
+ * Email is normalized exactly as `createUser` normalizes it (trim + lowercase) and a
+ * duplicate is the same 409, so an address can never exist in two casings.
+ */
+export async function updateUserProfile(
+  id: string,
+  input: {
+    displayName?: string;
+    email?: string;
+    version?: number;
+    actorId: string;
+    actorRole: QamsRole;
+    requestId: string;
+  }
+) {
+  ensureRole([...RoleSets.canAdmin], input.actorRole);
+  requireNonBlankIfProvided(input.displayName, "displayName", "Display name cannot be blank.");
+  requireNonBlankIfProvided(input.email, "email", "Email cannot be blank.");
+  if (input.displayName === undefined && input.email === undefined) {
+    throw new AppError(422, "ID_INVALID", "Provide displayName or email.");
+  }
+
+  const user = await prisma.user.findUnique({ where: { id }, select: { ...USER_RESPONSE_SELECT } });
+  if (!user) throw new AppError(404, "REFERENCE_NOT_FOUND", "User not found.", "id");
+  const expectedVersion = ensureVersion(user.version, input.version);
+
+  const email = input.email?.trim().toLowerCase();
+  if (email !== undefined && email !== user.email) {
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new AppError(409, "ID_DUPLICATE", "A user with that email already exists.", "email");
+    }
+  }
+
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id, version: expectedVersion },
+      data: {
+        displayName: input.displayName?.trim() ?? user.displayName,
+        email: email ?? user.email,
+        version: { increment: 1 },
+        updatedBy: input.actorId
+      },
+      select: { ...USER_RESPONSE_SELECT }
+    });
+    await appendAudit(tx, {
+      actorId: input.actorId,
+      action: "USER_PROFILE_UPDATED",
+      entityType: "User",
+      entityId: id,
+      requestId: input.requestId,
+      beforeAfterJson: {
+        before: { displayName: user.displayName, email: user.email },
+        after: { displayName: updated.displayName, email: updated.email }
+      }
+    });
+    return updated;
+  }));
+}
+
+/**
+ * Deactivate or reactivate an account. Deactivation is the ONLY removal path — no
+ * user is ever deleted, so audit actors and `createdBy`/`updatedBy` references stay
+ * resolvable forever (`docs/data-model.md` common record convention).
+ *
+ * Guardrails, checked inside the transaction so a concurrent role change or
+ * deactivation cannot slip past them:
+ * - **No self-deactivation.** Locking yourself out is never what was meant, and the
+ *   last-lead rule below would otherwise be circumventable one self-service step at
+ *   a time.
+ * - **The last active QA Lead cannot be deactivated.** Every administration
+ *   capability is lead-gated (`roles-workflows.md:16`); zero active leads would make
+ *   user management, controlled values and reconciliation permanently unreachable.
+ *
+ * Session note: `requireAuth` re-reads `User.active` on every request, so a
+ * deactivated person's existing sessions stop working immediately. `sessionsValidFrom`
+ * is ALSO stamped on deactivation, inside the same transaction, so cookies issued
+ * before the deactivation stay dead even if the account is later reactivated —
+ * reactivation means "may log in again", not "old sessions resume".
+ */
+export async function setUserActive(
+  id: string,
+  input: { active: boolean; version?: number; actorId: string; actorRole: QamsRole; requestId: string }
+) {
+  ensureRole([...RoleSets.canAdmin], input.actorRole);
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { ...USER_RESPONSE_SELECT }
+  });
+  if (!user) throw new AppError(404, "REFERENCE_NOT_FOUND", "User not found.", "id");
+  const expectedVersion = ensureVersion(user.version, input.version);
+
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
+    if (!input.active) {
+      if (id === input.actorId) {
+        throw new AppError(422, "FORBIDDEN_TRANSITION", "You cannot deactivate your own account.", "active");
+      }
+      const otherActiveLeads = await tx.user.count({
+        where: { role: QamsRole.QA_LEAD, active: true, NOT: { id } }
+      });
+      if (user.role === QamsRole.QA_LEAD && user.active && otherActiveLeads === 0) {
+        throw new AppError(
+          422,
+          "FORBIDDEN_TRANSITION",
+          "The last active QA Lead cannot be deactivated.",
+          "active"
+        );
+      }
+    }
+
+    const updated = await tx.user.update({
+      where: { id, version: expectedVersion },
+      data: {
+        active: input.active,
+        // Deactivation kills existing sessions permanently (see the doc comment);
+        // reactivation deliberately does not touch the stamp.
+        ...(input.active ? {} : { sessionsValidFrom: new Date() }),
+        version: { increment: 1 },
+        updatedBy: input.actorId
+      },
+      select: { ...USER_RESPONSE_SELECT }
+    });
+    await appendAudit(tx, {
+      actorId: input.actorId,
+      action: input.active ? "USER_REACTIVATED" : "USER_DEACTIVATED",
+      entityType: "User",
+      entityId: id,
+      requestId: input.requestId,
+      beforeAfterJson: { before: { active: user.active }, after: { active: updated.active } }
     });
     return updated;
   }));

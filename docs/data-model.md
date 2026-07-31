@@ -32,7 +32,7 @@ Cycle, sprint, release, and environment are required text attributes in v1; this
 
 | Entity | Required attributes | Constraints |
 | --- | --- | --- |
-| User | email, displayName, passwordHash, role, active | one active QAMS role per user in v1; passwordHash is never returned by the API or written to audit logs |
+| User | email, displayName, passwordHash, role, active | one active QAMS role per user in v1; passwordHash is never returned by the API or written to audit logs; setting `active` false is the only removal path — no user record is ever deleted, so audit actors and `createdBy`/`updatedBy` references stay resolvable forever |
 | Controlled value | catalogue, value, active | unique `(catalogue, value)` |
 | Audit event | occurredAt, actorId, action, entityType, entityId, before/after summary, requestId | append-only |
 | Import run | source file metadata, actorId, startedAt, status, report | immutable completion report |

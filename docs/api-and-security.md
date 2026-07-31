@@ -10,10 +10,10 @@ Base path: `/api/v1`. JSON requests and responses use camelCase. Collection endp
 | Catalogue | `GET/POST /products`, `GET/PATCH /products/{id}` and equivalent modules, features, requirements |
 | Test design | `GET/POST /test-cases`, `GET/PATCH /test-cases/{id}`, `POST /test-cases/{id}/submit`, `POST /test-cases/{id}/approve`, `POST /test-cases/{id}/return-to-draft`, `POST /test-cases/{id}/retire` |
 | Steps | `PUT /test-cases/{id}/steps` replaces the complete validated ordered step set while case is Draft |
-| Execution | `GET/POST /executions`, `POST /executions/{id}/start`, `POST /executions/{id}/finalize`, `GET /executions/{id}/history` |
+| Execution | `GET/POST /executions`, `PATCH /executions/{id}` (reassigns the tester; only while Planned), `POST /executions/{id}/start`, `POST /executions/{id}/finalize`, `GET /executions/{id}/history` |
 | Defects | `GET/POST /defects`, `GET/PATCH /defects/{id}` (only while New), `POST /defects/{id}/transition` |
 | Traceability/reporting | `GET/POST /rtm-links`, `GET /dashboard`, `GET /release-readiness?productId=&release=&environment=` (advisory report only; no endpoint records the QA Lead's readiness decision in v1) |
-| Administration | `POST /imports/workbook`, `GET /imports/{id}`, `GET/PATCH /controlled-values`, `POST /users`, `GET/PATCH /users/{id}/role` |
+| Administration | `POST /imports/workbook`, `GET /imports/{id}`, `GET/POST/PATCH /controlled-values` (POST adds a value to one of the three documented catalogues; PATCH toggles `active`; values are never renamed or deleted), `POST /users`, `PATCH /users/{id}` (either profile fields — displayName/email — or `active`, never both in one request), `GET/PATCH /users/{id}/role`. There is no user list or user delete endpoint; deactivation via `active` is the only removal path. |
 
 Every mutation routes through its domain service; direct ORM calls from route handlers are prohibited. The `transition` endpoints accept only the documented target state and required supporting fields; they never accept an arbitrary state patch.
 

@@ -1,6 +1,11 @@
 import { ExecutionOutcome } from "@prisma/client";
 import { describe, expect, it } from "vitest";
-import { createExecutionSchema, finalizeExecutionSchema, startExecutionSchema } from "./executions";
+import {
+  createExecutionSchema,
+  finalizeExecutionSchema,
+  startExecutionSchema,
+  updateExecutionSchema
+} from "./executions";
 import { schemaIssueField } from "./issues";
 
 describe("createExecutionSchema", () => {
@@ -38,6 +43,50 @@ describe("createExecutionSchema", () => {
   it("rejects a non-object body", () => {
     expect(createExecutionSchema.safeParse(null).success).toBe(false);
     expect(createExecutionSchema.safeParse([]).success).toBe(false);
+  });
+});
+
+describe("updateExecutionSchema", () => {
+  const valid = { testerId: "user-2", version: 1 };
+
+  it("accepts a valid body and keeps exactly the declared keys", () => {
+    const result = updateExecutionSchema.safeParse(valid);
+
+    expect(result.success).toBe(true);
+    expect(Object.keys(result.data!).sort()).toEqual(["testerId", "version"]);
+  });
+
+  it("rejects an omitted testerId — reassignment is the only thing this endpoint does", () => {
+    const result = updateExecutionSchema.safeParse({ version: 1 });
+
+    expect(result.success).toBe(false);
+    expect(schemaIssueField(result.error!.issues[0])).toBe("testerId");
+  });
+
+  it("permits a blank testerId", () => {
+    // No blank guard: an unresolved tester 422s REFERENCE_INACTIVE in the domain, matching
+    // createExecution's error for the same field.
+    expect(updateExecutionSchema.safeParse({ ...valid, testerId: "" }).success).toBe(true);
+  });
+
+  it("accepts an omitted version — a missing version still yields 409 in the domain", () => {
+    expect(updateExecutionSchema.safeParse({ testerId: "user-2" }).success).toBe(true);
+  });
+
+  it("rejects a smuggled state, result or testCaseId", () => {
+    // Lifecycle moves only through the explicit start/finalize endpoints, and a run is never
+    // repointed at a different case.
+    for (const key of ["state", "result", "testCaseId", "createdBy"]) {
+      const result = updateExecutionSchema.safeParse({ ...valid, [key]: "x" });
+
+      expect(result.success).toBe(false);
+      expect(schemaIssueField(result.error!.issues[0])).toBe(key);
+    }
+  });
+
+  it("rejects a non-object body", () => {
+    expect(updateExecutionSchema.safeParse(null).success).toBe(false);
+    expect(updateExecutionSchema.safeParse([]).success).toBe(false);
   });
 });
 

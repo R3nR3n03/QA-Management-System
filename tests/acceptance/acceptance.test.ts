@@ -7,10 +7,12 @@ import { buildControlledValueSeedRows } from "@/lib/controlled-value-catalogues"
 import { createImportRun } from "@/domain/imports";
 import { createProduct, createModule, createFeature, createRequirement } from "@/domain/catalogue";
 import { createTestCase, replaceSteps, submitTestCase, approveTestCase, updateTestCaseDraft, retireTestCase } from "@/domain/test-cases";
-import { createExecution, startExecution, finalizeExecution, executionHistory } from "@/domain/executions";
+import { createExecution, startExecution, finalizeExecution, executionHistory, updateExecution } from "@/domain/executions";
 import { createDefect, transitionDefect } from "@/domain/defects";
 import { createRtmLink, dashboardSnapshot } from "@/domain/traceability";
-import { createUser, updateUserRole } from "@/domain/admin";
+import { createControlledValue, createUser, setUserActive, updateUserProfile, updateUserRole } from "@/domain/admin";
+import { ensureActiveControlledValue } from "@/lib/controlled-values";
+import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { createTestCaseSchema } from "@/lib/request-schemas/test-cases";
 
 /**
@@ -638,5 +640,242 @@ describe("Audit", () => {
     expect(roleEvent?.actorId).toBe(lead.userId);
     expect(roleEvent?.requestId).toBe(REQ);
     expect(roleEvent?.occurredAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("User administration", () => {
+  const actorInput = (actor: Actor) => ({ actorId: actor.userId, actorRole: actor.role, requestId: REQ });
+
+  it("the QA Lead updates a profile: email normalized, projection only, audited before/after", async () => {
+    const person = await prisma.user.findUnique({ where: { email: "new.person@acceptance.local" } });
+    const updated = await updateUserProfile(person!.id, {
+      displayName: "Renamed Person",
+      email: "Renamed.Person@Acceptance.Local",
+      version: person!.version,
+      ...actorInput(lead)
+    });
+
+    expect(updated.displayName).toBe("Renamed Person");
+    expect(updated.email).toBe("renamed.person@acceptance.local");
+    expect(updated.version).toBe(person!.version + 1);
+    expect(Object.keys(updated).sort()).toEqual(["active", "displayName", "email", "id", "role", "version"].sort());
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: "USER_PROFILE_UPDATED", entityId: person!.id }
+    });
+    expect(audit?.actorId).toBe(lead.userId);
+    expect(audit?.requestId).toBe(REQ);
+    const payload = audit?.beforeAfterJson as { before: { email: string }; after: { email: string } };
+    expect(payload.before.email).toBe("new.person@acceptance.local");
+    expect(payload.after.email).toBe("renamed.person@acceptance.local");
+  });
+
+  it("a profile update to an email already in use is refused with 409", async () => {
+    const person = await prisma.user.findUnique({ where: { email: "renamed.person@acceptance.local" } });
+    await expectAppError(
+      updateUserProfile(person!.id, { email: "lead@acceptance.local", version: person!.version, ...actorInput(lead) }),
+      409,
+      "ID_DUPLICATE"
+    );
+  });
+
+  it("a non-lead cannot update a profile or change activation: 403", async () => {
+    const person = await prisma.user.findUnique({ where: { email: "renamed.person@acceptance.local" } });
+    await expectAppError(
+      updateUserProfile(person!.id, { displayName: "Sneaky", version: person!.version, ...actorInput(tester) }),
+      403,
+      "UNAUTHORIZED"
+    );
+    await expectAppError(
+      setUserActive(person!.id, { active: false, version: person!.version, ...actorInput(tester) }),
+      403,
+      "UNAUTHORIZED"
+    );
+  });
+
+  it("self-deactivation is refused with 422, and no change is written", async () => {
+    const self = await prisma.user.findUnique({ where: { id: lead.userId } });
+    await expectAppError(
+      setUserActive(lead.userId, { active: false, version: self!.version, ...actorInput(lead) }),
+      422,
+      "FORBIDDEN_TRANSITION"
+    );
+    const unchanged = await prisma.user.findUnique({ where: { id: lead.userId } });
+    expect(unchanged?.active).toBe(true);
+    expect(unchanged?.version).toBe(self!.version);
+  });
+
+  it("deactivation sets active false, kills existing sessions, and is audited", async () => {
+    const { isSessionRevoked } = await import("@/lib/session");
+    const person = await prisma.user.findUnique({ where: { email: "renamed.person@acceptance.local" } });
+    const beforeDeactivation = Date.now() - 1;
+
+    const updated = await setUserActive(person!.id, {
+      active: false,
+      version: person!.version,
+      ...actorInput(lead)
+    });
+    expect(updated.active).toBe(false);
+
+    // requireAuth refuses inactive users outright; the sessionsValidFrom stamp
+    // additionally keeps pre-deactivation cookies dead across a later reactivation.
+    const stored = await prisma.user.findUnique({ where: { id: person!.id } });
+    expect(stored?.sessionsValidFrom).not.toBeNull();
+    expect(isSessionRevoked(beforeDeactivation, stored!.sessionsValidFrom)).toBe(true);
+
+    const audit = await prisma.auditEvent.findFirst({ where: { action: "USER_DEACTIVATED", entityId: person!.id } });
+    expect(audit?.actorId).toBe(lead.userId);
+    expect(audit?.beforeAfterJson).toEqual({ before: { active: true }, after: { active: false } });
+  });
+
+  it("the last active QA Lead cannot be deactivated: 422", async () => {
+    // A second lead makes deactivating the first legal; once only one active lead
+    // remains, deactivating them is refused whoever asks.
+    const leadTwo = await makeUser("lead2@acceptance.local", "Accept Lead Two", QamsRole.QA_LEAD);
+
+    const firstLead = await prisma.user.findUnique({ where: { id: lead.userId } });
+    const deactivated = await setUserActive(lead.userId, {
+      active: false,
+      version: firstLead!.version,
+      ...actorInput(leadTwo)
+    });
+    expect(deactivated.active).toBe(false);
+
+    const lastLead = await prisma.user.findUnique({ where: { id: leadTwo.userId } });
+    await expectAppError(
+      setUserActive(leadTwo.userId, { active: false, version: lastLead!.version, ...actorInput(lead) }),
+      422,
+      "FORBIDDEN_TRANSITION"
+    );
+    expect((await prisma.user.findUnique({ where: { id: leadTwo.userId } }))?.active).toBe(true);
+
+    // Restore the original lead for the scenarios that follow.
+    const inactiveLead = await prisma.user.findUnique({ where: { id: lead.userId } });
+    const reactivated = await setUserActive(lead.userId, {
+      active: true,
+      version: inactiveLead!.version,
+      ...actorInput(leadTwo)
+    });
+    expect(reactivated.active).toBe(true);
+
+    const audit = await prisma.auditEvent.findFirst({ where: { action: "USER_REACTIVATED", entityId: lead.userId } });
+    expect(audit?.actorId).toBe(leadTwo.userId);
+    expect(audit?.beforeAfterJson).toEqual({ before: { active: false }, after: { active: true } });
+  });
+});
+
+describe("Controlled values", () => {
+  const actorInput = (actor: Actor) => ({ actorId: actor.userId, actorRole: actor.role, requestId: REQ });
+
+  it("a non-lead cannot add a value: 403", async () => {
+    await expectAppError(
+      createControlledValue({ catalogue: CATALOGUE_PRIORITY, value: "Urgent", ...actorInput(tester) }),
+      403,
+      "UNAUTHORIZED"
+    );
+  });
+
+  it("the QA Lead adds a value: created active, trimmed, audited, immediately usable", async () => {
+    const created = await createControlledValue({
+      catalogue: CATALOGUE_PRIORITY,
+      value: "  Urgent  ",
+      ...actorInput(lead)
+    });
+    expect(created.value).toBe("Urgent");
+    expect(created.active).toBe(true);
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: "CONTROLLED_VALUE_CREATED", entityId: created.id }
+    });
+    expect(audit?.actorId).toBe(lead.userId);
+    expect(audit?.requestId).toBe(REQ);
+
+    // The new value passes the same gate test cases and defects go through.
+    await expect(ensureActiveControlledValue(CATALOGUE_PRIORITY, "Urgent", "priority")).resolves.toBeUndefined();
+  });
+
+  it("a duplicate within the catalogue is 409; the same value in another catalogue is allowed", async () => {
+    await expectAppError(
+      createControlledValue({ catalogue: CATALOGUE_PRIORITY, value: "Urgent", ...actorInput(lead) }),
+      409,
+      "ID_DUPLICATE"
+    );
+    // Trimming happens before the duplicate check, so a padded duplicate is the same 409.
+    await expectAppError(
+      createControlledValue({ catalogue: CATALOGUE_PRIORITY, value: " Urgent ", ...actorInput(lead) }),
+      409,
+      "ID_DUPLICATE"
+    );
+    // Uniqueness is per catalogue (`(catalogue, value)` — data-model.md:36).
+    const severity = await createControlledValue({
+      catalogue: CATALOGUE_SEVERITY,
+      value: "Urgent",
+      ...actorInput(lead)
+    });
+    expect(severity.catalogue).toBe(CATALOGUE_SEVERITY);
+  });
+});
+
+describe("Execution reassignment", () => {
+  let reassignableId: string;
+  let reassignableVersion: number;
+
+  beforeAll(async () => {
+    // The imported case is Approved (the interactive one was retired in Reporting).
+    const approvedCase = await prisma.testCase.findUnique({ where: { businessId: "TC-PROD001-0001" } });
+    const execution = await createExecution(
+      { businessId: "EXE-2001", testCaseId: approvedCase!.id, testerId: tester.userId },
+      lead
+    );
+    reassignableId = execution.id;
+    reassignableVersion = execution.version;
+  });
+
+  it("a Planned execution is reassigned to another active tester and audited", async () => {
+    const updated = await updateExecution(
+      reassignableId,
+      { testerId: engineer.userId, version: reassignableVersion },
+      lead
+    );
+    expect(updated.testerId).toBe(engineer.userId);
+    expect(updated.state).toBe(ExecutionLifecycleState.PLANNED);
+    expect(updated.version).toBe(reassignableVersion + 1);
+    reassignableVersion = updated.version;
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: "EXECUTION_REASSIGNED", entityId: reassignableId }
+    });
+    expect(audit?.actorId).toBe(lead.userId);
+    expect(audit?.beforeAfterJson).toEqual({
+      before: { testerId: tester.userId },
+      after: { testerId: engineer.userId }
+    });
+  });
+
+  it("reassignment to an inactive tester is refused with 422 REFERENCE_INACTIVE", async () => {
+    // The person deactivated in the User administration scenarios.
+    const inactive = await prisma.user.findUnique({ where: { email: "renamed.person@acceptance.local" } });
+    expect(inactive?.active).toBe(false);
+
+    await expectAppError(
+      updateExecution(reassignableId, { testerId: inactive!.id, version: reassignableVersion }, lead),
+      422,
+      "REFERENCE_INACTIVE"
+    );
+    const unchanged = await prisma.testExecution.findUnique({ where: { id: reassignableId } });
+    expect(unchanged?.testerId).toBe(engineer.userId);
+  });
+
+  it("a started execution cannot be reassigned: 422 FORBIDDEN_TRANSITION", async () => {
+    const started = await startExecution(reassignableId, reassignableVersion, engineer);
+    expect(started.state).toBe(ExecutionLifecycleState.IN_PROGRESS);
+
+    await expectAppError(
+      updateExecution(reassignableId, { testerId: tester.userId, version: started.version }, lead),
+      422,
+      "FORBIDDEN_TRANSITION"
+    );
+    const unchanged = await prisma.testExecution.findUnique({ where: { id: reassignableId } });
+    expect(unchanged?.testerId).toBe(engineer.userId);
   });
 });

@@ -10,6 +10,19 @@ export const createExecutionSchema = z.strictObject({
   testerId: z.string() // no blank guard; unresolved id 422s REFERENCE_INACTIVE — executions.ts:31-34
 });
 
+/**
+ * PATCH /api/v1/executions/{id} -> `updateExecution` (tester reassignment).
+ *
+ * The only mutable field on an execution outside its lifecycle transitions is the
+ * assigned tester, and only while Planned — the state rule lives in the domain.
+ * `strictObject` blocks smuggled `state`, `result` and `testCaseId`; a run is never
+ * repointed at a different case (rerun work creates a new execution).
+ */
+export const updateExecutionSchema = z.strictObject({
+  testerId: z.string(), // no blank guard; unresolved id 422s REFERENCE_INACTIVE like createExecution
+  version: z.number().optional() // ensureVersion tolerates undefined (409)
+});
+
 /** POST /api/v1/executions/{id}/start -> `startExecution`. */
 export const startExecutionSchema = z.strictObject({
   version: z.number().optional() // ensureVersion tolerates undefined (409) — executions.ts:77

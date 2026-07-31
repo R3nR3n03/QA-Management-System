@@ -2,7 +2,7 @@
 
 import { ExecutionOutcome } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { finalizeExecution, startExecution } from "@/domain/executions";
+import { finalizeExecution, startExecution, updateExecution } from "@/domain/executions";
 import { runAction } from "@/ui/action";
 
 /**
@@ -38,6 +38,29 @@ export async function startExecutionAction(_prev: FormState, formData: FormData)
   }
 
   revalidatePath(`/executions/${id}`);
+  revalidatePath("/my-work");
+  return null;
+}
+
+export async function updateExecutionAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const id = String(formData.get("executionId") ?? "");
+  const version = Number(formData.get("version"));
+  const testerId = String(formData.get("testerId") ?? "");
+
+  const result = await runAction((actor) => updateExecution(id, { testerId, version }, actor));
+
+  if (!result.ok) {
+    return {
+      title: result.copy.title,
+      detail: result.copy.detail,
+      field: result.field,
+      requestId: result.code === "INTERNAL_ERROR" ? result.requestId : undefined,
+      advisory: result.copy.advisory
+    };
+  }
+
+  revalidatePath(`/executions/${id}`);
+  // Both queues change: the run leaves the old tester's My work and joins the new one's.
   revalidatePath("/my-work");
   return null;
 }

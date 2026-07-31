@@ -18,6 +18,8 @@ Users hold exactly one active role in version 1. The application enforces every 
 
 QA Tester may create a defect while finalizing a failed execution but cannot approve a test case. Senior QA Engineer cannot approve a test case they authored. QA Lead may perform all actions and owns exceptional reconciliation decisions.
 
+User management by the QA Lead covers account creation, role changes, profile edits (display name and email), and deactivation/reactivation. Deactivation is the only removal path — no user account is ever deleted. Two guardrails apply to deactivation: a QA Lead cannot deactivate their own account, and the last active QA Lead cannot be deactivated (so lead-gated capabilities never become unreachable). Deactivating an account takes effect immediately and permanently invalidates sessions issued before the deactivation; reactivation permits sign-in again but does not resurrect those sessions. Controlled-value management covers adding a value to one of the three documented catalogues and deactivating/reactivating values; values are never renamed or deleted.
+
 ## Test-case lifecycle
 
 | From | To | Authorized role | Required condition |
@@ -39,6 +41,8 @@ Approved content is immutable. A material change requires a new Draft revision l
 | In Progress | Finalized | Assigned Tester, QA Engineer, Senior QA Engineer, QA Lead | Result, actual result, and finalization timestamp supplied; failed result meets defect rule |
 
 An execution may have result `Pass`, `Fail`, or `Blocked` only at Finalized. A finalized execution cannot return to In Progress. Rerun work creates a new execution linked to the same approved test case.
+
+While an execution is Planned, any role that may plan executions may reassign it to a different active tester; the reassignment is audited. Once an execution leaves Planned, its tester is part of the record and cannot be changed.
 
 ## Defect lifecycle
 

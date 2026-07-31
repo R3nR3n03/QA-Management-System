@@ -4,14 +4,16 @@ import { listUsers } from "@/domain/admin";
 import { requireSession } from "@/ui/session";
 import { roleLabel } from "@/ui/navigation";
 import { AddPersonForm } from "./AddPersonForm";
+import { EditPersonForm } from "./EditPersonForm";
 import { RoleForm } from "./RoleForm";
 
 export const dynamic = "force-dynamic";
 
 /**
  * People and their single active role (`roles-workflows.md:5`). The QA Lead creates
- * accounts here (`roles-workflows.md:16` — user management is a lead capability) and
- * changes roles; both are audited. There is no self-service password change in v1.
+ * accounts here (`roles-workflows.md:16` — user management is a lead capability),
+ * changes roles, edits profiles, and deactivates/reactivates accounts; all audited.
+ * Deactivation is the only removal path — no user is ever deleted.
  */
 export default async function UsersPage() {
   const auth = await requireSession();
@@ -58,6 +60,14 @@ export default async function UsersPage() {
               </div>
             </div>
             <RoleForm userId={user.id} version={user.version} role={user.role} />
+            <EditPersonForm
+              userId={user.id}
+              version={user.version}
+              displayName={user.displayName}
+              email={user.email}
+              active={user.active}
+              isSelf={user.id === auth.userId}
+            />
           </div>
         ))}
       </div>

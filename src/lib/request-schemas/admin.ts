@@ -1,5 +1,10 @@
 import { QamsRole } from "@prisma/client";
 import { z } from "zod";
+import {
+  CATALOGUE_PRIORITY,
+  CATALOGUE_RESULT,
+  CATALOGUE_SEVERITY
+} from "@/lib/controlled-value-catalogues";
 
 /** Request-shape schemas for the administration routes, mirroring `src/domain/admin.ts`. */
 
@@ -46,4 +51,55 @@ export const createUserSchema = z.strictObject({
   displayName: z.string(),
   role: z.enum(QamsRole), // Prisma enum column
   password: z.string() // length floor enforced in the domain
+});
+
+/**
+ * PATCH /api/v1/users/{id} (profile branch) -> `updateUserProfile`.
+ *
+ * Both fields optional but at least one must be present — an empty patch is a caller
+ * mistake, refused at the boundary before it can reach the domain's own no-op guard.
+ * Blankness and email normalization stay in the domain, mirroring `createUser`.
+ * `strictObject` blocks smuggled `role`, `active` and `passwordHash` — role changes go
+ * through `PATCH /users/{id}/role`, activation through the `active` branch below.
+ */
+export const updateUserProfileSchema = z
+  .strictObject({
+    displayName: z.string().optional(), // blankness in the domain — admin.ts updateUserProfile
+    email: z.string().optional(), // normalization + duplicate 409 in the domain
+    version: z.number().optional() // ensureVersion tolerates undefined (409)
+  })
+  .refine((body) => body.displayName !== undefined || body.email !== undefined, {
+    message: "Provide displayName or email."
+  });
+
+/**
+ * PATCH /api/v1/users/{id} (activation branch) -> `setUserActive`.
+ *
+ * `active` must be a real boolean — the domain writes it to a boolean column. Strictness
+ * means a body mixing activation with profile fields matches neither branch of
+ * `patchUserSchema` and is refused at the boundary, keeping one domain call per request.
+ */
+export const setUserActiveSchema = z.strictObject({
+  active: z.boolean(), // boolean column — admin.ts setUserActive
+  version: z.number().optional() // ensureVersion tolerates undefined (409)
+});
+
+/**
+ * PATCH /api/v1/users/{id} — exactly one of the two branches. Because both branches are
+ * strict, a body carrying `active` alongside `displayName`/`email` fails both and 422s.
+ */
+export const patchUserSchema = z.union([setUserActiveSchema, updateUserProfileSchema]);
+
+/**
+ * POST /api/v1/controlled-values -> `createControlledValue`.
+ *
+ * `catalogue` is limited to the three documented catalogues (`docs/data-model.md:40` —
+ * Priority, Severity, Result; lifecycle values are not editable configuration). A new
+ * catalogue name would be a policy change, so an unknown one is refused at the boundary.
+ * `value` gets `.min(1)` mirroring the domain's `requireNonBlank`; trimming and the
+ * duplicate 409 stay in the domain.
+ */
+export const createControlledValueSchema = z.strictObject({
+  catalogue: z.enum([CATALOGUE_PRIORITY, CATALOGUE_SEVERITY, CATALOGUE_RESULT]),
+  value: z.string().min(1) // requireNonBlank — admin.ts createControlledValue
 });

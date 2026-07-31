@@ -3,13 +3,19 @@ import { notFound } from "next/navigation";
 import { listFeatures, listModules, listProducts, listRequirements } from "@/domain/catalogue";
 import { requireSession } from "@/ui/session";
 import { FeatureForm, ModuleForm, ProductForm, RequirementForm } from "./CatalogueForms";
+import {
+  EditableFeatureRow,
+  EditableModuleRow,
+  EditableProductRow,
+  EditableRequirementRow
+} from "./CatalogueEditForms";
 
 export const dynamic = "force-dynamic";
 
 /**
- * The Product → Module → Feature → Requirement hierarchy. Creation is QA-Lead-gated
- * in the domain (an escalated policy choice — implementation audit §6.1); edits go
- * through the API's PATCH endpoints for now.
+ * The Product → Module → Feature → Requirement hierarchy. Creation and editing are
+ * QA-Lead-gated in the domain (an escalated policy choice — implementation audit
+ * §6.1). Each row edits inline; business IDs and parent links are immutable.
  */
 export default async function CataloguePage() {
   const auth = await requireSession();
@@ -35,13 +41,6 @@ export default async function CataloguePage() {
     </>
   );
 
-  const rowStyle = {
-    display: "flex",
-    gap: "var(--sp-4)",
-    padding: "var(--sp-2) var(--sp-5)",
-    borderBottom: "1px solid var(--line-soft)"
-  } as const;
-
   return (
     <>
       <h1>Catalogue</h1>
@@ -56,12 +55,19 @@ export default async function CataloguePage() {
           <p className="muted" style={{ padding: "var(--sp-3) var(--sp-5)", margin: 0 }}>None yet.</p>
         ) : (
           products.map((p) => (
-            <div key={p.id} style={rowStyle}>
+            <EditableProductRow
+              key={p.id}
+              id={p.id}
+              version={p.version}
+              name={p.name}
+              versionTag={p.versionTag}
+              status={p.status}
+            >
               <span className="bid">{p.businessId}</span>
               <span style={{ flex: 1 }}>{p.name}</span>
               <span className="muted">v{p.versionTag}</span>
               <span className="muted">{p.status}</span>
-            </div>
+            </EditableProductRow>
           ))
         ),
         <ProductForm />
@@ -73,11 +79,11 @@ export default async function CataloguePage() {
           <p className="muted" style={{ padding: "var(--sp-3) var(--sp-5)", margin: 0 }}>None yet.</p>
         ) : (
           modules.map((m) => (
-            <div key={m.id} style={rowStyle}>
+            <EditableModuleRow key={m.id} id={m.id} version={m.version} name={m.name}>
               <span className="bid">{m.businessId}</span>
               <span style={{ flex: 1 }}>{m.name}</span>
               <span className="muted">{productLabel.get(m.productId)}</span>
-            </div>
+            </EditableModuleRow>
           ))
         ),
         <ModuleForm products={products.map((p) => ({ id: p.id, businessId: p.businessId, label: p.name }))} />
@@ -89,11 +95,11 @@ export default async function CataloguePage() {
           <p className="muted" style={{ padding: "var(--sp-3) var(--sp-5)", margin: 0 }}>None yet.</p>
         ) : (
           features.map((f) => (
-            <div key={f.id} style={rowStyle}>
+            <EditableFeatureRow key={f.id} id={f.id} version={f.version} name={f.name}>
               <span className="bid">{f.businessId}</span>
               <span style={{ flex: 1 }}>{f.name}</span>
               <span className="muted">{moduleLabel.get(f.moduleId)}</span>
-            </div>
+            </EditableFeatureRow>
           ))
         ),
         <FeatureForm modules={modules.map((m) => ({ id: m.id, businessId: m.businessId, label: m.name }))} />
@@ -105,11 +111,11 @@ export default async function CataloguePage() {
           <p className="muted" style={{ padding: "var(--sp-3) var(--sp-5)", margin: 0 }}>None yet.</p>
         ) : (
           requirements.map((r) => (
-            <div key={r.id} style={rowStyle}>
+            <EditableRequirementRow key={r.id} id={r.id} version={r.version} statement={r.statement}>
               <span className="bid">{r.businessId}</span>
               <span style={{ flex: 1 }}>{r.statement}</span>
               <span className="muted">{featureLabel.get(r.featureId)}</span>
-            </div>
+            </EditableRequirementRow>
           ))
         ),
         <RequirementForm features={features.map((f) => ({ id: f.id, businessId: f.businessId, label: f.name }))} />

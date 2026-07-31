@@ -24,6 +24,10 @@
 | Security | Non-lead creates a user account | `403`; QA Lead creation succeeds with no credential material in the response or audit event. |
 | Security | Change own password with wrong current password | `403`; with the correct one the hash rotates, other sessions are revoked, and the audit event carries no credential material. |
 | Audit | Import, transition, and role change | Each emits an append-only event with actor, action, timestamp, request ID. |
+| User administration | QA Lead updates a profile | Email is normalized; response carries the documented projection; audit event records before/after without credential material. Updating to an email already in use is `409 ID_DUPLICATE`. A non-lead attempt is `403`. |
+| User administration | Deactivate and reactivate an account | Deactivation sets `active` false, invalidates sessions issued before it, and is audited; reactivation restores sign-in and is audited. Self-deactivation is `422 FORBIDDEN_TRANSITION`; deactivating the last active QA Lead is `422 FORBIDDEN_TRANSITION`. |
+| Controlled values | QA Lead adds a catalogue value | Created active and trimmed; immediately accepted by the active-value check; audited. A duplicate within the catalogue is `409 ID_DUPLICATE`; the same value in another catalogue is allowed; a non-lead attempt is `403`. |
+| Execution | Reassign a Planned execution | Tester changes and the reassignment is audited. Reassigning to an inactive tester is `422 REFERENCE_INACTIVE`; reassigning after the execution leaves Planned is `422 FORBIDDEN_TRANSITION`. |
 
 ## Knowledge-base and skill pressure tests
 
