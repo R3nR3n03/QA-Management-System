@@ -72,6 +72,12 @@ const BY_FIELD: Record<string, ErrorCopy> = {
   "ID_INVALID:actualResult": {
     title: "Record what actually happened before finalizing.",
     detail: "This is the evidence the result rests on, so it can't be left blank."
+  },
+  "ID_INVALID:file": {
+    // Covers both "no file attached" and "file too large". The service message
+    // already names the limit; this is the fallback wording when it doesn't.
+    title: "That workbook couldn't be accepted.",
+    detail: "Attach a single .xlsx file within the size limit for this endpoint."
   }
 };
 

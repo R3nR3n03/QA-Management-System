@@ -202,7 +202,24 @@ a wrong timestamp is not.
 
 ---
 
-## W6. MEDIUM · Merging materially widens two open production blockers
+## W6. ~~MEDIUM~~ **RESOLVED 2026-07-31** · Merging materially widened two open production blockers
+
+> **Both landed on `main`**, so the branch inherits them at its next rebase and the
+> merge no longer widens anything:
+>
+> - **A1** — `xlsx` migrated from the frozen npm 0.18.5 to the vendor-distributed
+>   0.20.3. The four high-severity advisories are gone from `npm audit`. This matters
+>   more for the branch than for `main`: the branch adds `sheet_to_json` across eleven
+>   sheets, so it was the change that would have exposed the parser surface.
+> - **A2** — an upload size limit, checked against `Content-Length` *before*
+>   `request.formData()` buffers the body, and against `file.size` after.
+>
+> Verified live: a 12 MB payload is refused with `422 ID_INVALID`, a valid workbook
+> still imports, and a non-QA-Lead is still refused first.
+
+The original finding follows.
+
+
 
 Neither is caused by this branch, but merging changes their severity
 (`PRODUCTION-READINESS-2026-07-31.md`):

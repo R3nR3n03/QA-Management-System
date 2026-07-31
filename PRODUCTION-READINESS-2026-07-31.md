@@ -27,15 +27,28 @@ distance to feature-complete.
 
 ### Severity summary
 
-| | Count | Findings | Meaning |
+| | Count | Open findings | Meaning |
 |---|---|---|---|
-| **BLOCKER** | 9 | A1–A7, C1, D1 | Must be resolved before any deployment reachable by real users |
+| **BLOCKER** | 6 *(was 9)* | A3, A4, A5, A6, A7, D1 | Must be resolved before any deployment reachable by real users |
 | **HIGH** | 7 | B1, B2, B3, C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
 | **MEDIUM** | 9 | B4, B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
 | **MISSING** | 5 | F1–F5 | Documented or implied functionality that does not exist yet |
 
-Thirty findings in total. Seven of the nine blockers are security-related, which reflects where the
-work has not been done rather than anything unsound in what has.
+Thirty findings in total, **three blockers now resolved** — see the marked sections:
+
+| Resolved | What | Landed |
+|---|---|---|
+| **C1** | Structured request logging at both boundaries | `0e61724` |
+| **A1** | `xlsx` migrated off the frozen npm copy to the vendor build | `main`, 2026-07-31 |
+| **A2** | Workbook upload size limit, checked before the body is buffered | `main`, 2026-07-31 |
+
+C1 earned its keep within the hour: it surfaced a `PrismaClientValidationError` that had
+made **`GET /dashboard` return 500 on every request since it was written** (fixed in `a802a6a`).
+That defect was invisible precisely because errors were being swallowed — which is the argument
+for **F3** in one line.
+
+Five of the six remaining blockers are security-related, which reflects where the work has not
+been done rather than anything unsound in what has.
 
 ### How each finding was established
 
@@ -50,7 +63,22 @@ should trust it:
 
 ## A. Security blockers
 
-### A1. BLOCKER · `xlsx` carries four unfixed high-severity CVEs, in the upload path
+### A1. ~~BLOCKER~~ **RESOLVED 2026-07-31** · `xlsx` carried four unfixed high-severity CVEs
+
+> **Fixed.** Migrated from the frozen npm copy (0.18.5) to the vendor-distributed
+> build, `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` — 0.20.3 is the latest
+> the CDN publishes (0.21.x returns 404). `npm audit --omit=dev` no longer lists
+> `xlsx` at all. The API is source-compatible; a write/read round trip was verified.
+>
+> **Still outstanding, and not this finding:** the audit now reports `next`, `postcss`
+> and `sharp`. All three are transitive framework dependencies and all are addressed
+> by the Next upgrade in **D3** — `npm audit fix --force` proposes downgrading Next to
+> 9.3.3, which is not a fix. Note the project uses no `next/image`, so `sharp` is
+> likely never loaded at runtime; that is worth confirming rather than assuming.
+
+The original finding follows.
+
+
 
 **VERIFIED** — `npm audit --omit=dev`:
 
@@ -88,7 +116,32 @@ so this is not anonymously reachable. That reduces the blast radius; it does not
 because a compromised or malicious QA Lead account is exactly the threat model an audited QA system
 exists to constrain.
 
-### A2. BLOCKER · Workbook upload has no size limit
+### A2. ~~BLOCKER~~ **RESOLVED 2026-07-31** · Workbook upload had no size limit
+
+> **Fixed.** `src/lib/upload-limits.ts`, wired into the route in two places:
+> `Content-Length` is checked **before** `request.formData()` — which is the point,
+> since `formData()` buffers the whole multipart payload into memory — and `file.size`
+> is checked after, because a chunked request sends no `Content-Length` and a supplied
+> one need not be honest.
+>
+> The limit is `MAX_UPLOAD_BYTES`, defaulting to 10 MB. That number is **not policy**:
+> `api-and-security.md:43` puts the exact limits outside the knowledge base, so it is
+> a deployment default awaiting QA Lead confirmation. An unusable value falls back to
+> the default rather than removing the limit — a typo can fail to narrow the gate, it
+> can never open it.
+>
+> Verified live: a 12 MB payload returns `422 ID_INVALID` naming the limit, a valid
+> 26 KB workbook still returns `201`, and a QA Engineer still gets `403` before any
+> size logic runs.
+>
+> **Honest scope:** this stops the *buffering and parsing* of an oversized body. It
+> does not stop a client transmitting the bytes — they still traverse the socket
+> before the handler runs. Rejecting at the transfer layer needs a limit at the
+> reverse proxy or platform, which belongs with **D1**.
+
+The original finding follows.
+
+
 
 **CODE-READ** — `src/app/api/v1/imports/workbook/route.ts:16`:
 
@@ -290,7 +343,21 @@ this actor do last week" — are unindexed sequential scans. See also C4.
 
 ## C. Observability and operations
 
-### C1. BLOCKER · No structured logging — incidents are not diagnosable
+### C1. ~~BLOCKER~~ **RESOLVED 2026-07-31** · No structured logging — incidents were not diagnosable
+
+> **Fixed in `0e61724`.** `src/lib/logging.ts` emits one JSON line per request from
+> `withRoute` and `runAction`, carrying every field `architecture.md:47` names, with
+> the stack retained on 5xx and credential-bearing keys redacted. Verified live.
+>
+> It immediately paid for itself: the first 500 it caught was a
+> `PrismaClientValidationError` that had made `GET /dashboard` fail on **every**
+> request since it was written — fixed in `a802a6a`.
+>
+> **C3 (error tracking / metrics / alerting) remains open** and was blocked on this.
+
+The original finding follows.
+
+
 
 **VERIFIED** — `src/` contains no logger and not a single `console.*` call.
 
