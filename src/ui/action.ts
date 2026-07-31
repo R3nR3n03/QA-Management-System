@@ -1,5 +1,6 @@
 import { AppError } from "@/lib/errors";
 import { requireAuth } from "@/lib/auth";
+import { logRequest } from "@/lib/logging";
 import { requestMetadata } from "@/lib/request-metadata";
 import { errorCopy, type ErrorCopy } from "./error-copy";
 
@@ -41,21 +42,48 @@ export type ActionActor = {
  * is deliberately not surfaced, per `docs/api-and-security.md:33` ("Do not expose
  * stack traces, SQL details, authorization rules, or internal identifiers").
  *
- * KNOWN GAP: the caught error is discarded rather than logged, because the project
- * has no structured logging (audit section 3.6). The `requestId` returned here is
- * therefore shown to the user but currently correlates with nothing. Fixing 3.6
- * closes that loop.
+ * Every outcome is logged, with the same shape `withRoute` emits, so a screen and an
+ * API call that hit the same domain failure produce comparable lines. The
+ * `requestId` shown to the user on an INTERNAL_ERROR is the one in the log.
  */
 export async function runAction<T>(
   fn: (actor: ActionActor) => Promise<T>
 ): Promise<ActionResult<T>> {
+  const startedAt = Date.now();
   const { requestId } = await requestMetadata();
+  let actorId: string | undefined;
+
   try {
     const auth = await requireAuth();
+    actorId = auth.userId;
     const data = await fn({ userId: auth.userId, role: auth.role, requestId });
+
+    logRequest({
+      occurredAt: new Date().toISOString(),
+      requestId,
+      status: 200,
+      actorId,
+      action: "SERVER_ACTION",
+      durationMs: Date.now() - startedAt
+    });
+
     return { ok: true, data };
   } catch (error) {
-    if (error instanceof AppError) {
+    const isApp = error instanceof AppError;
+
+    logRequest({
+      occurredAt: new Date().toISOString(),
+      requestId,
+      status: isApp ? error.status : 500,
+      actorId,
+      action: "SERVER_ACTION",
+      errorCode: isApp ? error.code : "INTERNAL_ERROR",
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      durationMs: Date.now() - startedAt
+    });
+
+    if (isApp) {
       return {
         ok: false,
         code: error.code,
