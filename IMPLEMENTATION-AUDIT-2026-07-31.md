@@ -32,7 +32,17 @@ This document is deliberately **outside `docs/`**. `docs/` is the approved singl
 
 ## 2. CRITICAL
 
-### 2.1 Lifecycle bypass via mass-assignment in `createTestCase`
+### 2.1 ~~Lifecycle bypass via mass-assignment in `createTestCase`~~ — **RESOLVED**
+
+> **Fixed in `9fc77de`.** `buildTestCaseCreateData` builds the Prisma payload from an
+> explicit allow-list with `lifecycleState` hard-forced to `DRAFT`; the request body is
+> never spread. A test asserts the exact key set, so reintroducing a spread fails the
+> suite. Verified live: the exploit body now returns
+> `422 ID_INVALID` on field `lifecycleState`.
+
+The original finding follows.
+
+
 
 **Where:** `src/domain/test-cases.ts:93-105`, reached from `src/app/api/v1/test-cases/route.ts:31`.
 
@@ -77,7 +87,31 @@ The same vector also injects `version` (breaking optimistic concurrency from the
 
 **Fix.** Never spread a request body into a Prisma `data` object. Enumerate the writable fields explicitly, and set `lifecycleState: TestCaseLifecycleState.DRAFT` unconditionally on create. Validating the body with a strict schema (§2.3) closes it at the boundary as well; do both.
 
-### 2.2 `passwordHash` is returned by the API
+### 2.2 ~~`passwordHash` is returned by the API~~ — **RESOLVED 2026-07-31**
+
+> **Fixed.** `updateUserRole` now reads and returns through `USER_RESPONSE_SELECT`
+> (`id`, `email`, `displayName`, `role`, `active`, `version`). A `select` rather than a
+> delete-after-the-fact, so the hash is never read out of the database and the return
+> type cannot carry it — a field added to the `User` model later is excluded by
+> default instead of leaking by default.
+>
+> `createdBy`/`updatedBy` are also gone: they are identifiers of *other* users, which
+> `api-and-security.md:33` puts beyond the requested record. `version` stays, because
+> `api-and-security.md:5` requires a mutation to return the updated record's new
+> version.
+>
+> Verified live, the same way the leak was originally reproduced — the response now
+> carries exactly those six keys, and no scrypt hash appears anywhere in the body.
+> A test compares the projection against Prisma's generated field list, so it cannot
+> pass trivially if `passwordHash` is ever renamed.
+>
+> **Every other path a `User` could reach a response was checked** and already
+> projects: `domain/auth.ts` (`profile`, `authenticate`), `lib/auth.ts` (`requireAuth`),
+> `domain/executions.ts` (`TESTER_SELECT`), and the login route. This was the only leak.
+
+The original finding follows.
+
+
 
 **Where:** `src/app/api/v1/users/[id]/role/route.ts:20`, with `src/domain/admin.ts:51-54`.
 
@@ -89,7 +123,21 @@ The audit half of that rule is correctly honoured (`admin.ts:61` writes only `{ 
 
 **Fix.** Return an explicit projection (`id`, `email`, `displayName`, `role`, `active`, `version`) from the domain service. Audit every other place a `User` row could reach a response at the same time.
 
-### 2.3 No request-boundary validation exists
+### 2.3 ~~No request-boundary validation exists~~ — **RESOLVED**
+
+> **Fixed in `5b23bf1`.** All 24 routes parse through `parseWith` and a
+> `z.strictObject` schema in `src/lib/request-schemas/`, and `parseJson` is deleted —
+> so the hole cannot be reintroduced without a compile error. Schemas mirror each
+> domain function's actual tolerance rather than the old inline casts, two of which
+> were *stricter* than the service they fed.
+>
+> Verified live: a `null` or `[]` body, an omitted or non-enum `result`, and a bogus
+> role all return `422` where they previously returned `500`; an omitted `version`
+> still returns `409 VERSION_CONFLICT` as documented.
+
+The original finding follows.
+
+
 
 **Where:** everywhere. `src/lib/request.ts:10-16`.
 

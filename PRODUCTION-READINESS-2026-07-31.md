@@ -29,26 +29,32 @@ distance to feature-complete.
 
 | | Count | Open findings | Meaning |
 |---|---|---|---|
-| **BLOCKER** | 6 *(was 9)* | A3, A4, A5, A6, A7, D1 | Must be resolved before any deployment reachable by real users |
+| **BLOCKER** | 5 *(was 9)* | A3, A5, A6, A7, D1 | Must be resolved before any deployment reachable by real users |
 | **HIGH** | 7 | B1, B2, B3, C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
 | **MEDIUM** | 9 | B4, B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
 | **MISSING** | 5 | F1–F5 | Documented or implied functionality that does not exist yet |
 
-Thirty findings in total, **three blockers now resolved** — see the marked sections:
+Thirty findings in total, **four blockers now resolved** — see the marked sections:
 
 | Resolved | What | Landed |
 |---|---|---|
 | **C1** | Structured request logging at both boundaries | `0e61724` |
 | **A1** | `xlsx` migrated off the frozen npm copy to the vendor build | `main`, 2026-07-31 |
 | **A2** | Workbook upload size limit, checked before the body is buffered | `main`, 2026-07-31 |
+| **A4** | `passwordHash` no longer returned — projection, not deletion | `main`, 2026-07-31 |
+
+With A4 closed, **no CRITICAL from `IMPLEMENTATION-AUDIT-2026-07-31.md` remains open** —
+§2.1, §2.2 and §2.3 are all fixed and verified against a running server.
 
 C1 earned its keep within the hour: it surfaced a `PrismaClientValidationError` that had
 made **`GET /dashboard` return 500 on every request since it was written** (fixed in `a802a6a`).
 That defect was invisible precisely because errors were being swallowed — which is the argument
 for **F3** in one line.
 
-Five of the six remaining blockers are security-related, which reflects where the work has not
-been done rather than anything unsound in what has.
+Four of the five remaining blockers are security-related, which reflects where the work has not
+been done rather than anything unsound in what has. The fifth, **D1**, is the absence of any
+deployment pipeline — and until it exists, every fix above is protected only by somebody
+remembering to run the gates by hand.
 
 ### How each finding was established
 
@@ -178,7 +184,19 @@ not run on the Edge runtime — so middleware must be configured for the Node ru
 must live in the route/action layer instead. **This is a real design decision, not a drop-in
 library.**
 
-### A4. BLOCKER · `passwordHash` is returned by the API
+### A4. ~~BLOCKER~~ **RESOLVED 2026-07-31** · `passwordHash` was returned by the API
+
+> **Fixed.** `updateUserRole` reads and returns through `USER_RESPONSE_SELECT` —
+> `id`, `email`, `displayName`, `role`, `active`, `version` — so the hash never leaves
+> the database and cannot be present on the return type. Verified live: exactly those
+> six keys, no scrypt hash in the body. Every other path a `User` could reach a
+> response was checked and already projects; this was the only one.
+>
+> Detail in `IMPLEMENTATION-AUDIT-2026-07-31.md` §2.2.
+
+The original finding follows.
+
+
 
 **VERIFIED at runtime** against a live server. `PATCH /api/v1/users/{id}/role` returned:
 
