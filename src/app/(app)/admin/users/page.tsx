@@ -3,14 +3,15 @@ import { notFound } from "next/navigation";
 import { listUsers } from "@/domain/admin";
 import { requireSession } from "@/ui/session";
 import { roleLabel } from "@/ui/navigation";
+import { AddPersonForm } from "./AddPersonForm";
 import { RoleForm } from "./RoleForm";
 
 export const dynamic = "force-dynamic";
 
 /**
- * People and their single active role (`roles-workflows.md:5`). Accounts are not
- * created here in v1 — they come from the seed or operational bootstrap; this screen
- * manages the role, which is the only mutation the docs establish.
+ * People and their single active role (`roles-workflows.md:5`). The QA Lead creates
+ * accounts here (`roles-workflows.md:16` — user management is a lead capability) and
+ * changes roles; both are audited. There is no self-service password change in v1.
  */
 export default async function UsersPage() {
   const auth = await requireSession();
@@ -24,9 +25,15 @@ export default async function UsersPage() {
       <h1>People</h1>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         Every permission is enforced server-side from the session; changing a role here changes what
-        that person can do everywhere, and the change is audited.
+        that person can do everywhere, and every change is audited.
       </p>
 
+      <h2>Add a person</h2>
+      <div className="card" style={{ marginBottom: "var(--sp-6)" }}>
+        <AddPersonForm />
+      </div>
+
+      <h2>Everyone</h2>
       <div className="card" style={{ padding: 0 }}>
         {users.map((user) => (
           <div

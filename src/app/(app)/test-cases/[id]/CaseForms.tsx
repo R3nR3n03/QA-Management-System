@@ -112,6 +112,16 @@ export function DraftEditForm({
   );
 }
 
+// Controlled rows with STABLE keys, not array indices: with index keys and
+// uncontrolled inputs, removing a middle step made React reuse the remaining DOM
+// nodes in order — so the LAST row's text vanished instead of the removed one's.
+// The counter is module-scope (not a ref) because keys only need uniqueness, and
+// refs must not be read during render.
+let stepRowKey = 0;
+function makeRow(action = "", expectedResult = "") {
+  return { key: stepRowKey++, action, expectedResult };
+}
+
 export function StepsEditor({
   testCaseId,
   version,
@@ -122,7 +132,12 @@ export function StepsEditor({
   steps: Array<{ action: string; expectedResult: string }>;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(replaceStepsAction, null);
-  const [rows, setRows] = useState(steps.length > 0 ? steps : [{ action: "", expectedResult: "" }]);
+  const [rows, setRows] = useState(() =>
+    steps.length > 0 ? steps.map((s) => makeRow(s.action, s.expectedResult)) : [makeRow()]
+  );
+
+  const edit = (key: number, patch: Partial<{ action: string; expectedResult: string }>) =>
+    setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)));
 
   return (
     <form action={formAction}>
@@ -131,23 +146,33 @@ export function StepsEditor({
       <FormNotice state={state} />
 
       {rows.map((row, index) => (
-        <div key={index} style={{ display: "flex", gap: "var(--sp-3)", alignItems: "flex-start" }}>
+        <div key={row.key} style={{ display: "flex", gap: "var(--sp-3)", alignItems: "flex-start" }}>
           <span className="bid" style={{ paddingTop: 34, minWidth: 20, textAlign: "right" }}>
             {index + 1}
           </span>
           <label className="field" style={{ flex: 1 }}>
             <span>Action</span>
-            <input name="stepAction" defaultValue={row.action} disabled={pending} />
+            <input
+              name="stepAction"
+              value={row.action}
+              onChange={(e) => edit(row.key, { action: e.target.value })}
+              disabled={pending}
+            />
           </label>
           <label className="field" style={{ flex: 1 }}>
             <span>Expected</span>
-            <input name="stepExpected" defaultValue={row.expectedResult} disabled={pending} />
+            <input
+              name="stepExpected"
+              value={row.expectedResult}
+              onChange={(e) => edit(row.key, { expectedResult: e.target.value })}
+              disabled={pending}
+            />
           </label>
           <button
             type="button"
             className="btn btn-secondary"
             style={{ marginTop: 26, padding: "5px 10px", fontSize: 13 }}
-            onClick={() => setRows(rows.filter((_, i) => i !== index))}
+            onClick={() => setRows((current) => current.filter((r) => r.key !== row.key))}
             disabled={pending || rows.length === 1}
             aria-label={`Remove step ${index + 1}`}
           >
@@ -160,7 +185,7 @@ export function StepsEditor({
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={() => setRows([...rows, { action: "", expectedResult: "" }])}
+          onClick={() => setRows((current) => [...current, makeRow()])}
           disabled={pending}
         >
           Add step

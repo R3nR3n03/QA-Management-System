@@ -21,6 +21,7 @@
 | Traceability | Link hierarchy-mismatched requirement/test case | `422 HIERARCHY_MISMATCH`. |
 | Reporting | Dashboard count | Counts non-retired persisted products and cases, not imported Excel formula output. |
 | Security | Client submits a higher role | Effective role remains server-resolved; unauthorized action is `403`. |
+| Security | Non-lead creates a user account | `403`; QA Lead creation succeeds with no credential material in the response or audit event. |
 | Audit | Import, transition, and role change | Each emits an append-only event with actor, action, timestamp, request ID. |
 
 ## Knowledge-base and skill pressure tests

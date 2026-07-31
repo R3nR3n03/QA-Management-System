@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { serverActionsConfig } from "./src/lib/allowed-origins";
 import { securityHeaders } from "./src/lib/security-headers";
+import { maxUploadBytes } from "./src/lib/upload-limits";
 
 /**
  * `PRODUCTION-READINESS-2026-07-31.md` A5 (security headers), A7 (CSRF) and D1 (deployment).
@@ -38,7 +39,20 @@ const nextConfig: NextConfig = {
    */
   output: "standalone",
 
-  ...(serverActions ? { experimental: { serverActions } } : {}),
+  /**
+   * Next caps server-action request bodies at 1 MB by default, which silently broke the
+   * workbook-upload screen for any real .xlsx over that size while the API route allowed
+   * 10 MB. Sized from the same `MAX_UPLOAD_BYTES` the route enforces, plus 1 MB of
+   * multipart overhead — the route-level checks in `src/lib/upload-limits.ts` remain the
+   * precise gate; this is just the transport ceiling above it. `upload-limits` is a pure
+   * module, so it is safe in the config loader.
+   */
+  experimental: {
+    serverActions: {
+      ...(serverActions ?? {}),
+      bodySizeLimit: maxUploadBytes() + 1024 * 1024
+    }
+  },
 
   async headers() {
     return [

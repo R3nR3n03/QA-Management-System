@@ -13,7 +13,7 @@ Base path: `/api/v1`. JSON requests and responses use camelCase. Collection endp
 | Execution | `GET/POST /executions`, `POST /executions/{id}/start`, `POST /executions/{id}/finalize`, `GET /executions/{id}/history` |
 | Defects | `GET/POST /defects`, `GET/PATCH /defects/{id}` (only while New), `POST /defects/{id}/transition` |
 | Traceability/reporting | `GET/POST /rtm-links`, `GET /dashboard`, `GET /release-readiness?productId=&release=&environment=` (advisory report only; no endpoint records the QA Lead's readiness decision in v1) |
-| Administration | `POST /imports/workbook`, `GET /imports/{id}`, `GET/PATCH /controlled-values`, `GET/PATCH /users/{id}/role` |
+| Administration | `POST /imports/workbook`, `GET /imports/{id}`, `GET/PATCH /controlled-values`, `POST /users`, `GET/PATCH /users/{id}/role` |
 
 Every mutation routes through its domain service; direct ORM calls from route handlers are prohibited. The `transition` endpoints accept only the documented target state and required supporting fields; they never accept an arbitrary state patch.
 

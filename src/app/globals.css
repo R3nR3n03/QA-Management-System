@@ -310,3 +310,108 @@ a {
   color: var(--ink-3);
   font-size: 13px;
 }
+
+/* ---------- authenticated shell ---------- */
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+  align-items: stretch;
+}
+
+.rail {
+  width: 216px;
+  flex: 0 0 216px;
+  background: var(--surface-2);
+  border-right: 1px solid var(--line);
+  padding: var(--sp-5) 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rail-brand {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+  padding: 0 var(--sp-4) var(--sp-5);
+}
+
+.rail-group {
+  margin-bottom: var(--sp-4);
+}
+
+.rail-heading {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 var(--sp-4) var(--sp-1);
+}
+
+.nav-link {
+  display: block;
+  padding: 6px var(--sp-4);
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--ink-2);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+.nav-link:hover {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+.nav-link[aria-current="page"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 640;
+}
+
+.rail-footer {
+  margin-top: auto;
+  padding: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
+.shell-main {
+  flex: 1;
+  min-width: 0;
+  padding: var(--sp-6);
+  max-width: 1040px;
+}
+
+/* On narrow screens the rail becomes a top bar and the groups wrap side by side,
+   so no screen is unreachable on a phone. */
+@media (max-width: 760px) {
+  .shell {
+    flex-direction: column;
+  }
+  .rail {
+    width: auto;
+    flex: none;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: var(--sp-3) 0 var(--sp-2);
+  }
+  .rail-brand {
+    padding-bottom: var(--sp-3);
+  }
+  .rail-groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--sp-5);
+    padding: 0 var(--sp-2);
+  }
+  .rail-footer {
+    margin-top: var(--sp-2);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+  }
+  .shell-main {
+    padding: var(--sp-4);
+  }
+}

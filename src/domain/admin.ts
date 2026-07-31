@@ -2,8 +2,9 @@ import { QamsRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
+import { hashPassword } from "@/lib/password";
 import { ensureRole, RoleSets } from "@/lib/rbac";
-import { ensureVersion } from "@/lib/validation";
+import { ensureVersion, requireNonBlank } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 
 export async function listControlledValues() {
@@ -72,6 +73,74 @@ export const USER_RESPONSE_SELECT = {
   active: true,
   version: true
 } as const;
+
+/**
+ * Deployment default, not policy: `docs/` defines no password rules, and inventing a
+ * full complexity policy here would be exactly the gap-filling the SSOT rule forbids.
+ * A bare floor against empty and trivial passwords is the minimum the credential store
+ * can honestly accept; the QA Lead should replace this with an approved policy.
+ */
+const MIN_PASSWORD_LENGTH = 8;
+
+/**
+ * Create a user account. `roles-workflows.md:16` makes user management a QA-Lead
+ * capability; accounts previously came only from the seed. The initial password is
+ * chosen by the QA Lead and communicated out of band — there is no self-service
+ * password change in v1, which is a known follow-up.
+ *
+ * Returns the `USER_RESPONSE_SELECT` projection, so the hash can never leave this
+ * function, and the audit event carries no credential material at all.
+ */
+export async function createUser(
+  input: { email: string; displayName: string; role: QamsRole; password: string },
+  actor: { userId: string; role: QamsRole; requestId: string }
+) {
+  ensureRole([...RoleSets.canAdmin], actor.role);
+  requireNonBlank(input.email, "email", "Email is required.");
+  requireNonBlank(input.displayName, "displayName", "Display name is required.");
+  requireNonBlank(input.password, "password", "An initial password is required.");
+  if (input.password.length < MIN_PASSWORD_LENGTH) {
+    throw new AppError(
+      422,
+      "ID_INVALID",
+      `The initial password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      "password"
+    );
+  }
+
+  const email = input.email.trim().toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    throw new AppError(409, "ID_DUPLICATE", "A user with that email already exists.", "email");
+  }
+
+  const passwordHash = hashPassword(input.password);
+
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: {
+        email,
+        displayName: input.displayName.trim(),
+        role: input.role,
+        passwordHash,
+        createdBy: actor.userId,
+        updatedBy: actor.userId
+      },
+      select: { ...USER_RESPONSE_SELECT }
+    });
+    await appendAudit(tx, {
+      actorId: actor.userId,
+      action: "USER_CREATED",
+      entityType: "User",
+      entityId: created.id,
+      requestId: actor.requestId,
+      // Deliberately narrow: no hash, no password, and data-model.md:35 bars
+      // credential material from the audit log the same as from responses.
+      beforeAfterJson: { after: { email: created.email, displayName: created.displayName, role: created.role } }
+    });
+    return created;
+  });
+}
 
 export async function listUsers(actorRole: QamsRole) {
   // People management is a QA-Lead capability (`roles-workflows.md:16`), and the

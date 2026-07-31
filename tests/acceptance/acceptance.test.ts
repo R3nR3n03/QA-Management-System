@@ -10,7 +10,7 @@ import { createTestCase, replaceSteps, submitTestCase, approveTestCase, updateTe
 import { createExecution, startExecution, finalizeExecution, executionHistory } from "@/domain/executions";
 import { createDefect, transitionDefect } from "@/domain/defects";
 import { createRtmLink, dashboardSnapshot } from "@/domain/traceability";
-import { updateUserRole } from "@/domain/admin";
+import { createUser, updateUserRole } from "@/domain/admin";
 import { createTestCaseSchema } from "@/lib/request-schemas/test-cases";
 
 /**
@@ -524,6 +524,57 @@ describe("Security", () => {
   it("the effective role is the server-side one: an unauthorized action is 403", async () => {
     // Whatever a client claims, the domain sees only the session-derived actor role.
     await expectAppError(approveTestCase(interactive.draftId, undefined, tester), 403, "UNAUTHORIZED");
+  });
+});
+
+describe("People", () => {
+  it("a non-lead cannot create a user account: 403", async () => {
+    await expectAppError(
+      createUser(
+        { email: "sneak@acceptance.local", displayName: "Sneak", role: QamsRole.QA_LEAD, password: "long-enough-pw" },
+        tester
+      ),
+      403,
+      "UNAUTHORIZED"
+    );
+  });
+
+  it("the QA Lead creates a user: projection only, audited without credential material", async () => {
+    const created = await createUser(
+      { email: "New.Person@Acceptance.Local", displayName: "New Person", role: QamsRole.QA_TESTER, password: "long-enough-pw" },
+      lead
+    );
+    // The email is normalized, and the response carries exactly the documented projection.
+    expect(created.email).toBe("new.person@acceptance.local");
+    expect(Object.keys(created).sort()).toEqual(["active", "displayName", "email", "id", "role", "version"].sort());
+
+    const stored = await prisma.user.findUnique({ where: { id: created.id } });
+    expect(stored?.passwordHash).toBeTruthy();
+    expect(stored?.passwordHash).not.toContain("long-enough-pw");
+
+    const audit = await prisma.auditEvent.findFirst({ where: { action: "USER_CREATED", entityId: created.id } });
+    expect(audit?.actorId).toBe(lead.userId);
+    expect(JSON.stringify(audit?.beforeAfterJson)).not.toContain("long-enough-pw");
+    expect(JSON.stringify(audit?.beforeAfterJson)).not.toContain(stored?.passwordHash ?? "@@never@@");
+  });
+
+  it("a duplicate email is refused with 409, and a short password with 422", async () => {
+    await expectAppError(
+      createUser(
+        { email: "new.person@acceptance.local", displayName: "Again", role: QamsRole.QA_TESTER, password: "long-enough-pw" },
+        lead
+      ),
+      409,
+      "ID_DUPLICATE"
+    );
+    await expectAppError(
+      createUser(
+        { email: "short@acceptance.local", displayName: "Short", role: QamsRole.QA_TESTER, password: "seven77" },
+        lead
+      ),
+      422,
+      "ID_INVALID"
+    );
   });
 });
 
