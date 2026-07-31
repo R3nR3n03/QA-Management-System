@@ -2,11 +2,27 @@ import { createImportRun } from "@/domain/imports";
 import { withRoute } from "@/lib/route";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { AppError } from "@/lib/errors";
+import { assertWithinRateLimit, importLimiter } from "@/lib/rate-limit";
 import { assertWithinUploadLimit, headerContentLength, maxUploadBytes } from "@/lib/upload-limits";
 
 export async function POST(request: Request) {
   return withRoute(request, async ({ auth, requestId }) => {
     ensureRole([...RoleSets.canAdmin], auth.role);
+
+    // A3, and it must come before the size check below, not after: `docs/api-and-security.md:43`
+    // requires import endpoints to be throttled, and the point of throttling here is that a
+    // rejected caller never reaches `formData()` — which buffers the whole multipart payload
+    // into memory (A2) and hands it to a parser with a published ReDoS advisory (A1).
+    //
+    // Keyed on the authenticated user, not on a header: `withRoute` has already run
+    // `requireAuth()`, so this is an identity the caller cannot forge or rotate. The thrown
+    // AppError is logged by `withRoute`'s catch like any other.
+    //
+    // Every attempt is consumed here, successes included — unlike the CLIENT dimension of
+    // the login throttle, which counts failures only. The reason that exception exists does
+    // not apply: this key is one authenticated user, never a shared address, so exhausting
+    // it can only ever inconvenience the account that actually did the importing.
+    assertWithinRateLimit(importLimiter.consume(`user:${auth.userId}`));
 
     const limit = maxUploadBytes();
 

@@ -1,10 +1,13 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { authenticate } from "@/domain/auth";
 import { AppError } from "@/lib/errors";
-import { createSessionCookieValue, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from "@/lib/session";
+import { logRequest } from "@/lib/logging";
+import { loginThrottle, throttleLogMessage, type ThrottleDimension } from "@/lib/login-throttle";
+import { requestMetadata } from "@/lib/request-metadata";
+import { createSessionCookieValue, SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/session";
 import { errorCopy } from "@/ui/error-copy";
 
 export type LoginState = { title: string; detail: string } | null;
@@ -13,11 +16,12 @@ export type LoginState = { title: string; detail: string } | null;
  * Sign in. Not wrapped in `runAction` — that helper authenticates first, which is
  * the one thing this cannot do.
  *
- * NOTE: no rate limiting. `docs/api-and-security.md:43` requires it on
- * authentication endpoints and none exists anywhere in the project (audit section 5.5).
- * A server action is a new unthrottled entry point to the same credential check, so
- * this inherits that gap rather than introducing it — but it does widen the surface,
- * and it should be closed before anything is deployed.
+ * Because it is not wrapped, nothing throttles this for free: the limiter has to be
+ * called explicitly. `docs/api-and-security.md:43` requires rate limiting on
+ * authentication endpoints, and this action is a SECOND entry point to the same
+ * credential check as `POST /api/v1/auth/login`. Throttling only the REST route would
+ * leave the form — the easier target of the two, since a browser reaches it directly —
+ * wide open, which is precisely the hole A3 exists to close.
  */
 export async function signIn(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "");
@@ -27,27 +31,78 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
     return { title: "Enter your email and password.", detail: "Both are needed to sign in." };
   }
 
+  // A3. The same three-step protocol the REST route drives, in the same order, through the
+  // same module — see `src/lib/login-throttle.ts`. Both entry points reach the identical
+  // credential check, so they must meter it identically or the cheaper door becomes the
+  // one an attacker uses. Do not open-code a variation of this sequence here.
+  const requestHeaders = await headers();
+
+  // Step 1: peek, no spend.
+  // Step 2: spend the account's allowance — every attempt pays, win or lose.
+  // Evaluated separately rather than in one `||` so the tripped dimension is known and can
+  // be logged; the short-circuit order is identical either way.
+  let throttled: ThrottleDimension | undefined;
+  if (!loginThrottle.clientAllowed(requestHeaders)) throttled = "client";
+  else if (!loginThrottle.consumeEmail(email)) throttled = "email";
+
+  if (throttled !== undefined) {
+    // This is the door a NAT'd office actually uses, so a throttle here is the incident an
+    // operator most needs to see — and it emitted nothing at all until now, which made the
+    // dimension discriminator useless exactly where it mattered. Same shape and same
+    // AUTH_FAILED action as the REST route, so both doors aggregate together.
+    //
+    // The message carries the dimension and nothing else: no address, no email, no hash.
+    // `throttleLogMessage` is a closed function of a two-member union, so no caller-supplied
+    // value can reach the log through it.
+    const { requestId } = await requestMetadata();
+    logRequest({
+      occurredAt: new Date().toISOString(),
+      requestId,
+      status: 403,
+      method: "POST",
+      path: "/login",
+      action: "AUTH_FAILED",
+      errorCode: "UNAUTHORIZED",
+      message: throttleLogMessage(throttled)
+    });
+
+    // Reported as its own form state rather than by throwing `rateLimitError()`, which the
+    // REST route does. Both refusals are the same `403 UNAUTHORIZED` on the wire, but here
+    // that code renders through `errorCopy` as "That email and password don't match." —
+    // telling a locked-out user to keep trying the very thing locking them out. This runs
+    // before `authenticate()`, so there is no AppError to discriminate and no ambiguity.
+    // `src/lib/rate-limit.ts` remains the only place the API's status and code are decided.
+    //
+    // The dimension stays out of this copy deliberately: telling the user which bucket
+    // tripped would say whether the account exists.
+    return {
+      title: "Too many sign-in attempts.",
+      detail: "Wait a few minutes and try again. If you've forgotten the password, a QA Lead can reset it."
+    };
+  }
+
   try {
     const user = await authenticate(email, password);
     const store = await cookies();
-    store.set(SESSION_COOKIE_NAME, createSessionCookieValue(user.id), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: SESSION_MAX_AGE_SECONDS
-    });
+    // A7: shared with `src/app/api/v1/auth/login/route.ts`. See `sessionCookieOptions`.
+    store.set(SESSION_COOKIE_NAME, createSessionCookieValue(user.id), sessionCookieOptions());
   } catch (error) {
     if (error instanceof AppError) {
       const copy = errorCopy(error.code, error.field);
       // Deliberately not the generic UNAUTHORIZED wording: at a sign-in form the
       // useful sentence is about the credentials, not about roles.
-      return error.code === "UNAUTHORIZED"
-        ? {
-            title: "That email and password don't match.",
-            detail: "Check both and try again. If the account was deactivated, a QA Lead can restore it."
-          }
-        : { title: copy.title, detail: copy.detail };
+      if (error.code === "UNAUTHORIZED") {
+        // Step 3. `authenticate` raises UNAUTHORIZED for "no such account", "inactive" and
+        // "wrong password" alike, so this is exactly the failed-credential branch the REST
+        // route charges — and, as there, a SUCCESSFUL sign-in charges the client bucket
+        // nothing. See `login-throttle.ts` for why the two dimensions differ.
+        loginThrottle.recordFailure(requestHeaders);
+        return {
+          title: "That email and password don't match.",
+          detail: "Check both and try again. If the account was deactivated, a QA Lead can restore it."
+        };
+      }
+      return { title: copy.title, detail: copy.detail };
     }
     return { title: "Something broke on our side.", detail: "Nothing was saved. Try again." };
   }
