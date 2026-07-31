@@ -1,14 +1,11 @@
 import { createImportRun } from "@/domain/imports";
 import { withRoute } from "@/lib/route";
-import { ensureRole, RoleSets } from "@/lib/rbac";
 import { AppError } from "@/lib/errors";
 import { assertWithinRateLimit, importLimiter } from "@/lib/rate-limit";
 import { assertWithinUploadLimit, headerContentLength, maxUploadBytes } from "@/lib/upload-limits";
 
 export async function POST(request: Request) {
   return withRoute(request, async ({ auth, requestId }) => {
-    ensureRole([...RoleSets.canAdmin], auth.role);
-
     // A3, and it must come before the size check below, not after: `docs/api-and-security.md:43`
     // requires import endpoints to be throttled, and the point of throttling here is that a
     // rejected caller never reaches `formData()` — which buffers the whole multipart payload
@@ -46,7 +43,13 @@ export async function POST(request: Request) {
     assertWithinUploadLimit(file.size, limit);
 
     const bytes = await file.arrayBuffer();
-    const run = await createImportRun(auth.userId, file.name, Buffer.from(bytes), requestId);
+    // The QA-Lead gate now lives in createImportRun, where api-and-security.md:38
+    // requires it, rather than only here.
+    const run = await createImportRun(
+      { userId: auth.userId, role: auth.role, requestId },
+      file.name,
+      Buffer.from(bytes)
+    );
     return Response.json(run, { status: 201 });
   });
 }

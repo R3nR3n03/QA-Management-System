@@ -1,4 +1,4 @@
-import { QamsRole } from "@prisma/client";
+import { Prisma, QamsRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
@@ -9,13 +9,39 @@ import { appendAudit } from "@/lib/audit";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
+/**
+ * An in-flight transaction a caller already owns.
+ *
+ * The create functions below open their own transaction by default, which is right
+ * for a route handler doing one thing. The workbook import is different: it must
+ * "commit each dependency-consistent batch atomically"
+ * (`docs/business-rules-and-validation.md:44`), so a per-row transaction would break
+ * the property it is required to have. Accepting an existing client lets it call
+ * these services from inside its batch instead of writing to Prisma directly, which
+ * `docs/architecture.md:30` and `CLAUDE.md:52` both forbid.
+ *
+ * Every rule still runs — RBAC, non-blank checks, business-ID format, the duplicate
+ * check and the audit event — because it is the same code path either way. That is
+ * the entire point: one definition of what a valid Product is, not two.
+ */
+export type TxClient = Prisma.TransactionClient;
+
+/** Run `fn` in the caller's transaction when there is one, otherwise open a new one. */
+function runInTransaction<T>(
+  tx: TxClient | undefined,
+  fn: (client: TxClient) => Promise<T>
+): Promise<T> {
+  return tx ? fn(tx) : prisma.$transaction(fn);
+}
+
 export async function listProducts() {
   return prisma.product.findMany({ orderBy: { businessId: "asc" } });
 }
 
 export async function createProduct(
   input: { businessId: string; name: string; versionTag: string; status: string },
-  actor: Actor
+  actor: Actor,
+  txClient?: TxClient
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
   requireNonBlank(input.businessId, "businessId", "Product ID is required.");
@@ -24,12 +50,14 @@ export async function createProduct(
   requireNonBlank(input.status, "status", "Status is required.");
   ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.product, "businessId", "PROD###");
 
-  const existing = await prisma.product.findUnique({ where: { businessId: input.businessId } });
+  const existing = await (txClient ?? prisma).product.findUnique({
+    where: { businessId: input.businessId }
+  });
   if (existing) {
     throw new AppError(409, "ID_DUPLICATE", "Product ID already exists.", "businessId");
   }
 
-  return prisma.$transaction(async (tx) => {
+  return runInTransaction(txClient, async (tx) => {
     const created = await tx.product.create({
       data: {
         businessId: input.businessId.trim(),
@@ -96,20 +124,22 @@ export async function listModules() {
 
 export async function createModule(
   input: { businessId: string; name: string; productId: string },
-  actor: Actor
+  actor: Actor,
+  txClient?: TxClient
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
   requireNonBlank(input.businessId, "businessId", "Module ID is required.");
   requireNonBlank(input.name, "name", "Module name is required.");
   ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.module, "businessId", "MOD###");
 
-  const product = await prisma.product.findUnique({ where: { id: input.productId } });
+  const db = txClient ?? prisma;
+  const product = await db.product.findUnique({ where: { id: input.productId } });
   if (!product) throw new AppError(404, "REFERENCE_NOT_FOUND", "Product not found.", "productId");
 
-  const existing = await prisma.module.findUnique({ where: { businessId: input.businessId } });
+  const existing = await db.module.findUnique({ where: { businessId: input.businessId } });
   if (existing) throw new AppError(409, "ID_DUPLICATE", "Module ID already exists.", "businessId");
 
-  return prisma.$transaction(async (tx) => {
+  return runInTransaction(txClient, async (tx) => {
     const created = await tx.module.create({
       data: {
         businessId: input.businessId.trim(),
@@ -161,20 +191,22 @@ export async function listFeatures() {
 
 export async function createFeature(
   input: { businessId: string; name: string; moduleId: string },
-  actor: Actor
+  actor: Actor,
+  txClient?: TxClient
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
   requireNonBlank(input.businessId, "businessId", "Feature ID is required.");
   requireNonBlank(input.name, "name", "Feature name is required.");
   ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.feature, "businessId", "FEAT###");
 
-  const parentModule = await prisma.module.findUnique({ where: { id: input.moduleId } });
+  const db = txClient ?? prisma;
+  const parentModule = await db.module.findUnique({ where: { id: input.moduleId } });
   if (!parentModule) throw new AppError(404, "REFERENCE_NOT_FOUND", "Module not found.", "moduleId");
 
-  const existing = await prisma.feature.findUnique({ where: { businessId: input.businessId } });
+  const existing = await db.feature.findUnique({ where: { businessId: input.businessId } });
   if (existing) throw new AppError(409, "ID_DUPLICATE", "Feature ID already exists.", "businessId");
 
-  return prisma.$transaction(async (tx) => {
+  return runInTransaction(txClient, async (tx) => {
     const created = await tx.feature.create({
       data: {
         businessId: input.businessId.trim(),
@@ -226,20 +258,22 @@ export async function listRequirements() {
 
 export async function createRequirement(
   input: { businessId: string; statement: string; featureId: string },
-  actor: Actor
+  actor: Actor,
+  txClient?: TxClient
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
   requireNonBlank(input.businessId, "businessId", "Requirement ID is required.");
   requireNonBlank(input.statement, "statement", "Requirement statement is required.");
   ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.requirement, "businessId", "REQ###");
 
-  const feature = await prisma.feature.findUnique({ where: { id: input.featureId } });
+  const db = txClient ?? prisma;
+  const feature = await db.feature.findUnique({ where: { id: input.featureId } });
   if (!feature) throw new AppError(404, "REFERENCE_NOT_FOUND", "Feature not found.", "featureId");
 
-  const existing = await prisma.requirement.findUnique({ where: { businessId: input.businessId } });
+  const existing = await db.requirement.findUnique({ where: { businessId: input.businessId } });
   if (existing) throw new AppError(409, "ID_DUPLICATE", "Requirement ID already exists.", "businessId");
 
-  return prisma.$transaction(async (tx) => {
+  return runInTransaction(txClient, async (tx) => {
     const created = await tx.requirement.create({
       data: {
         businessId: input.businessId.trim(),
