@@ -32,7 +32,7 @@ None of it was a criticism of the sequencing — the project built the domain fi
 | | Count | Open findings | Meaning |
 |---|---|---|---|
 | **BLOCKER** | 0 *(was 9)* | — | Must be resolved before any deployment reachable by real users |
-| **HIGH** | 7 | B1, B2, B3, C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
+| **HIGH** | 6 | B2, B3, C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
 | **MEDIUM** | 9 | B4, B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
 | **MISSING** | 5 | F1–F5 | Documented or implied functionality that does not exist yet |
 
@@ -303,7 +303,28 @@ of strict mode is low.
 
 ## B. Data integrity and correctness
 
-### B1. HIGH · Optimistic concurrency is not atomic — silent lost updates
+### B1. ~~HIGH~~ **RESOLVED 2026-07-31** · Optimistic concurrency was not atomic
+
+> **Fixed in `c4d7421`.** The expected version now goes into the UPDATE's `WHERE` across
+> all 16 versioned mutations, so the database performs the compare as part of the write.
+> `P2025` is translated to `409 VERSION_CONFLICT` by `src/lib/optimistic-lock.ts` —
+> scoped to the versioned write rather than installed globally, because `P2025` on a
+> nested relation is a `REFERENCE_NOT_FOUND`, not a conflict.
+>
+> `ensureVersion` is kept as the fast path and is still the ONLY thing that catches an
+> **omitted** version: Prisma silently ignores `where: { version: undefined }`, which
+> would have turned a missing version into an unconditional write.
+>
+> Verified with 6 concurrent writers x 20 rounds against a production build: 100 conflicts
+> raised, exactly one winner per round, zero lost updates. **And verified that the check can
+> fail** — reverting one where-clause produced lost updates in 19 of 20 rounds, with all six
+> writers succeeding and five changes discarded each time.
+>
+> **B2 remains open**: duplicate business IDs (`P2002`) still surface as 500s.
+
+The original finding follows.
+
+
 
 **CODE-READ**, and the single most consequential correctness defect still open.
 
