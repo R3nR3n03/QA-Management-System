@@ -2,6 +2,8 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { FormNotice } from "@/ui/notice";
+import { Modal } from "@/ui/modal";
+import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
 import {
   updateFeatureAction,
@@ -11,12 +13,12 @@ import {
 } from "./actions";
 
 /**
- * Inline editing for the four catalogue levels. Each `.list-row` carries an Edit
- * toggle that expands the row into a small form — hidden `id` + `version` travel with
- * it, so a concurrent edit surfaces as the VERSION_CONFLICT copy rather than a silent
- * overwrite. Business IDs and parent links are deliberately absent: both are immutable
- * (`docs/data-model.md` — business IDs are immutable; re-parenting is not a documented
- * operation). QA_LEAD gating is enforced in the domain either way.
+ * Editing for the four catalogue levels. Each `.list-row` carries an Edit button
+ * that opens a modal pre-filled with the current values — hidden `id` + `version`
+ * travel with it, so a concurrent edit surfaces as the VERSION_CONFLICT copy rather
+ * than a silent overwrite. On success the modal closes, the list revalidates, and a
+ * toast confirms. Business IDs and parent links are deliberately absent: both are
+ * immutable (`docs/data-model.md`). QA_LEAD gating is enforced in the domain.
  */
 
 type FieldSpec = { name: string; label: string; defaultValue: string };
@@ -25,67 +27,69 @@ function EditableRow({
   action,
   id,
   version,
+  entity,
+  recordLabel,
   fields,
   children
 }: {
   action: (prev: FormState, formData: FormData) => Promise<FormState>;
   id: string;
   version: number;
+  entity: string;
+  recordLabel: string;
   fields: FieldSpec[];
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, null);
+  const toast = useToast();
   const wasPending = useRef(false);
 
-  // Collapse the form after a successful save (state is null only then); the page
+  // Close the modal after a successful save (state is null only then); the page
   // revalidates and the row re-renders with the new values and version.
   useEffect(() => {
-    if (wasPending.current && !pending && state === null) setOpen(false);
+    if (wasPending.current && !pending && state === null && open) {
+      setOpen(false);
+      toast(`${entity} updated.`);
+    }
     wasPending.current = pending;
-  }, [pending, state]);
+  }, [pending, state, open, entity, toast]);
 
   const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
 
   return (
-    <div className="list-row" style={{ display: "block" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        {children}
-        <button
-          type="button"
-          className="btn btn-ghost"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-          style={{ fontSize: 13, padding: "4px 10px" }}
-        >
-          {open ? "Close" : "Edit"}
-        </button>
-      </div>
+    <div className="list-row">
+      {children}
+      <button
+        type="button"
+        className="btn btn-ghost"
+        onClick={() => setOpen(true)}
+        style={{ fontSize: 13, padding: "4px 10px" }}
+      >
+        Edit
+      </button>
 
-      {open ? (
-        <form action={formAction} style={{ marginTop: "var(--sp-3)" }}>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`Edit ${entity.toLowerCase()}`}
+        description={`${recordLabel} — the ID and its place in the hierarchy are immutable.`}
+      >
+        <form action={formAction}>
           <input type="hidden" name="id" value={id} />
           <input type="hidden" name="version" value={version} />
           <FormNotice state={state} />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: `repeat(${Math.min(fields.length, 3)}, 1fr)`,
-              gap: "0 var(--sp-3)"
-            }}
-          >
-            {fields.map((field) => (
-              <label key={field.name} className={bad(field.name)}>
-                <span>{field.label}</span>
-                <input name={field.name} defaultValue={field.defaultValue} required disabled={pending} />
-              </label>
-            ))}
-          </div>
-          <button className="btn btn-secondary" type="submit" disabled={pending}>
+          {fields.map((field) => (
+            <label key={field.name} className={bad(field.name)}>
+              <span>{field.label}</span>
+              <input name={field.name} defaultValue={field.defaultValue} required disabled={pending} />
+            </label>
+          ))}
+          <button className="btn" type="submit" disabled={pending}>
             {pending ? "Saving…" : "Save changes"}
           </button>
         </form>
-      ) : null}
+      </Modal>
     </div>
   );
 }
@@ -93,6 +97,7 @@ function EditableRow({
 export function EditableProductRow({
   id,
   version,
+  businessId,
   name,
   versionTag,
   status,
@@ -100,6 +105,7 @@ export function EditableProductRow({
 }: {
   id: string;
   version: number;
+  businessId: string;
   name: string;
   versionTag: string;
   status: string;
@@ -110,6 +116,8 @@ export function EditableProductRow({
       action={updateProductAction}
       id={id}
       version={version}
+      entity="Product"
+      recordLabel={businessId}
       fields={[
         { name: "name", label: "Name", defaultValue: name },
         { name: "versionTag", label: "Version", defaultValue: versionTag },
@@ -124,11 +132,13 @@ export function EditableProductRow({
 export function EditableModuleRow({
   id,
   version,
+  businessId,
   name,
   children
 }: {
   id: string;
   version: number;
+  businessId: string;
   name: string;
   children: React.ReactNode;
 }) {
@@ -137,6 +147,8 @@ export function EditableModuleRow({
       action={updateModuleAction}
       id={id}
       version={version}
+      entity="Module"
+      recordLabel={businessId}
       fields={[{ name: "name", label: "Name", defaultValue: name }]}
     >
       {children}
@@ -147,11 +159,13 @@ export function EditableModuleRow({
 export function EditableFeatureRow({
   id,
   version,
+  businessId,
   name,
   children
 }: {
   id: string;
   version: number;
+  businessId: string;
   name: string;
   children: React.ReactNode;
 }) {
@@ -160,6 +174,8 @@ export function EditableFeatureRow({
       action={updateFeatureAction}
       id={id}
       version={version}
+      entity="Feature"
+      recordLabel={businessId}
       fields={[{ name: "name", label: "Name", defaultValue: name }]}
     >
       {children}
@@ -170,11 +186,13 @@ export function EditableFeatureRow({
 export function EditableRequirementRow({
   id,
   version,
+  businessId,
   statement,
   children
 }: {
   id: string;
   version: number;
+  businessId: string;
   statement: string;
   children: React.ReactNode;
 }) {
@@ -183,6 +201,8 @@ export function EditableRequirementRow({
       action={updateRequirementAction}
       id={id}
       version={version}
+      entity="Requirement"
+      recordLabel={businessId}
       fields={[{ name: "statement", label: "Statement", defaultValue: statement }]}
     >
       {children}

@@ -1,7 +1,10 @@
 "use client";
 
-import { useActionState, useRef, useEffect } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { UserRoundPlus } from "lucide-react";
 import { FormNotice } from "@/ui/notice";
+import { Modal } from "@/ui/modal";
+import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
 import { createUserAction } from "./actions";
 
@@ -13,57 +16,79 @@ const ROLES = [
 ];
 
 /**
- * Account creation, QA-Lead-gated in the domain. The initial password is chosen here
- * and communicated out of band — the form clears it on success and never echoes it,
- * and neither the response nor the audit event carries credential material.
+ * Account creation in a modal, QA-Lead-gated in the domain. The initial password is
+ * chosen here and communicated out of band. On success the modal closes (taking the
+ * password out of the DOM with it) and a toast confirms; on failure the inline
+ * notice names the field.
  */
-export function AddPersonForm() {
+export function AddPersonModal() {
+  const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState<FormState, FormData>(createUserAction, null);
-  const formRef = useRef<HTMLFormElement>(null);
+  const toast = useToast();
   const wasPending = useRef(false);
 
-  // Reset the fields after a successful submit (state is null only then), so the
-  // password does not linger in the DOM and the form is ready for the next person.
   useEffect(() => {
-    if (wasPending.current && !pending && state === null) formRef.current?.reset();
+    if (wasPending.current && !pending && state === null && open) {
+      setOpen(false);
+      toast("Person added — share their initial password securely.");
+    }
     wasPending.current = pending;
-  }, [pending, state]);
+  }, [pending, state, open, toast]);
 
   const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
 
   return (
-    <form ref={formRef} action={formAction}>
-      <FormNotice state={state} />
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
-        <label className={bad("displayName")}>
-          <span>Name</span>
-          <input name="displayName" autoComplete="off" required disabled={pending} />
-        </label>
-        <label className={bad("email")}>
-          <span>Email</span>
-          <input name="email" type="email" autoComplete="off" required disabled={pending} />
-        </label>
-        <label className={bad("role")}>
-          <span>Role</span>
-          <select name="role" defaultValue="QA_TESTER" disabled={pending}>
-            {ROLES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={bad("password")}>
-          <span>Initial password</span>
-          <input name="password" type="password" autoComplete="new-password" required minLength={8} disabled={pending} />
-          <span className="hint">At least 8 characters. Share it with them securely.</span>
-        </label>
-      </div>
-
-      <button className="btn" type="submit" disabled={pending}>
-        {pending ? "Adding…" : "Add person"}
+    <>
+      <button type="button" className="btn" onClick={() => setOpen(true)}>
+        <UserRoundPlus size={14} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
+        Add person
       </button>
-    </form>
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Add a person"
+        description="Enter their details and an initial password to share with them securely."
+      >
+        <form action={formAction}>
+          <FormNotice state={state} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
+            <label className={bad("displayName")}>
+              <span>Name</span>
+              <input name="displayName" autoComplete="off" required disabled={pending} autoFocus />
+            </label>
+            <label className={bad("email")}>
+              <span>Email</span>
+              <input name="email" type="email" autoComplete="off" required disabled={pending} />
+            </label>
+            <label className={bad("role")}>
+              <span>Role</span>
+              <select name="role" defaultValue="QA_TESTER" disabled={pending}>
+                {ROLES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={bad("password")}>
+              <span>Initial password</span>
+              <input
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                disabled={pending}
+              />
+              <span className="hint">At least 8 characters.</span>
+            </label>
+          </div>
+          <button className="btn" type="submit" disabled={pending}>
+            {pending ? "Adding…" : "Add person"}
+          </button>
+        </form>
+      </Modal>
+    </>
   );
 }

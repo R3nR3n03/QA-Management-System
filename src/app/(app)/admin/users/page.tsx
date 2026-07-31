@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { listUsers } from "@/domain/admin";
 import { requireSession } from "@/ui/session";
 import { roleLabel } from "@/ui/navigation";
-import { AddPersonForm } from "./AddPersonForm";
+import { AddPersonModal } from "./AddPersonForm";
 import { EditPersonForm } from "./EditPersonForm";
 import { RoleForm } from "./RoleForm";
 
@@ -24,18 +24,15 @@ export default async function UsersPage() {
 
   return (
     <>
-      <h1>People</h1>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
+        <h1 style={{ flex: 1 }}>People</h1>
+        <AddPersonModal />
+      </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         Every permission is enforced server-side from the session; changing a role here changes what
         that person can do everywhere, and every change is audited.
       </p>
 
-      <h2>Add a person</h2>
-      <div className="card" style={{ marginBottom: "var(--sp-6)" }}>
-        <AddPersonForm />
-      </div>
-
-      <h2>Everyone</h2>
       <div className="card" style={{ padding: 0 }}>
         {users.map((user) => (
           <div

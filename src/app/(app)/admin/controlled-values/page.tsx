@@ -2,7 +2,7 @@ import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listControlledValues } from "@/domain/admin";
 import { requireSession } from "@/ui/session";
-import { AddValueForm } from "./AddValueForm";
+import { AddValueModal } from "./AddValueForm";
 import { ToggleForm } from "./ToggleForm";
 
 export const dynamic = "force-dynamic";
@@ -17,16 +17,14 @@ export default async function ControlledValuesPage() {
 
   return (
     <>
-      <h1>Controlled values</h1>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
+        <h1 style={{ flex: 1 }}>Controlled values</h1>
+        <AddValueModal />
+      </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         Deactivating a value stops new records from using it; existing records keep it. The workbook
         seed never reactivates a value deactivated here.
       </p>
-
-      <h2>Add a value</h2>
-      <div className="card" style={{ marginBottom: "var(--sp-6)" }}>
-        <AddValueForm />
-      </div>
 
       {catalogues.map((catalogue) => (
         <div key={catalogue}>
@@ -51,7 +49,13 @@ export default async function ControlledValuesPage() {
                   <span className={row.active ? "state state-pass" : "state"}>
                     {row.active ? "Active" : "Inactive"}
                   </span>
-                  <ToggleForm id={row.id} version={row.version} active={row.active} />
+                  <ToggleForm
+                    id={row.id}
+                    version={row.version}
+                    active={row.active}
+                    catalogue={row.catalogue}
+                    value={row.value}
+                  />
                 </div>
               ))}
           </div>

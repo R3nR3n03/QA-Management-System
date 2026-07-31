@@ -70,6 +70,16 @@ token must be defined in all three blocks.
 | Breadcrumbs | `.crumbs` (`Breadcrumbs`) | detail screens only; current record is text with `aria-current` |
 | Empty state | `.empty` | one calm sentence + the action that fills it |
 | Sidebar | `.rail*`, `.nav-link`, `.nav-badge` | see `src/ui/sidebar.tsx`; badges are domain read models |
+| Modal | `Modal` (`src/ui/modal.tsx`), `.modal*` | native `<dialog>` (focus trap, Escape, inert page, focus return are the platform's); sizes sm/md/lg; sticky head/foot, scrollable body; full-sheet under 560px; backdrop click closes only when `closeOnBackdrop` (entry forms: no — typed input outlives a stray click) |
+| Confirm dialog | `ConfirmDialog` | warning icon + consequence + the named record + Cancel; the committing control is a caller-supplied server-action form. Used where one click removes availability (deactivate person, deactivate value) |
+| Toast | `ToastProvider`/`useToast` (`src/ui/toast.tsx`), `.toast*` | SUCCESSES ONLY — fires when a modal closes itself and takes its inline notice with it. Failures always stay inline (`FormNotice`) naming the field. Polite live region, 4s auto-dismiss, no actions |
+
+**Modal vs. page rule:** a create/edit flow lives in a modal when the hosting screen already
+has everything the form needs (catalogue add/edit, add person, edit person, add value); it stays
+a page when the form is long enough to have sections (new test case) or needs its own reference
+data fetch (new defect, plan execution). Detail-screen lifecycle actions (approve, retire,
+transition, reassign, finalize) stay inline on the record — they are the record's story, not a
+data-entry interruption.
 
 Component modules: `sidebar.tsx`, `case-table.tsx`, `record-list.tsx`, `chips.tsx`, `notice.tsx`,
 `breadcrumbs.tsx`, `action.ts` (FormState contract), `navigation.ts` (the ratified screen inventory).

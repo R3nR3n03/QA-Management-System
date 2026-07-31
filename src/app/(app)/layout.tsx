@@ -5,6 +5,7 @@ import { openAssignedExecutionCount } from "@/domain/executions";
 import { reviewQueueCount } from "@/domain/test-cases";
 import { navGroupsFor, roleLabel } from "@/ui/navigation";
 import { Sidebar } from "@/ui/sidebar";
+import { ToastProvider } from "@/ui/toast";
 import { requireSession } from "@/ui/session";
 import { signOut } from "../login/actions";
 
@@ -50,7 +51,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         signOutAction={signOut}
       />
       <main id="main" className="shell-main">
-        {children}
+        <ToastProvider>{children}</ToastProvider>
       </main>
     </div>
   );
