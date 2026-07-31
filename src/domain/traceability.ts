@@ -77,7 +77,10 @@ export async function createRtmLink(input: {
 
 export async function dashboardSnapshot() {
   const [products, testCases, executions, defects] = await Promise.all([
-    prisma.product.count({ where: { status: { not: { equals: "Retired", mode: "insensitive" } } } }),
+    // `mode: "insensitive"` belongs beside `equals`, not nested inside `not: {}` —
+    // Prisma rejects the nested form with "Unknown argument `mode`", which made this
+    // whole endpoint a 500. Negate with a top-level NOT instead.
+    prisma.product.count({ where: { NOT: { status: { equals: "Retired", mode: "insensitive" } } } }),
     prisma.testCase.count({ where: { lifecycleState: { not: "RETIRED" } } }),
     prisma.testExecution.groupBy({ by: ["result"], _count: true, where: { state: "FINALIZED" } }),
     prisma.defect.groupBy({ by: ["severity"], _count: true, where: { status: { not: "CLOSED" } } })
