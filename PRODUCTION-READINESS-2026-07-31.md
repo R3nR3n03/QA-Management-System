@@ -32,7 +32,7 @@ None of it was a criticism of the sequencing — the project built the domain fi
 | | Count | Open findings | Meaning |
 |---|---|---|---|
 | **BLOCKER** | 0 *(was 9)* | — | Must be resolved before any deployment reachable by real users |
-| **HIGH** | 5 | B3, C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
+| **HIGH** | 4 | C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
 | **MEDIUM** | 9 | B4, B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
 | **MISSING** | 5 | F1–F5 | Documented or implied functionality that does not exist yet |
 
@@ -384,7 +384,19 @@ duplicate business ID returns 500 where `docs/business-rules-and-validation.md:5
 **Fix.** ~15 lines in `asErrorResponse`: `P2002` → `409 ID_DUPLICATE` (field from `err.meta.target`),
 `P2025` → `409 VERSION_CONFLICT`, `P2003` → `422 REFERENCE_NOT_FOUND`. Prerequisite for a clean B1.
 
-### B3. HIGH · The RTM uniqueness constraint does not work for the common case
+### B3. ~~HIGH~~ **RESOLVED 2026-07-31** · The RTM uniqueness constraint does not work for the common case
+
+> **Fixed in `66b7871`.** Migration `20260731110000_rtm_unique_nulls_not_distinct` recreates
+> the index with `NULLS NOT DISTINCT` (PostgreSQL 15+; this database is 18.4) — one object
+> stating the intent, rather than the partial-index pair the finding suggested. Prisma has
+> no syntax for it, so `schema.prisma` carries a comment pointing at the migration; verified
+> that `prisma migrate dev` does not report the rewritten index as drift.
+>
+> `createRtmLink` also gained the service-level duplicate pre-check, deliberately not
+> race-safe on its own: the index is what stops a concurrent second caller, surfacing as
+> `409 ID_DUPLICATE` through the B2 mapping.
+
+The original finding follows.
 
 **CODE-READ** — `prisma/schema.prisma:277`: `@@unique([requirementId, testCaseId, defectId])` with
 `defectId String?`.
@@ -716,7 +728,7 @@ Ordered by dependency, not by severity alone.
 15. **F1, the workbook import** (audit `feature/workbook-import` first).
 16. **E1, pagination** — needs the QA Lead decision in E1's note first.
 17. **F5, the web interface** — needs the five decisions in §5.10 of the implementation audit.
-18. **B4, B3, F4, E2, E3, D3, D4.**
+18. **B4, F4, E2, E3, D3, D4.** *(B3 resolved 2026-07-31.)*
 
 **Standing escalations to the QA Lead** — none of these may be resolved by implementation choice:
 the reconciliation policy (F2), the "documented fields" for filtering (E1), backup retention (B5),
