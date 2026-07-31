@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, sessionCookieOptions } from "./session";
+import {
+  DEFAULT_SESSION_TTL_HOURS,
+  isSessionRevoked,
+  parseSessionToken,
+  parseSessionTtlHours,
+  SESSION_COOKIE_NAME,
+  sessionCookieOptions,
+  sessionTtlMs
+} from "./session";
 
 /**
- * Covers only `sessionCookieOptions`, which is pure. The token functions read
- * `SESSION_SECRET` and are not exercised here.
+ * Covers the pure surface: cookie options, token shape, revocation and the TTL parser.
+ * Signature verification reads `SESSION_SECRET` and is exercised against a running server
+ * instead — see `.relay/runs/2026-07-31-session-revocation/`.
  */
 describe("sessionCookieOptions", () => {
   it("is the one definition both call sites use", () => {
@@ -23,7 +32,6 @@ describe("sessionCookieOptions", () => {
       expect(options.sameSite).toBe("strict");
       expect(options.httpOnly).toBe(true);
       expect(options.path).toBe("/");
-      expect(options.maxAge).toBe(SESSION_MAX_AGE_SECONDS);
     }
   });
 
@@ -37,7 +45,106 @@ describe("sessionCookieOptions", () => {
     expect(sessionCookieOptions({}).secure).toBe(false);
   });
 
-  it("expires the cookie with the 12 hour session TTL", () => {
-    expect(SESSION_MAX_AGE_SECONDS).toBe(43200);
+  it("defaults to the 12 hour TTL, and tracks it when configured", () => {
+    expect(sessionCookieOptions({}).maxAge).toBe(43200);
+    // The cookie must not outlive the token it carries, so both read the same TTL.
+    expect(sessionCookieOptions({ SESSION_TTL_HOURS: "1" }).maxAge).toBe(3600);
+    expect(sessionCookieOptions({ SESSION_TTL_HOURS: "1" }).maxAge).toBe(
+      sessionTtlMs({ SESSION_TTL_HOURS: "1" }) / 1000
+    );
+  });
+});
+
+describe("parseSessionTtlHours", () => {
+  it("uses a configured value", () => {
+    expect(parseSessionTtlHours("1")).toBe(1);
+    expect(parseSessionTtlHours("0.5")).toBe(0.5);
+  });
+
+  /**
+   * Unusable input falls back to the default, and the default is the RESTRICTIVE direction:
+   * a typo can fail to shorten the session window, it can never lengthen it.
+   */
+  it("falls back to the default for anything unusable", () => {
+    for (const bad of [undefined, "", "   ", "abc", "0", "-1", "NaN", "Infinity"]) {
+      expect(parseSessionTtlHours(bad)).toBe(DEFAULT_SESSION_TTL_HOURS);
+    }
+  });
+
+  it("refuses to be configured into a longer-lived session than the default allows", () => {
+    // A2/A6 both exist to shrink exposure windows; a config typo must not widen this one
+    // without bound.
+    expect(parseSessionTtlHours("100000")).toBe(DEFAULT_SESSION_TTL_HOURS * 2);
+  });
+});
+
+describe("parseSessionToken", () => {
+  const token = "user-1.1000.2000.abcdef";
+
+  it("reads the four parts and exposes the signed payload", () => {
+    expect(parseSessionToken(token)).toEqual({
+      userId: "user-1",
+      issuedAt: 1000,
+      expiresAt: 2000,
+      signature: "abcdef",
+      payload: "user-1.1000.2000"
+    });
+  });
+
+  /**
+   * The pre-A6 token was `userId.expiresAt.signature` — three parts, carrying no issue time,
+   * so it cannot be checked against `sessionsValidFrom`. It is REJECTED rather than honoured,
+   * which signs everyone out once on deploy. That is the intended behaviour, not a
+   * regression, and this test is what stops someone "fixing" it by accepting three parts.
+   */
+  it("rejects the old three-part token instead of honouring it", () => {
+    expect(parseSessionToken("user-1.2000.abcdef")).toBeNull();
+  });
+
+  it("rejects malformed tokens", () => {
+    for (const bad of [
+      undefined,
+      null,
+      "",
+      "user-1",
+      "user-1.1000",
+      "user-1.1000.2000.sig.extra",
+      ".1000.2000.sig",
+      "user-1.notanumber.2000.sig",
+      "user-1.1000.notanumber.sig",
+      "user-1.1000.2000."
+    ]) {
+      expect(parseSessionToken(bad)).toBeNull();
+    }
+  });
+
+  // Shape only: it says nothing about authenticity, and must not be mistaken for a check.
+  it("does not validate the signature", () => {
+    expect(parseSessionToken("user-1.1000.2000.obviously-not-a-real-signature")).not.toBeNull();
+  });
+});
+
+describe("isSessionRevoked", () => {
+  it("treats a user who has never revoked as having no revoked sessions", () => {
+    expect(isSessionRevoked(1000, null)).toBe(false);
+    expect(isSessionRevoked(1000, undefined)).toBe(false);
+  });
+
+  it("refuses a token issued before the revocation instant", () => {
+    expect(isSessionRevoked(999, new Date(1000))).toBe(true);
+  });
+
+  it("allows a token issued after it", () => {
+    expect(isSessionRevoked(1001, new Date(1000))).toBe(false);
+  });
+
+  /**
+   * Strictly `<`, and this is the case that decides it. Logging out stamps
+   * `sessionsValidFrom = now`; a user who signs straight back in within the same millisecond
+   * gets a token whose `issuedAt` equals it. Under `<=` that token would be refused and they
+   * would be locked out of the session they just created.
+   */
+  it("allows a token issued in the same millisecond as the revocation", () => {
+    expect(isSessionRevoked(1000, new Date(1000))).toBe(false);
   });
 });

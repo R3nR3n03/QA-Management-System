@@ -2,12 +2,17 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { authenticate } from "@/domain/auth";
+import { authenticate, revokeSessions } from "@/domain/auth";
 import { AppError } from "@/lib/errors";
 import { logRequest } from "@/lib/logging";
 import { loginThrottle, throttleLogMessage, type ThrottleDimension } from "@/lib/login-throttle";
 import { requestMetadata } from "@/lib/request-metadata";
-import { createSessionCookieValue, SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/session";
+import {
+  createSessionCookieValue,
+  SESSION_COOKIE_NAME,
+  sessionCookieOptions,
+  verifySessionCookieValue
+} from "@/lib/session";
 import { errorCopy } from "@/ui/error-copy";
 
 export type LoginState = { title: string; detail: string } | null;
@@ -110,8 +115,49 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   redirect("/my-work");
 }
 
+/**
+ * Sign out from the UI. Same contract as `POST /api/v1/auth/logout` — clear the cookie AND
+ * revoke every token issued before now (A6) — because a user who signs out through the shell
+ * has exactly the same expectation as one who calls the API, and two doors that end sessions
+ * differently is the class of divergence that made the login throttle a three-round fix.
+ *
+ * Idempotent, and it never throws: the cookie is cleared first, a failed revocation is logged
+ * rather than surfaced, and the redirect happens regardless. `redirect()` signals by throwing,
+ * so it must stay outside the try.
+ */
 export async function signOut(): Promise<void> {
+  const startedAt = Date.now();
   const store = await cookies();
+  const session = verifySessionCookieValue(store.get(SESSION_COOKIE_NAME)?.value);
+
   store.delete(SESSION_COOKIE_NAME);
+
+  let revokeFailed: string | undefined;
+  if (session) {
+    try {
+      await revokeSessions(session.userId);
+    } catch (error) {
+      revokeFailed = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const { requestId } = await requestMetadata();
+  logRequest({
+    occurredAt: new Date().toISOString(),
+    requestId,
+    status: 204,
+    method: "POST",
+    path: "/login",
+    actorId: session?.userId,
+    action: "AUTH_LOGGED_OUT",
+    errorCode: revokeFailed ? "INTERNAL_ERROR" : undefined,
+    message: revokeFailed
+      ? `Cookie cleared but revocation failed; copies of this token remain valid until expiry: ${revokeFailed}`
+      : session
+        ? "Sessions revoked."
+        : "No valid session presented; cookie cleared.",
+    durationMs: Date.now() - startedAt
+  });
+
   redirect("/login");
 }

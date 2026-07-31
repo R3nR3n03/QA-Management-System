@@ -53,6 +53,12 @@ model User {
   updatedAt    DateTime @updatedAt
   updatedBy    String
 
+  /// Sessions issued before this instant are refused. Null means none have been revoked.
+  /// Infrastructure for A6 (session revocation), not a documented attribute -- see the
+  /// note in src/lib/session.ts on why this is a column on User rather than a Session
+  /// entity, which docs/data-model.md does not establish.
+  sessionsValidFrom DateTime?
+
   executions TestExecution[] @relation("ExecutionTester")
 }
 

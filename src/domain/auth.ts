@@ -19,6 +19,31 @@ export type AuthenticatedUser = {
   role: import("@prisma/client").QamsRole;
 };
 
+/**
+ * Revoke every session this user currently holds (A6).
+ *
+ * Stamping `sessionsValidFrom` with the current instant refuses every token issued before
+ * it — every copy of the cookie, wherever it is — on its next request. That is the whole
+ * point: deleting the client's cookie, which is all logout did before, does nothing to a
+ * copy someone else is holding.
+ *
+ * Deliberately does NOT touch `version`. That column is the optimistic-concurrency token
+ * for `PATCH /users/{id}/role`; bumping it here would make an unrelated sign-out invalidate
+ * a QA Lead's in-flight role change with a spurious `VERSION_CONFLICT`.
+ *
+ * No `AuditEvent` either. `docs/business-rules-and-validation.md:50` requires audit events
+ * for role changes, configuration changes, imports, record creation, updates, lifecycle
+ * transitions and readiness decisions — a sign-out is none of those, and the login route
+ * already establishes the precedent that authentication events are recorded in the
+ * structured log rather than the audit trail.
+ */
+export async function revokeSessions(userId: string): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { sessionsValidFrom: new Date() }
+  });
+}
+
 /** The signed-in user's own details, for the application shell. */
 export async function profile(userId: string): Promise<AuthenticatedUser | null> {
   const user = await prisma.user.findUnique({
