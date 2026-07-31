@@ -1,3 +1,5 @@
+import { mapPrismaError } from "./prisma-errors";
+
 export type ErrorCode =
   | "ID_INVALID"
   | "ID_DUPLICATE"
@@ -38,6 +40,25 @@ export function asErrorResponse(err: unknown, requestId: string): Response {
         }
       },
       { status: err.status }
+    );
+  }
+
+  // A database constraint that fired instead of a service check. architecture.md:46 designs
+  // the database as the second line of defence; before this, every one of those became a
+  // 500 and the reason was discarded (B2). The message is a fixed string, never Prisma's,
+  // which embeds the failing query and its data.
+  const mapped = mapPrismaError(err);
+  if (mapped) {
+    return Response.json(
+      {
+        error: {
+          code: mapped.code,
+          message: mapped.message,
+          field: mapped.field,
+          requestId
+        }
+      },
+      { status: mapped.status }
     );
   }
 

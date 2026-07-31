@@ -1,6 +1,7 @@
 import { AppError } from "@/lib/errors";
 import { requireAuth } from "@/lib/auth";
 import { logRequest } from "@/lib/logging";
+import { mapPrismaError } from "@/lib/prisma-errors";
 import { requestMetadata } from "@/lib/request-metadata";
 import { errorCopy, type ErrorCopy } from "./error-copy";
 
@@ -70,14 +71,21 @@ export async function runAction<T>(
     return { ok: true, data };
   } catch (error) {
     const isApp = error instanceof AppError;
+    // Same B2 translation the API boundary does, so a database constraint reads the same
+    // whether it was hit through a screen or through `/api/v1`. Without this a raced
+    // duplicate ID renders as "Something broke on our side" — which is both wrong and
+    // unactionable, when the useful sentence is "that ID is already taken".
+    const mapped = isApp ? null : mapPrismaError(error);
 
     logRequest({
       occurredAt: new Date().toISOString(),
       requestId,
-      status: isApp ? error.status : 500,
+      status: isApp ? error.status : (mapped?.status ?? 500),
       actorId,
       action: "SERVER_ACTION",
-      errorCode: isApp ? error.code : "INTERNAL_ERROR",
+      errorCode: isApp ? error.code : (mapped?.code ?? "INTERNAL_ERROR"),
+      // The ORIGINAL error text, including Prisma's, stays in the log — it is the developer
+      // record. Only the caller is given the fixed message.
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
       durationMs: Date.now() - startedAt
@@ -93,6 +101,18 @@ export async function runAction<T>(
         requestId
       };
     }
+
+    if (mapped) {
+      return {
+        ok: false,
+        code: mapped.code,
+        field: mapped.field,
+        message: mapped.message,
+        copy: errorCopy(mapped.code, mapped.field),
+        requestId
+      };
+    }
+
     return {
       ok: false,
       code: "INTERNAL_ERROR",
