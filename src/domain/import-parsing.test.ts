@@ -22,10 +22,21 @@ describe("SHEET_SPECS", () => {
     expect(sheets).not.toContain("Dashboard");
   });
 
-  it("marks only RTM Bug ID and Execution Result/Bug as optional data fields", () => {
+  it("marks RTM Bug ID, Execution Result/Bug and the legacy Execution Status as optional", () => {
     expect([...SHEET_SPECS.rtm.optionalFields]).toEqual(["Bug ID"]);
     expect([...SHEET_SPECS.testExecution.optionalFields]).toEqual(["Result", "Bug"]);
-    expect(SHEET_SPECS.testRepository.optionalFields).toHaveLength(0);
+    // excel-source-map.md:16 - Execution Status seeds "only a legacy summary" and
+    // creates no execution, so a blank cell must not discard the whole test case.
+    expect([...SHEET_SPECS.testRepository.optionalFields]).toEqual(["Execution Status"]);
+  });
+
+  it("keeps every documented header required even where the cell may be blank", () => {
+    // Optional means the CELL may be blank, never that the COLUMN may be absent.
+    for (const spec of Object.values(SHEET_SPECS)) {
+      for (const optional of spec.optionalFields) {
+        expect(spec.requiredHeaders).toContain(optional);
+      }
+    }
   });
 });
 
@@ -178,6 +189,75 @@ describe("parseHistoryDate", () => {
     expect(parseHistoryDate("not a date")).toBeNull();
     expect(parseHistoryDate(null)).toBeNull();
     expect(parseHistoryDate(new Date("invalid"))).toBeNull();
+  });
+
+  /**
+   * The reason this parser is narrow. `new Date("01/02/2026")` succeeds in every
+   * locale and means a different day depending on the locale, so an ambiguous cell
+   * used to produce a plausible, wrong, immutable occurredAt with nothing to report.
+   * Rejection is recoverable; a wrong date in append-only history is not.
+   */
+  it("rejects locale-ambiguous formats rather than guessing a day", () => {
+    for (const ambiguous of ["01/02/2026", "1/2/2026", "01-02-2026", "02.01.2026"]) {
+      expect(parseHistoryDate(ambiguous)).toBeNull();
+    }
+  });
+
+  it("rejects prose dates that Date would happily accept", () => {
+    for (const prose of ["March 4 2026", "4 March 2026", "Mar 4, 2026", "2026/03/04"]) {
+      expect(parseHistoryDate(prose)).toBeNull();
+    }
+  });
+
+  it("accepts the ISO shapes a workbook actually produces", () => {
+    expect(parseHistoryDate("2026-03-04")?.toISOString()).toBe("2026-03-04T00:00:00.000Z");
+    expect(parseHistoryDate("2026-03-04T05:06:07Z")?.toISOString()).toBe("2026-03-04T05:06:07.000Z");
+    expect(parseHistoryDate("2026-03-04T05:06:07.123Z")?.toISOString()).toBe(
+      "2026-03-04T05:06:07.123Z"
+    );
+    // Space separator, as a text cell often carries.
+    expect(parseHistoryDate("2026-03-04 05:06:07")?.toISOString()).toBe("2026-03-04T05:06:07.000Z");
+  });
+
+  it("honours an explicit offset", () => {
+    expect(parseHistoryDate("2026-03-04T05:06:07+02:00")?.toISOString()).toBe(
+      "2026-03-04T03:06:07.000Z"
+    );
+  });
+
+  /**
+   * Without this, `2026-03-04T05:06` is read in the server's local zone and the same
+   * workbook imports to different instants on different machines.
+   */
+  it("treats a time with no offset as UTC, so the result cannot depend on the server", () => {
+    expect(parseHistoryDate("2026-03-04T05:06")?.toISOString()).toBe("2026-03-04T05:06:00.000Z");
+    expect(parseHistoryDate("2026-03-04T05:06:07")?.toISOString()).toBe("2026-03-04T05:06:07.000Z");
+  });
+
+  /**
+   * Date does NOT reject an impossible calendar day: new Date("2026-02-30") rolls
+   * over to 2026-03-02. A workbook typo would become a different, plausible,
+   * immutable timestamp. The day is validated from the digits instead.
+   */
+  it("rejects an ISO-shaped but impossible date rather than rolling it over", () => {
+    expect(parseHistoryDate("2026-02-30")).toBeNull();
+    expect(parseHistoryDate("2026-13-01")).toBeNull();
+    expect(parseHistoryDate("2026-04-31")).toBeNull();
+    expect(parseHistoryDate("2026-01-00")).toBeNull();
+  });
+
+  it("gets leap years right", () => {
+    // 2028 is a leap year, 2026 is not.
+    expect(parseHistoryDate("2028-02-29")?.toISOString()).toBe("2028-02-29T00:00:00.000Z");
+    expect(parseHistoryDate("2026-02-29")).toBeNull();
+    // Century rule: 2000 was a leap year, 1900 was not.
+    expect(parseHistoryDate("2000-02-29")?.toISOString()).toBe("2000-02-29T00:00:00.000Z");
+    expect(parseHistoryDate("1900-02-29")).toBeNull();
+  });
+
+  it("rejects an impossible time", () => {
+    expect(parseHistoryDate("2026-03-04T25:00")).toBeNull();
+    expect(parseHistoryDate("2026-03-04T12:61")).toBeNull();
   });
 });
 

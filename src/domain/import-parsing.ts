@@ -61,7 +61,14 @@ export const SHEET_SPECS = {
       "Expected Result",
       "Execution Status"
     ],
-    optionalFields: []
+    // The COLUMN must exist (it is part of the documented header set), but a blank
+    // CELL must not discard the test case. `docs/excel-source-map.md:16` describes
+    // Execution Status as seeding "only a legacy summary; it does not create an
+    // execution" — so a row missing only that annotation is not the "partially
+    // populated" row `docs/business-rules-and-validation.md:43` reserves
+    // ROW_INCOMPLETE for. Treating it as mandatory silently dropped otherwise valid
+    // test cases.
+    optionalFields: ["Execution Status"]
   },
   testSteps: {
     sheet: "Test Steps",
@@ -188,9 +195,31 @@ export function extractRows(
 }
 
 /**
- * Parse an Execution History `Date` cell. Handles Date objects (cellDates: true),
- * ISO/parsable strings, and raw Excel serial numbers. Returns null when the value is
- * blank or not a date.
+ * ISO-8601 date, optionally with a time and an offset. Deliberately narrow — see
+ * `parseHistoryDate`.
+ */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
+ * Parse an Execution History `Date` cell: `Date` objects (from `cellDates: true`),
+ * Excel serial numbers, and **ISO-8601 strings only**. Anything else returns null,
+ * which the importer reports as a rejected row.
+ *
+ * WHY STRINGS ARE RESTRICTED. This used to call `new Date(trimmed)` on any string.
+ * For non-ISO input that is implementation-defined: `"01/02/2026"` parses as 2 January
+ * in a US locale and 1 February in most others, and **both succeed** — so there was no
+ * error to report and no way to notice. The value becomes `occurredAt` on an
+ * `ExecutionHistory` row, which `docs/data-model.md:48` makes immutable. A silently
+ * wrong timestamp in an append-only audit record is worse than a rejected row:
+ * a rejection is recoverable by fixing the workbook, a wrong date is not.
+ *
+ * A rejected row still names the offending value, so an ambiguous format is a
+ * fixable, visible problem rather than a silent corruption.
+ *
+ * DETERMINISM. A time with no offset (`2026-03-04T05:06`) is interpreted by JS in the
+ * server's local zone, which would make an import's result depend on where it ran.
+ * Such values are treated as UTC. A date with no time is already UTC midnight per the
+ * ECMAScript spec.
  */
 export function parseHistoryDate(value: unknown): Date | null {
   if (value instanceof Date) {
@@ -203,7 +232,27 @@ export function parseHistoryDate(value: unknown): Date | null {
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
-    const parsed = new Date(trimmed);
+
+    const match = ISO_DATE.exec(trimmed);
+    if (!match) return null;
+
+    // The calendar day is checked BEFORE constructing a Date, because Date does not
+    // reject an impossible one -- `new Date("2026-02-30")` silently ROLLS OVER to
+    // 2026-03-02. A typo in a workbook would otherwise become a different, entirely
+    // plausible immutable timestamp, which is the exact failure this parser exists to
+    // prevent. Checked from the digits so an explicit offset cannot shift the day and
+    // cause a false rejection.
+    const [year, month, day] = trimmed.slice(0, 10).split("-").map(Number);
+    if (month < 1 || month > 12) return null;
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (day < 1 || day > daysInMonth) return null;
+
+    const hasTime = /[T ]\d{2}:/.test(trimmed);
+    const hasOffset = Boolean(match[1]);
+    const normalized = trimmed.replace(" ", "T") + (hasTime && !hasOffset ? "Z" : "");
+
+    // Date still owns time-component validation (T25:00 and similar).
+    const parsed = new Date(normalized);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
