@@ -558,6 +558,47 @@ describe("People", () => {
     expect(JSON.stringify(audit?.beforeAfterJson)).not.toContain(stored?.passwordHash ?? "@@never@@");
   });
 
+  it("changing one's own password: wrong current 403, hash rotates, other sessions revoked, no material in the audit", async () => {
+    const { changeOwnPassword } = await import("@/domain/auth");
+    const { verifyPassword } = await import("@/lib/password");
+    const { isSessionRevoked } = await import("@/lib/session");
+    const person = await prisma.user.findUnique({ where: { email: "new.person@acceptance.local" } });
+    const beforeChange = Date.now() - 1;
+
+    await expectAppError(
+      changeOwnPassword(person!.id, { currentPassword: "wrong-password", newPassword: "rotated-pw-999" }, REQ),
+      403,
+      "UNAUTHORIZED"
+    );
+    await expectAppError(
+      changeOwnPassword(person!.id, { currentPassword: "long-enough-pw", newPassword: "seven77" }, REQ),
+      422,
+      "ID_INVALID"
+    );
+
+    const { issuedAtMs } = await changeOwnPassword(
+      person!.id,
+      { currentPassword: "long-enough-pw", newPassword: "rotated-pw-999" },
+      REQ
+    );
+
+    const after = await prisma.user.findUnique({ where: { id: person!.id } });
+    expect(verifyPassword("rotated-pw-999", after!.passwordHash)).toBe(true);
+    expect(verifyPassword("long-enough-pw", after!.passwordHash)).toBe(false);
+    // A session issued before the change is dead; one stamped with the change instant lives.
+    expect(isSessionRevoked(beforeChange, after!.sessionsValidFrom)).toBe(true);
+    expect(isSessionRevoked(issuedAtMs, after!.sessionsValidFrom)).toBe(false);
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: "USER_PASSWORD_CHANGED", entityId: person!.id }
+    });
+    expect(audit?.actorId).toBe(person!.id);
+    const payload = JSON.stringify(audit?.beforeAfterJson);
+    expect(payload).not.toContain("rotated-pw-999");
+    expect(payload).not.toContain("long-enough-pw");
+    expect(payload).not.toContain(after!.passwordHash);
+  });
+
   it("a duplicate email is refused with 409, and a short password with 422", async () => {
     await expectAppError(
       createUser(

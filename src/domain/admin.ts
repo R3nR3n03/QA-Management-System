@@ -2,7 +2,7 @@ import { QamsRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
-import { hashPassword } from "@/lib/password";
+import { hashPassword, MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
@@ -73,14 +73,6 @@ export const USER_RESPONSE_SELECT = {
   active: true,
   version: true
 } as const;
-
-/**
- * Deployment default, not policy: `docs/` defines no password rules, and inventing a
- * full complexity policy here would be exactly the gap-filling the SSOT rule forbids.
- * A bare floor against empty and trivial passwords is the minimum the credential store
- * can honestly accept; the QA Lead should replace this with an approved policy.
- */
-const MIN_PASSWORD_LENGTH = 8;
 
 /**
  * Create a user account. `roles-workflows.md:16` makes user management a QA-Lead

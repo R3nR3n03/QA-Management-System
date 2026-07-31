@@ -6,7 +6,7 @@ Base path: `/api/v1`. JSON requests and responses use camelCase. Collection endp
 
 | Resource | Endpoints |
 | --- | --- |
-| Authentication | `POST /auth/login` verifies email/password and issues a server-side session cookie; `POST /auth/logout` clears it. No endpoint creates a user in v1; accounts are provisioned outside the API. |
+| Authentication | `POST /auth/login` verifies email/password and issues a server-side session cookie; `POST /auth/logout` clears it. `POST /users/me/password` changes the caller's own password after verifying the current one, revokes every other session, and re-issues the caller's session. Accounts are created by the QA Lead via `POST /users`. |
 | Catalogue | `GET/POST /products`, `GET/PATCH /products/{id}` and equivalent modules, features, requirements |
 | Test design | `GET/POST /test-cases`, `GET/PATCH /test-cases/{id}`, `POST /test-cases/{id}/submit`, `POST /test-cases/{id}/approve`, `POST /test-cases/{id}/return-to-draft`, `POST /test-cases/{id}/retire` |
 | Steps | `PUT /test-cases/{id}/steps` replaces the complete validated ordered step set while case is Draft |

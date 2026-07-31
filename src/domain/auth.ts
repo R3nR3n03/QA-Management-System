@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db";
+import { appendAudit } from "@/lib/audit";
 import { AppError } from "@/lib/errors";
-import { verifyPassword } from "@/lib/password";
+import { hashPassword, MIN_PASSWORD_LENGTH, verifyPassword } from "@/lib/password";
+import { assertWithinRateLimit, authLimiter } from "@/lib/rate-limit";
+import { requireNonBlank } from "@/lib/validation";
 
 /**
  * Credential check, extracted so the web interface does not have to reach for
@@ -51,6 +54,74 @@ export async function profile(userId: string): Promise<AuthenticatedUser | null>
     select: { id: true, email: true, displayName: true, role: true }
   });
   return user;
+}
+
+/**
+ * Self-service password change. No role gate on purpose: every role manages its own
+ * credential and only its own — the target is always the authenticated caller, never
+ * a parameter, so this cannot become an admin path by accident.
+ *
+ * On success every OTHER session dies: `sessionsValidFrom` is stamped inside the same
+ * transaction as the new hash, so a stolen cookie stops working the moment the
+ * password changes — which is the main reason people change passwords. The caller is
+ * kept signed in by issuing a fresh cookie stamped with the SAME instant (equal
+ * `issuedAt` passes `isSessionRevoked`); the returned `issuedAtMs` exists for that.
+ *
+ * The verify is throttled through `authLimiter` on failures only, keyed to the
+ * account: this endpoint takes a password guess like login does
+ * (`api-and-security.md:43` requires auth endpoints be rate limited), but a
+ * successful change must never count toward a lockout.
+ *
+ * The audit event records that the credential changed and that sessions were
+ * revoked — never the password, the hash, or anything derivable from them.
+ */
+export async function changeOwnPassword(
+  userId: string,
+  input: { currentPassword: string; newPassword: string },
+  requestId: string
+): Promise<{ issuedAtMs: number }> {
+  requireNonBlank(input.currentPassword, "currentPassword", "Your current password is required.");
+  requireNonBlank(input.newPassword, "newPassword", "A new password is required.");
+  if (input.newPassword.length < MIN_PASSWORD_LENGTH) {
+    throw new AppError(
+      422,
+      "ID_INVALID",
+      `The new password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      "newPassword"
+    );
+  }
+
+  const throttleKey = `password-change:user:${userId}`;
+  assertWithinRateLimit(authLimiter.peek(throttleKey));
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.active) {
+    throw new AppError(403, "UNAUTHORIZED", "Invalid credentials.");
+  }
+  if (!verifyPassword(input.currentPassword, user.passwordHash)) {
+    assertWithinRateLimit(authLimiter.consume(throttleKey));
+    throw new AppError(403, "UNAUTHORIZED", "Your current password is incorrect.", "currentPassword");
+  }
+
+  const now = new Date();
+  const passwordHash = hashPassword(input.newPassword);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
+      data: { passwordHash, sessionsValidFrom: now }
+    });
+    await appendAudit(tx, {
+      actorId: userId,
+      action: "USER_PASSWORD_CHANGED",
+      entityType: "User",
+      entityId: userId,
+      requestId,
+      beforeAfterJson: { after: { credentialRotated: true, otherSessionsRevoked: true } }
+    });
+  });
+
+  return { issuedAtMs: now.getTime() };
 }
 
 export async function authenticate(email: string, password: string): Promise<AuthenticatedUser> {

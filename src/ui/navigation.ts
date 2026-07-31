@@ -62,6 +62,14 @@ export const NAV: readonly NavItem[] = [
     basis: "roles-workflows.md:12 - review and approve test cases"
   },
   {
+    href: "/account",
+    label: "My account",
+    group: "My work",
+    roles: EVERY_ROLE,
+    basis:
+      "NOT IN THE MATRIX - self-service credential change, owner-approved 2026-08-01; every role manages only its own credential (api-and-security.md:9)"
+  },
+  {
     href: "/test-cases",
     label: "Test cases",
     group: "Records",

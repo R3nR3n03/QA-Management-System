@@ -58,6 +58,8 @@ export type FormState = {
   field?: string;
   requestId?: string;
   advisory?: boolean;
+  /** A confirmation, not a failure — rendered calmly, and forms may reset on it. */
+  success?: boolean;
 } | null;
 
 /** Convert a failed ActionResult into the renderable form state. */

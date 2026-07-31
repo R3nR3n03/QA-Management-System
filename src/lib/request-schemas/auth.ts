@@ -18,3 +18,14 @@ export const loginSchema = z.strictObject({
   email: z.string(), // blankness checked by the route's own guard — auth/login/route.ts:12
   password: z.string() // emptiness checked by the route's own guard — auth/login/route.ts:12
 });
+
+/**
+ * POST /api/v1/users/me/password -> `changeOwnPassword`.
+ *
+ * Plain strings: blankness and the length floor are the domain's own 422s. `strictObject`
+ * blocks a smuggled `userId` — the target is always the authenticated caller.
+ */
+export const changeOwnPasswordSchema = z.strictObject({
+  currentPassword: z.string(),
+  newPassword: z.string()
+});

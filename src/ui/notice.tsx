@@ -8,8 +8,9 @@ import type { FormState } from "./action";
  */
 export function FormNotice({ state }: { state: FormState }) {
   if (!state) return null;
+  const calm = state.advisory || state.success;
   return (
-    <div className={state.advisory ? "notice notice-advisory" : "notice"} role="alert">
+    <div className={calm ? "notice notice-advisory" : "notice"} role={state.success ? "status" : "alert"}>
       <strong>{state.title}</strong>
       <span>{state.detail}</span>
       {state.requestId ? <code>Reference {state.requestId}</code> : null}
