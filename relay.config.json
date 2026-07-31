@@ -4,13 +4,16 @@
     "setup": "npm install && npm run prisma:generate",
     "build": "npm run build",
     "test": "npm run test",
-    "lint": "npm run lint"
+    "lint": "npm run lint",
+    "typecheck": "npm run typecheck"
   },
   "gates": {
-    "required": ["build", "lint", "test"]
+    "required": ["build", "lint", "test"],
+    "advisory": ["typecheck"]
   },
   "git": {
-    "defaultBranch": "main"
+    "defaultBranch": "main",
+    "coAuthor": true
   },
   "ship": { "stopAfter": "commit" }
 }
