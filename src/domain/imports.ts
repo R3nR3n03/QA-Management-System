@@ -1109,6 +1109,15 @@ async function importRtmLinks(ctx: ImportContext, data: ParsedSheet) {
   });
 }
 
+export async function getImportRun(id: string) {
+  const run = await prisma.importRun.findUnique({
+    where: { id },
+    include: { rows: { orderBy: [{ sourceSheet: "asc" }, { sourceRow: "asc" }] } }
+  });
+  if (!run) throw new AppError(404, "REFERENCE_NOT_FOUND", "Import run not found.", "id");
+  return run;
+}
+
 /**
  * Run a seed import.
  *

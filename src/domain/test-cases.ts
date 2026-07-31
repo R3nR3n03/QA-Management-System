@@ -36,6 +36,15 @@ export async function listTestCases() {
   });
 }
 
+export async function getTestCase(id: string) {
+  const row = await prisma.testCase.findUnique({
+    where: { id },
+    include: { steps: { orderBy: { sequence: "asc" } } }
+  });
+  if (!row) throw new AppError(404, "REFERENCE_NOT_FOUND", "Test case not found.", "id");
+  return row;
+}
+
 async function validateHierarchy(productId: string, moduleId: string, featureId: string, requirementId: string) {
   const requirement = await prisma.requirement.findUnique({
     where: { id: requirementId },

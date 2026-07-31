@@ -38,6 +38,15 @@ export async function listProducts() {
   return prisma.product.findMany({ orderBy: { businessId: "asc" } });
 }
 
+// The single-record getters exist so route handlers never touch the ORM directly
+// (`architecture.md:33`) and a missing record surfaces through the standard error
+// shape, requestId included (`api-and-security.md:22-31`) — implementation audit §4.2.
+export async function getProduct(id: string) {
+  const product = await prisma.product.findUnique({ where: { id } });
+  if (!product) throw new AppError(404, "REFERENCE_NOT_FOUND", "Product not found.", "id");
+  return product;
+}
+
 export async function createProduct(
   input: { businessId: string; name: string; versionTag: string; status: string },
   actor: Actor,
@@ -118,6 +127,12 @@ export async function updateProduct(
   }));
 }
 
+export async function getModule(id: string) {
+  const row = await prisma.module.findUnique({ where: { id } });
+  if (!row) throw new AppError(404, "REFERENCE_NOT_FOUND", "Module not found.", "id");
+  return row;
+}
+
 export async function listModules() {
   return prisma.module.findMany({ orderBy: { businessId: "asc" } });
 }
@@ -185,6 +200,12 @@ export async function updateModule(id: string, input: { name?: string; version?:
   }));
 }
 
+export async function getFeature(id: string) {
+  const row = await prisma.feature.findUnique({ where: { id } });
+  if (!row) throw new AppError(404, "REFERENCE_NOT_FOUND", "Feature not found.", "id");
+  return row;
+}
+
 export async function listFeatures() {
   return prisma.feature.findMany({ orderBy: { businessId: "asc" } });
 }
@@ -250,6 +271,12 @@ export async function updateFeature(id: string, input: { name?: string; version?
     });
     return updated;
   }));
+}
+
+export async function getRequirement(id: string) {
+  const row = await prisma.requirement.findUnique({ where: { id } });
+  if (!row) throw new AppError(404, "REFERENCE_NOT_FOUND", "Requirement not found.", "id");
+  return row;
 }
 
 export async function listRequirements() {

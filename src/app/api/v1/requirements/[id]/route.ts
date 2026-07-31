@@ -1,5 +1,4 @@
-import { prisma } from "@/lib/db";
-import { updateRequirement } from "@/domain/catalogue";
+import { getRequirement, updateRequirement } from "@/domain/catalogue";
 import { parseWith } from "@/lib/request";
 import { updateRequirementSchema } from "@/lib/request-schemas/catalogue";
 import { withRoute } from "@/lib/route";
@@ -9,13 +8,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: Request, context: Params) {
   return withRoute(request, async () => {
     const { id } = await context.params;
-    const row = await prisma.requirement.findUnique({ where: { id } });
-    return row
-      ? Response.json(row)
-      : Response.json(
-          { error: { code: "REFERENCE_NOT_FOUND", message: "Requirement not found." } },
-          { status: 404 }
-        );
+    return Response.json(await getRequirement(id));
   });
 }
 

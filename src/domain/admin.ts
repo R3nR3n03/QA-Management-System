@@ -2,6 +2,7 @@ import { QamsRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
+import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 
@@ -11,10 +12,15 @@ export async function listControlledValues() {
   });
 }
 
+// The QA-Lead gates below live HERE, not in the routes. `docs/api-and-security.md:38`
+// requires the role/action matrix be enforced in domain services; these two were the
+// last services gated only at the route, so any non-HTTP caller reached privileged
+// mutation with no authorization at all (implementation audit §5.9).
 export async function updateControlledValue(
   id: string,
-  input: { active: boolean; version?: number; actorId: string; requestId: string }
+  input: { active: boolean; version?: number; actorId: string; actorRole: QamsRole; requestId: string }
 ) {
+  ensureRole([...RoleSets.canAdmin], input.actorRole);
   const current = await prisma.controlledValue.findUnique({ where: { id } });
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Controlled value not found.", "id");
   const expectedVersion = ensureVersion(current.version, input.version);
@@ -67,10 +73,24 @@ export const USER_RESPONSE_SELECT = {
   version: true
 } as const;
 
+export async function getUserRole(id: string, actorRole: QamsRole) {
+  // Same gate as the mutation: the role endpoint pair is a QA-Lead capability
+  // (`roles-workflows.md:16`), and the projection keeps the response to the
+  // documented fields (`api-and-security.md:16` lists GET alongside PATCH).
+  ensureRole([...RoleSets.canAdmin], actorRole);
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { ...USER_RESPONSE_SELECT }
+  });
+  if (!user) throw new AppError(404, "REFERENCE_NOT_FOUND", "User not found.", "id");
+  return user;
+}
+
 export async function updateUserRole(
   id: string,
-  input: { role: QamsRole; version?: number; actorId: string; requestId: string }
+  input: { role: QamsRole; version?: number; actorId: string; actorRole: QamsRole; requestId: string }
 ) {
+  ensureRole([...RoleSets.canAdmin], input.actorRole);
   const user = await prisma.user.findUnique({
     where: { id },
     select: { ...USER_RESPONSE_SELECT }

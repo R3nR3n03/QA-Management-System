@@ -15,6 +15,12 @@ export async function listDefects() {
   return prisma.defect.findMany({ orderBy: { createdAt: "desc" } });
 }
 
+export async function getDefect(id: string) {
+  const row = await prisma.defect.findUnique({ where: { id } });
+  if (!row) throw new AppError(404, "REFERENCE_NOT_FOUND", "Defect not found.", "id");
+  return row;
+}
+
 export async function createDefect(
   input: { businessId: string; testCaseId: string; summary: string; priority?: string; severity?: string },
   actor: Actor
@@ -187,13 +193,28 @@ export async function transitionDefect(
         updatedBy: actor.userId
       }
     });
+    // The transition rationales belong in the event, not only on the record.
+    // roles-workflows.md:49 requires the reopen reason be *recorded*, and it has no
+    // column — this payload is the only place it survives at all. The other three
+    // do reach columns, but business-rules-and-validation.md:50 asks the audit event
+    // for a before/after summary, and a transition's "why" is the heart of that.
     await appendAudit(tx, {
       actorId: actor.userId,
       action: "DEFECT_TRANSITIONED",
       entityType: "Defect",
       entityId: defectId,
       requestId: actor.requestId,
-      beforeAfterJson: { before: { status: defect.status }, after: { status: updated.status } }
+      beforeAfterJson: {
+        before: { status: defect.status },
+        after: {
+          status: updated.status,
+          ...(input.investigationOwnerId?.trim() && { investigationOwnerId: input.investigationOwnerId.trim() }),
+          ...(input.resolutionSummary?.trim() && { resolutionSummary: input.resolutionSummary.trim() }),
+          ...(input.retestEvidenceRef?.trim() && { retestEvidenceRef: input.retestEvidenceRef.trim() }),
+          ...(input.closureRationale?.trim() && { closureRationale: input.closureRationale.trim() }),
+          ...(input.reopenReason?.trim() && { reopenReason: input.reopenReason.trim() })
+        }
+      }
     });
     return updated;
   }));

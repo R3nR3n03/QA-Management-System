@@ -2,7 +2,6 @@ import { listControlledValues, updateControlledValue } from "@/domain/admin";
 import { parseWith } from "@/lib/request";
 import { updateControlledValueSchema } from "@/lib/request-schemas/admin";
 import { withRoute } from "@/lib/route";
-import { ensureRole, RoleSets } from "@/lib/rbac";
 
 export async function GET(request: Request) {
   return withRoute(request, async () => {
@@ -13,12 +12,14 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   return withRoute(request, async ({ auth, requestId }) => {
-    ensureRole([...RoleSets.canAdmin], auth.role);
+    // The QA-Lead gate lives in updateControlledValue, where api-and-security.md:38
+    // requires it, rather than only here.
     const body = await parseWith(updateControlledValueSchema, request);
     const updated = await updateControlledValue(body.id, {
       active: body.active,
       version: body.version,
       actorId: auth.userId,
+      actorRole: auth.role,
       requestId
     });
     return Response.json(updated);

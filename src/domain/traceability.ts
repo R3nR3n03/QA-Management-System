@@ -101,23 +101,49 @@ export async function createRtmLink(input: {
   });
 }
 
+/**
+ * `business-rules-and-validation.md:37`: "Execution and defect metrics must state
+ * filters, numerator, denominator, and as-of time before being shown." So each metric
+ * carries its own definition rather than assuming the reader knows the query behind
+ * it (implementation audit §5.6). The counts stay in Prisma's groupBy shape.
+ */
+function statedMetric<T>(
+  counts: T[],
+  total: number,
+  asOfUtc: string,
+  statement: { filters: string; numerator: string; denominator: string }
+) {
+  return { ...statement, denominatorCount: total, asOfUtc, counts };
+}
+
 export async function dashboardSnapshot() {
-  const [products, testCases, executions, defects] = await Promise.all([
+  const asOfUtc = new Date().toISOString();
+  const [products, testCases, executions, defects, finalizedTotal, openDefectTotal] = await Promise.all([
     // `mode: "insensitive"` belongs beside `equals`, not nested inside `not: {}` —
     // Prisma rejects the nested form with "Unknown argument `mode`", which made this
     // whole endpoint a 500. Negate with a top-level NOT instead.
     prisma.product.count({ where: { NOT: { status: { equals: "Retired", mode: "insensitive" } } } }),
     prisma.testCase.count({ where: { lifecycleState: { not: "RETIRED" } } }),
     prisma.testExecution.groupBy({ by: ["result"], _count: true, where: { state: "FINALIZED" } }),
-    prisma.defect.groupBy({ by: ["severity"], _count: true, where: { status: { not: "CLOSED" } } })
+    prisma.defect.groupBy({ by: ["severity"], _count: true, where: { status: { not: "CLOSED" } } }),
+    prisma.testExecution.count({ where: { state: "FINALIZED" } }),
+    prisma.defect.count({ where: { status: { not: "CLOSED" } } })
   ]);
 
   return {
-    asOfUtc: new Date().toISOString(),
+    asOfUtc,
     products,
     testCases,
-    executionFinalizedByResult: executions,
-    openDefectsBySeverity: defects
+    executionFinalizedByResult: statedMetric(executions, finalizedTotal, asOfUtc, {
+      filters: "execution state = FINALIZED; no product, release, or environment filter",
+      numerator: "finalized executions with the row's result",
+      denominator: "all finalized executions"
+    }),
+    openDefectsBySeverity: statedMetric(defects, openDefectTotal, asOfUtc, {
+      filters: "defect status != CLOSED; no product, release, or environment filter",
+      numerator: "open defects with the row's severity",
+      denominator: "all open defects"
+    })
   };
 }
 
@@ -144,33 +170,48 @@ export async function releaseReadinessSnapshot(
   });
   const testCaseIds = scopedTestCases.map((tc) => tc.id);
 
-  const [executionFinalizedByResult, openDefectsBySeverity, requirements] = await Promise.all([
-    prisma.testExecution.groupBy({
-      by: ["result"],
-      _count: true,
-      where: { testCaseId: { in: testCaseIds }, state: "FINALIZED" }
-    }),
-    prisma.defect.groupBy({
-      by: ["severity"],
-      _count: true,
-      where: { testCaseId: { in: testCaseIds }, status: { not: "CLOSED" } }
-    }),
-    prisma.requirement.findMany({
-      where: { feature: { module: { productId: input.productId } } },
-      include: { rtmLinks: true }
-    })
-  ]);
+  const asOfUtc = new Date().toISOString();
+  const [executionFinalizedByResult, openDefectsBySeverity, requirements, finalizedTotal, openDefectTotal] =
+    await Promise.all([
+      prisma.testExecution.groupBy({
+        by: ["result"],
+        _count: true,
+        where: { testCaseId: { in: testCaseIds }, state: "FINALIZED" }
+      }),
+      prisma.defect.groupBy({
+        by: ["severity"],
+        _count: true,
+        where: { testCaseId: { in: testCaseIds }, status: { not: "CLOSED" } }
+      }),
+      prisma.requirement.findMany({
+        where: { feature: { module: { productId: input.productId } } },
+        include: { rtmLinks: true }
+      }),
+      prisma.testExecution.count({ where: { testCaseId: { in: testCaseIds }, state: "FINALIZED" } }),
+      prisma.defect.count({ where: { testCaseId: { in: testCaseIds }, status: { not: "CLOSED" } } })
+    ]);
 
   const requirementsWithoutTraceLinks = requirements
     .filter((requirement) => requirement.rtmLinks.length === 0)
     .map((requirement) => requirement.businessId);
 
+  const scopeFilters =
+    `approved test cases scoped to product ${input.productId}, release "${input.release}", environment "${input.environment}"`;
+
   return {
-    asOfUtc: new Date().toISOString(),
+    asOfUtc,
     scope: { productId: input.productId, release: input.release, environment: input.environment },
     approvedTestCaseCount: testCaseIds.length,
-    executionFinalizedByResult,
-    openDefectsBySeverity,
+    executionFinalizedByResult: statedMetric(executionFinalizedByResult, finalizedTotal, asOfUtc, {
+      filters: `execution state = FINALIZED; ${scopeFilters}`,
+      numerator: "finalized executions with the row's result, within scope",
+      denominator: "all finalized executions within scope"
+    }),
+    openDefectsBySeverity: statedMetric(openDefectsBySeverity, openDefectTotal, asOfUtc, {
+      filters: `defect status != CLOSED; ${scopeFilters}`,
+      numerator: "open defects with the row's severity, within scope",
+      denominator: "all open defects within scope"
+    }),
     requirementsWithoutTraceLinks,
     advisory: true,
     policy: "POLICY_NOT_DEFINED",
