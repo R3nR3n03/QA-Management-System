@@ -47,6 +47,30 @@ export type ActionActor = {
  * API call that hit the same domain failure produce comparable lines. The
  * `requestId` shown to the user on an INTERNAL_ERROR is the one in the log.
  */
+/**
+ * The shape every screen form renders after a submit: nothing on success, the
+ * translated error copy on failure. Shared so each screen's server action is only
+ * "read the form, call one domain service, revalidate".
+ */
+export type FormState = {
+  title: string;
+  detail: string;
+  field?: string;
+  requestId?: string;
+  advisory?: boolean;
+} | null;
+
+/** Convert a failed ActionResult into the renderable form state. */
+export function failState(result: ActionFail): NonNullable<FormState> {
+  return {
+    title: result.copy.title,
+    detail: result.copy.detail,
+    field: result.field,
+    requestId: result.code === "INTERNAL_ERROR" ? result.requestId : undefined,
+    advisory: result.copy.advisory
+  };
+}
+
 export async function runAction<T>(
   fn: (actor: ActionActor) => Promise<T>
 ): Promise<ActionResult<T>> {

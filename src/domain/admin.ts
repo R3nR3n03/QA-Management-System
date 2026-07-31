@@ -73,6 +73,16 @@ export const USER_RESPONSE_SELECT = {
   version: true
 } as const;
 
+export async function listUsers(actorRole: QamsRole) {
+  // People management is a QA-Lead capability (`roles-workflows.md:16`), and the
+  // projection keeps passwordHash out by construction.
+  ensureRole([...RoleSets.canAdmin], actorRole);
+  return prisma.user.findMany({
+    select: { ...USER_RESPONSE_SELECT },
+    orderBy: { displayName: "asc" }
+  });
+}
+
 export async function getUserRole(id: string, actorRole: QamsRole) {
   // Same gate as the mutation: the role endpoint pair is a QA-Lead capability
   // (`roles-workflows.md:16`), and the projection keeps the response to the

@@ -21,6 +21,25 @@ export async function getDefect(id: string) {
   return row;
 }
 
+// Reads for the web interface, so screens never reach for Prisma directly
+// (`docs/architecture.md:33`). Explicit selects on the joined test case; nothing here
+// can widen what a defect row already shows.
+const DEFECT_CASE_SELECT = { id: true, businessId: true, title: true } as const;
+
+export async function listDefectsWithCase() {
+  return prisma.defect.findMany({
+    include: { testCase: { select: DEFECT_CASE_SELECT } },
+    orderBy: { createdAt: "desc" }
+  });
+}
+
+export async function defectDetail(id: string) {
+  return prisma.defect.findUnique({
+    where: { id },
+    include: { testCase: { select: DEFECT_CASE_SELECT } }
+  });
+}
+
 export async function createDefect(
   input: { businessId: string; testCaseId: string; summary: string; priority?: string; severity?: string },
   actor: Actor

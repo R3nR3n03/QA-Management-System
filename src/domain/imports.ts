@@ -1109,6 +1109,13 @@ async function importRtmLinks(ctx: ImportContext, data: ParsedSheet) {
   });
 }
 
+export async function listImportRuns(actorRole: QamsRole) {
+  // Imports are a QA-Lead capability (`roles-workflows.md:16`); the list powers the
+  // admin screen and deliberately omits row reports — those load per run.
+  ensureRole([...RoleSets.canAdmin], actorRole);
+  return prisma.importRun.findMany({ orderBy: { startedAt: "desc" } });
+}
+
 export async function getImportRun(id: string) {
   const run = await prisma.importRun.findUnique({
     where: { id },

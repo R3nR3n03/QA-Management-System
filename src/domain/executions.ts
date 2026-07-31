@@ -242,6 +242,31 @@ const TEST_CASE_SELECT = {
   severity: true
 } as const;
 
+/** The executions record screen: every run with its case and tester context. */
+export async function listExecutionsWithCase() {
+  return prisma.testExecution.findMany({
+    include: {
+      testCase: { select: TEST_CASE_SELECT },
+      tester: { select: TESTER_SELECT }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+}
+
+/**
+ * The people an execution can be assigned to. Any authenticated role may plan an
+ * execution (`roles-workflows.md:13`), so this is not QA-Lead-gated like
+ * `listUsers` — and it exposes only the same three fields every execution row
+ * already shows for its tester.
+ */
+export async function listAssignableTesters() {
+  return prisma.user.findMany({
+    where: { active: true },
+    select: TESTER_SELECT,
+    orderBy: { displayName: "asc" }
+  });
+}
+
 /** A tester's work queue: everything assigned to them, unfinished work first. */
 export async function listExecutionsForTester(testerId: string) {
   const rows = await prisma.testExecution.findMany({

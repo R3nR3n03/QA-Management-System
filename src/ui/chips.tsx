@@ -1,4 +1,4 @@
-import { ExecutionLifecycleState, ExecutionOutcome, TestCaseLifecycleState } from "@prisma/client";
+import { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome, TestCaseLifecycleState } from "@prisma/client";
 
 /**
  * State reads before text does. Each chip carries a colour AND a stripe AND a word,
@@ -41,6 +41,26 @@ export function TestCaseStateChip({ state }: { state: TestCaseLifecycleState }) 
         ? " state-review"
         : "";
   return <span className={`state${tone}`}>{TEST_CASE_STATE_LABEL[state]}</span>;
+}
+
+const DEFECT_STATUS_LABEL: Record<DefectLifecycleState, string> = {
+  NEW: "New",
+  TRIAGED: "Triaged",
+  IN_PROGRESS: "In Progress",
+  RESOLVED: "Resolved",
+  CLOSED: "Closed"
+};
+
+export function DefectStatusChip({ status }: { status: DefectLifecycleState }) {
+  const tone =
+    status === DefectLifecycleState.CLOSED
+      ? " state-pass"
+      : status === DefectLifecycleState.NEW
+        ? " state-fail"
+        : status === DefectLifecycleState.RESOLVED
+          ? " state-review"
+          : "";
+  return <span className={`state${tone}`}>{DEFECT_STATUS_LABEL[status]}</span>;
 }
 
 export function OutcomeChip({ outcome }: { outcome: ExecutionOutcome }) {

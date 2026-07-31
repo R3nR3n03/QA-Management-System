@@ -7,9 +7,10 @@
  * items a given role may actually reach. Two roles never see the same shell, and a
  * link a role cannot use is absent rather than present-and-rejecting.
  *
- * PROPOSAL, NOT APPROVED POLICY. The matrix establishes *capabilities*; it does not
- * establish screens, groupings or labels. Those are proposed here for QA Lead review
- * (audit 5.10). What is NOT invented: which role may reach which capability.
+ * RATIFIED 2026-08-01: this item list is the screen inventory referenced by
+ * `docs/architecture.md` § "Web interface". The matrix establishes *capabilities*;
+ * the groupings and labels here are presentation. What is NEVER invented: which
+ * role may reach which capability.
  *
  * Pure module - no imports from `./db`, no `next/*`. Unit-testable without a database.
  */

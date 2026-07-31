@@ -32,6 +32,16 @@ flowchart LR
 
 Domain services enforce `business-rules-and-validation.md`; route handlers only authenticate, validate request shape, call a service, and map known failures to API responses.
 
+## Web interface
+
+The web interface is server-rendered by the same Next.js application, not a separate client app. Its rules:
+
+- Screens and navigation derive from the role/capability matrix in `roles-workflows.md`; a screen a role cannot reach is absent from its navigation rather than present-and-rejecting. The screen inventory is the navigation module's item list (`src/ui/navigation.ts`).
+- Screen mutations go through server actions that authenticate and call exactly one domain service — the same contract as route handlers. No rule is enforced only in the interface; hiding a form is presentation, and the domain service's refusal is the gate.
+- Dashboard and readiness metrics render together with their stated filters, numerator, denominator, and as-of time, and are never graded against thresholds the knowledge base does not define.
+- All user-entered content is rendered as plain text; no markup in stored fields is interpreted.
+- Evidence references render as plain reference strings; there is no upload or preview affordance in v1.
+
 ## Data flow
 
 1. A user authenticates and receives a server-side session.
