@@ -347,8 +347,8 @@ Response.json({ error: { code: "REFERENCE_NOT_FOUND", message: "…" } }, { stat
 Items 5.1–5.9 were carried unchanged from the 2026-07-29 audit. **Item 5.10 is new to this
 revision** — it was missed by both audits and is recorded in full below the table.
 
-**Status as of 2026-08-01:** 5.1, 5.3, 5.5, 5.6, 5.7, 5.8 and 5.9 are **RESOLVED** (struck
-through below, with what landed). 5.2, 5.4 and 5.10 remain open — each is blocked on a QA Lead
+**Status as of 2026-08-01:** 5.1, 5.3, 5.5, 5.6, 5.7, 5.8, 5.9 and 5.10 are **RESOLVED** (struck
+through below, with what landed). 5.2 and 5.4 remain open — each is blocked on a QA Lead
 decision the docs reserve, not on implementation.
 
 | # | Item | Evidence |
@@ -362,7 +362,7 @@ decision the docs reserve, not on implementation.
 | 5.7 | ~~**Zero acceptance-scenario coverage.**~~ **RESOLVED 2026-08-01** — `tests/acceptance/` automates all 17 scenarios (21 tests) against a dedicated `qams_test` PostgreSQL database via `npm run test:acceptance`, with a matching CI job. Original finding: 9 tests across 2 files, both pure unit tests (`validation.test.ts`, `controlled-value-catalogues.test.ts`). No DB test harness. None of the 17 scenarios is automated — and `docs/testing-and-acceptance.md:38` makes them the definition of done. §2.1 would have been caught by scenario `testing-and-acceptance.md:12`. | `testing-and-acceptance.md:5-23, 38` |
 | 5.8 | ~~**No Prisma migration baseline.**~~ **RESOLVED 2026-07-31** — `prisma/migrations/` holds three committed migrations; the acceptance harness applies them with `migrate deploy`. Original finding: `prisma/migrations/` does not exist; no versioned DDL is committed. | `CLAUDE.md:21`, `architecture.md:5` |
 | 5.9 | ~~**Admin RBAC lives in routes, not domain services.**~~ **RESOLVED 2026-08-01** — `updateControlledValue`, `updateUserRole`, `getUserRole` and `createImportRun` all `ensureRole` internally; the routes no longer duplicate the gate. Verified live with a QA_ENGINEER session (403 from the domain). Original finding: `updateControlledValue` and `updateUserRole` (`admin.ts`) and `createImportRun` (`imports.ts`) contain no `ensureRole`; the QA Lead gate exists only in `controlled-values/route.ts:16`, `users/[id]/role/route.ts:11`, and `imports/workbook/route.ts:8`. Any future caller of these domain functions bypasses authorization entirely. Every other domain service checks internally. | `api-and-security.md:38`, `CLAUDE.md:38` |
-| 5.10 | **The documented web interface does not exist** — new to this revision, see below. | `architecture.md:5`, `:9-13`, `:24-31` |
+| 5.10 | ~~**The documented web interface does not exist**~~ **RESOLVED 2026-08-01** — the five decisions in the NOTE below were settled by the project owner and recorded in `docs/architecture.md` § "Web interface"; every capability in the role matrix now has a screen (16 routes + 3 detail pages), each mutating through server actions that call one domain service. Verified against a production build: all screens 200 as QA Lead with real data, lead-only screens 404 for other roles. Not yet verified in an interactive browser session. Original finding: | `architecture.md:5`, `:9-13`, `:24-31` |
 
 ### 5.10 — The documented web interface does not exist
 

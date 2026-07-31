@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Quality Assurance Management System (QAMS): a Next.js 15 (App Router) + TypeScript modular monolith with a REST/JSON API under `/api/v1`, PostgreSQL via Prisma 7 (`@prisma/adapter-pg`), and Zod for request validation. There is no meaningful UI yet — the work lives in the API, domain services, and Prisma schema.
+Quality Assurance Management System (QAMS): a Next.js 15 (App Router) + TypeScript modular monolith with a REST/JSON API under `/api/v1`, a server-rendered web interface under `src/app/(app)/` (screens derive from the role/capability matrix — see `docs/architecture.md` § "Web interface" and `src/ui/navigation.ts`), PostgreSQL via Prisma 7 (`@prisma/adapter-pg`), and Zod for request validation. Screen mutations go through server actions (`src/ui/action.ts`) that call exactly one domain service, the same contract as route handlers.
 
 ## Commands
 

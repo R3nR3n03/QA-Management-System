@@ -36,7 +36,7 @@ None of it was a criticism of the sequencing — the project built the domain fi
 | **BLOCKER** | 0 *(was 9)* | — | Must be resolved before any deployment reachable by real users |
 | **HIGH** | 4 | C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
 | **MEDIUM** | 8 | B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
-| **MISSING** | 2 | F2, F5 | Documented or implied functionality that does not exist yet |
+| **MISSING** | 1 | F2 | Documented or implied functionality that does not exist yet |
 
 Thirty findings in total, **all nine blockers now resolved** — see the marked sections:
 
@@ -688,7 +688,16 @@ The original finding follows.
 
 `docs/api-and-security.md:16` lists `GET/PATCH`. Only `PATCH` is implemented.
 
-### F5. MISSING · The web interface
+### F5. ~~MISSING~~ **RESOLVED 2026-08-01** · The web interface
+
+> **Built.** The five §5.10 decisions were settled by the project owner and recorded
+> in `docs/architecture.md` § "Web interface". Every capability in the role matrix
+> has a screen; mutations go through server actions calling one domain service each;
+> lead-only screens are absent (404) for other roles. Verified against a production
+> build and live database — by HTTP fetch, not yet by an interactive browser session.
+
+The original finding follows.
+
 
 `docs/architecture.md:5` commits to *"the server-rendered web interface"*, and the diagram at `:9-13`
 opens with an authorised QA user reaching it. What exists in `main` is a 9-line placeholder page.
@@ -761,7 +770,7 @@ Ordered by dependency, not by severity alone.
 
 15. ~~**F1, the workbook import**~~ *(resolved 2026-08-01 — audited, ruled, merged).*
 16. **E1, pagination** — needs the QA Lead decision in E1's note first.
-17. **F5, the web interface** — needs the five decisions in §5.10 of the implementation audit.
+17. ~~**F5, the web interface**~~ *(resolved 2026-08-01 — decisions recorded, all screens built).*
 18. **E2, E3, D3, D4.** *(B3 resolved 2026-07-31; B4 and F4 resolved 2026-08-01.)*
 
 **Standing escalations to the QA Lead** — none of these may be resolved by implementation choice:
