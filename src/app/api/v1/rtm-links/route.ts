@@ -1,5 +1,6 @@
 import { createRtmLink, listRtmLinks } from "@/domain/traceability";
-import { parseJson } from "@/lib/request";
+import { parseWith } from "@/lib/request";
+import { createRtmLinkSchema } from "@/lib/request-schemas/traceability";
 import { withRoute } from "@/lib/route";
 
 export async function GET(request: Request) {
@@ -11,9 +12,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return withRoute(request, async ({ auth, requestId }) => {
-    const body = await parseJson<{ requirementId: string; testCaseId: string; defectId?: string }>(request);
+    const body = await parseWith(createRtmLinkSchema, request);
+    // Explicit fields, never a spread: the domain input carries `actorId` / `actorRole` /
+    // `requestId`, which are server-supplied and must not be reachable from the request body.
     const created = await createRtmLink({
-      ...body,
+      requirementId: body.requirementId,
+      testCaseId: body.testCaseId,
+      defectId: body.defectId,
       actorId: auth.userId,
       actorRole: auth.role,
       requestId

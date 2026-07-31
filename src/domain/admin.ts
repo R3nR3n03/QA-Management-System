@@ -12,7 +12,7 @@ export async function listControlledValues() {
 
 export async function updateControlledValue(
   id: string,
-  input: { active: boolean; version: number; actorId: string; requestId: string }
+  input: { active: boolean; version?: number; actorId: string; requestId: string }
 ) {
   const current = await prisma.controlledValue.findUnique({ where: { id } });
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Controlled value not found.", "id");
@@ -41,7 +41,7 @@ export async function updateControlledValue(
 
 export async function updateUserRole(
   id: string,
-  input: { role: QamsRole; version: number; actorId: string; requestId: string }
+  input: { role: QamsRole; version?: number; actorId: string; requestId: string }
 ) {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw new AppError(404, "REFERENCE_NOT_FOUND", "User not found.", "id");

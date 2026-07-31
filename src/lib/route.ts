@@ -1,6 +1,6 @@
 import { requireAuth } from "./auth";
 import { asErrorResponse } from "./errors";
-import { requestMetadata } from "./request";
+import { requestMetadata } from "./request-metadata";
 
 type RouteHandler<T = unknown> = (ctx: {
   auth: Awaited<ReturnType<typeof requireAuth>>;

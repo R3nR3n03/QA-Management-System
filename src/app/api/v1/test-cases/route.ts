@@ -1,6 +1,6 @@
 import { createTestCase, listTestCases } from "@/domain/test-cases";
 import { parseWith } from "@/lib/request";
-import { createTestCaseSchema } from "@/lib/request-schemas";
+import { createTestCaseSchema } from "@/lib/request-schemas/test-cases";
 import { withRoute } from "@/lib/route";
 
 export async function GET(request: Request) {

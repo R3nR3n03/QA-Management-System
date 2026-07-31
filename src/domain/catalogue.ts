@@ -55,7 +55,7 @@ export async function createProduct(
 
 export async function updateProduct(
   id: string,
-  input: { name?: string; versionTag?: string; status?: string; version: number },
+  input: { name?: string; versionTag?: string; status?: string; version?: number },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
@@ -130,7 +130,7 @@ export async function createModule(
   });
 }
 
-export async function updateModule(id: string, input: { name?: string; version: number }, actor: Actor) {
+export async function updateModule(id: string, input: { name?: string; version?: number }, actor: Actor) {
   ensureRole([...RoleSets.canAdmin], actor.role);
   requireNonBlankIfProvided(input.name, "name", "Module name cannot be blank.");
   const current = await prisma.module.findUnique({ where: { id } });
@@ -195,7 +195,7 @@ export async function createFeature(
   });
 }
 
-export async function updateFeature(id: string, input: { name?: string; version: number }, actor: Actor) {
+export async function updateFeature(id: string, input: { name?: string; version?: number }, actor: Actor) {
   ensureRole([...RoleSets.canAdmin], actor.role);
   requireNonBlankIfProvided(input.name, "name", "Feature name cannot be blank.");
   const current = await prisma.feature.findUnique({ where: { id } });
@@ -262,7 +262,7 @@ export async function createRequirement(
 
 export async function updateRequirement(
   id: string,
-  input: { statement?: string; version: number },
+  input: { statement?: string; version?: number },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);

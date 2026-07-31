@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { updateFeature } from "@/domain/catalogue";
-import { parseJson } from "@/lib/request";
+import { parseWith } from "@/lib/request";
+import { updateFeatureSchema } from "@/lib/request-schemas/catalogue";
 import { withRoute } from "@/lib/route";
 
 type Params = { params: Promise<{ id: string }> };
@@ -18,7 +19,7 @@ export async function GET(request: Request, context: Params) {
 export async function PATCH(request: Request, context: Params) {
   return withRoute(request, async ({ auth, requestId }) => {
     const { id } = await context.params;
-    const body = await parseJson<{ name?: string; version: number }>(request);
+    const body = await parseWith(updateFeatureSchema, request);
     const updated = await updateFeature(id, body, { userId: auth.userId, role: auth.role, requestId });
     return Response.json(updated);
   });

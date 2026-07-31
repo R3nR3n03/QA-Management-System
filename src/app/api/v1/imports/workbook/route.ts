@@ -9,7 +9,9 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) {
-      throw new AppError(422, "REFERENCE_NOT_FOUND", "Missing workbook file.");
+      // A missing multipart field is a malformed request, not a missing referenced record;
+      // ID_INVALID is the established 422 pairing for boundary-shape failures.
+      throw new AppError(422, "ID_INVALID", "Missing workbook file.", "file");
     }
     const bytes = await file.arrayBuffer();
     const run = await createImportRun(auth.userId, file.name, Buffer.from(bytes), requestId);

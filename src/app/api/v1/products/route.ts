@@ -1,5 +1,6 @@
 import { createProduct, listProducts } from "@/domain/catalogue";
-import { parseJson } from "@/lib/request";
+import { parseWith } from "@/lib/request";
+import { createProductSchema } from "@/lib/request-schemas/catalogue";
 import { withRoute } from "@/lib/route";
 
 export async function GET(request: Request) {
@@ -11,12 +12,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return withRoute(request, async ({ auth, requestId }) => {
-    const body = await parseJson<{
-      businessId: string;
-      name: string;
-      versionTag: string;
-      status: string;
-    }>(request);
+    const body = await parseWith(createProductSchema, request);
     const created = await createProduct(body, { userId: auth.userId, role: auth.role, requestId });
     return Response.json(created, { status: 201 });
   });

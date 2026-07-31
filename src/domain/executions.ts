@@ -67,7 +67,7 @@ function ensureAssignedTester(execution: { testerId: string }, actor: Actor) {
   }
 }
 
-export async function startExecution(executionId: string, version: number, actor: Actor) {
+export async function startExecution(executionId: string, version: number | undefined, actor: Actor) {
   ensureRole([...RoleSets.canExecute], actor.role);
   const execution = await prisma.testExecution.findUnique({ where: { id: executionId } });
   if (!execution) throw new AppError(404, "REFERENCE_NOT_FOUND", "Execution not found.", "executionId");
@@ -100,7 +100,7 @@ export async function startExecution(executionId: string, version: number, actor
 }
 
 type FinalizeInput = {
-  version: number;
+  version?: number;
   result: ExecutionOutcome;
   actualResult: string;
   blockReason?: string;
@@ -108,8 +108,8 @@ type FinalizeInput = {
   createDefect?: {
     businessId: string;
     summary: string;
-    priority: string;
-    severity: string;
+    priority?: string;
+    severity?: string;
   };
 };
 
@@ -160,8 +160,8 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
           businessId: input.createDefect.businessId.trim(),
           testCaseId: execution.testCaseId,
           summary: input.createDefect.summary.trim(),
-          priority: input.createDefect.priority.trim(),
-          severity: input.createDefect.severity.trim(),
+          priority: input.createDefect.priority?.trim() ?? "",
+          severity: input.createDefect.severity?.trim() ?? "",
           createdBy: actor.userId,
           updatedBy: actor.userId
         }

@@ -159,7 +159,7 @@ export async function updateTestCaseDraft(
     title?: string;
     objective?: string;
     expectedResult?: string;
-    version: number;
+    version?: number;
   },
   actor: Actor
 ) {
@@ -214,7 +214,7 @@ export async function updateTestCaseDraft(
 export async function replaceSteps(
   testCaseId: string,
   steps: Array<{ sequence: number; action: string; expectedResult: string }>,
-  version: number,
+  version: number | undefined,
   actor: Actor
 ) {
   ensureRole([...RoleSets.canAuthor], actor.role);
@@ -261,7 +261,7 @@ export async function replaceSteps(
   });
 }
 
-export async function submitTestCase(testCaseId: string, version: number, actor: Actor) {
+export async function submitTestCase(testCaseId: string, version: number | undefined, actor: Actor) {
   ensureRole([...RoleSets.canAuthor], actor.role);
   const tc = await prisma.testCase.findUnique({ where: { id: testCaseId }, include: { steps: true } });
   if (!tc) throw new AppError(404, "REFERENCE_NOT_FOUND", "Test case not found.", "testCaseId");
@@ -304,7 +304,7 @@ export async function submitTestCase(testCaseId: string, version: number, actor:
   });
 }
 
-export async function approveTestCase(testCaseId: string, version: number, actor: Actor) {
+export async function approveTestCase(testCaseId: string, version: number | undefined, actor: Actor) {
   ensureRole([...RoleSets.canApprove], actor.role);
   const tc = await prisma.testCase.findUnique({ where: { id: testCaseId } });
   if (!tc) throw new AppError(404, "REFERENCE_NOT_FOUND", "Test case not found.", "testCaseId");
@@ -339,7 +339,7 @@ export async function approveTestCase(testCaseId: string, version: number, actor
 
 export async function returnTestCaseToDraft(
   testCaseId: string,
-  payload: { version: number; reviewReason: string },
+  payload: { version?: number; reviewReason: string },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canApprove], actor.role);
@@ -375,7 +375,7 @@ export async function returnTestCaseToDraft(
 
 export async function retireTestCase(
   testCaseId: string,
-  payload: { version: number; retirementReason: string },
+  payload: { version?: number; retirementReason: string },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canApprove], actor.role);

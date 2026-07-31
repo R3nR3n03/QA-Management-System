@@ -1,5 +1,6 @@
 import { listControlledValues, updateControlledValue } from "@/domain/admin";
-import { parseJson } from "@/lib/request";
+import { parseWith } from "@/lib/request";
+import { updateControlledValueSchema } from "@/lib/request-schemas/admin";
 import { withRoute } from "@/lib/route";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   return withRoute(request, async ({ auth, requestId }) => {
     ensureRole([...RoleSets.canAdmin], auth.role);
-    const body = await parseJson<{ id: string; active: boolean; version: number }>(request);
+    const body = await parseWith(updateControlledValueSchema, request);
     const updated = await updateControlledValue(body.id, {
       active: body.active,
       version: body.version,

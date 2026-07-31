@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { updateTestCaseDraft } from "@/domain/test-cases";
-import { parseJson } from "@/lib/request";
+import { parseWith } from "@/lib/request";
+import { updateTestCaseDraftSchema } from "@/lib/request-schemas/test-cases";
 import { withRoute } from "@/lib/route";
 
 type Params = { params: Promise<{ id: string }> };
@@ -21,18 +22,7 @@ export async function GET(request: Request, context: Params) {
 export async function PATCH(request: Request, context: Params) {
   return withRoute(request, async ({ auth, requestId }) => {
     const { id } = await context.params;
-    const body = await parseJson<{
-      version: number;
-      cycle?: string;
-      sprint?: string;
-      release?: string;
-      environment?: string;
-      priority?: string;
-      severity?: string;
-      title?: string;
-      objective?: string;
-      expectedResult?: string;
-    }>(request);
+    const body = await parseWith(updateTestCaseDraftSchema, request);
     const updated = await updateTestCaseDraft(id, body, { userId: auth.userId, role: auth.role, requestId });
     return Response.json(updated);
   });

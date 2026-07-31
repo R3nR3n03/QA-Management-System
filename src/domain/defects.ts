@@ -60,7 +60,7 @@ export async function createDefect(
 
 export async function updateDefectDetails(
   defectId: string,
-  input: { summary?: string; priority?: string; severity?: string; version: number },
+  input: { summary?: string; priority?: string; severity?: string; version?: number },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canExecute], actor.role);
@@ -110,7 +110,7 @@ const defectTransitions: Record<DefectLifecycleState, DefectLifecycleState[]> = 
 export async function transitionDefect(
   defectId: string,
   input: {
-    version: number;
+    version?: number;
     targetStatus: DefectLifecycleState;
     investigationOwnerId?: string;
     resolutionSummary?: string;
