@@ -32,7 +32,7 @@ None of it was a criticism of the sequencing — the project built the domain fi
 | | Count | Open findings | Meaning |
 |---|---|---|---|
 | **BLOCKER** | 0 *(was 9)* | — | Must be resolved before any deployment reachable by real users |
-| **HIGH** | 6 | B2, B3, C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
+| **HIGH** | 5 | B3, C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
 | **MEDIUM** | 9 | B4, B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
 | **MISSING** | 5 | F1–F5 | Documented or implied functionality that does not exist yet |
 
@@ -353,7 +353,25 @@ Mechanical, but it touches every mutation in `catalogue.ts`, `test-cases.ts`, `e
 
 (`IMPLEMENTATION-AUDIT-2026-07-31.md` §3.1.)
 
-### B2. HIGH · Database constraint violations surface as 500
+### B2. ~~HIGH~~ **RESOLVED 2026-07-31** · Database constraint violations surfaced as 500
+
+> **Fixed.** `src/lib/prisma-errors.ts` maps `P2002` to 409 `ID_DUPLICATE` (with the
+> column as `field`), `P2003` to 422 `REFERENCE_NOT_FOUND`, and `P2025` to 404 — applied
+> at both the API boundary and in `runAction`, so a constraint reads the same through a
+> screen as through the API.
+>
+> `P2025` is **not** mapped to `VERSION_CONFLICT`: versioned writes convert theirs in
+> `withVersionCheck` (B1) before reaching here, so one arriving at this point is a
+> different failure. Messages are fixed strings — Prisma embeds the failing query and its
+> data, which `api-and-security.md:33` bars from a response. The original still reaches the log.
+>
+> Verified live with 12 rounds x 6 concurrent creates of one business ID: 60 conflicts, of
+> which **55 came from the database constraint and every one of those was a 500 before**.
+> Zero 500s, no SQL detail in any body.
+
+The original finding follows.
+
+
 
 **CODE-READ** — `src/lib/errors.ts:44-53` has no `PrismaClientKnownRequestError` branch, so every
 Prisma error becomes `500 INTERNAL_ERROR`.
