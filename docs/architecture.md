@@ -27,7 +27,7 @@ flowchart LR
 | Test execution | Executions, outcomes, immutable history | Test-case approval |
 | Defect management | Native defects and resolution state | External tracker synchronization |
 | Traceability and reporting | RTM projections and dashboard queries | Independent mutable copies of source data |
-| Import | Workbook validation, staging, reconciliation report | Direct database writes that bypass domain services |
+| Import | Workbook validation, staging, reconciliation report | Direct database writes that bypass domain services, except inside its atomic seed batches: where a domain service can run within the batch transaction the import must call it, and where a service enforces an initial lifecycle state the seed-import exception overrides (`roles-workflows.md`), the import writes directly while mirroring the documented rules |
 | Audit | Append-only change events | Authorization policy |
 
 Domain services enforce `business-rules-and-validation.md`; route handlers only authenticate, validate request shape, call a service, and map known failures to API responses.

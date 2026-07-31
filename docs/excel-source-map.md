@@ -26,7 +26,7 @@
 
 1. Validate file structure and headers before any write.
 2. Import controlled values, then Products, Modules, Features, and Requirements.
-3. Import test cases and their ordered steps.
+3. Import test cases and their ordered steps. Imported test cases enter as Approved under the seed-import exception in `roles-workflows.md` § "Test-case lifecycle".
 4. Import executions, history, defects, then RTM links.
 5. Recalculate dashboard metrics from persisted records.
 6. Produce a row-level import report: source sheet/row, outcome, record ID, and error code.

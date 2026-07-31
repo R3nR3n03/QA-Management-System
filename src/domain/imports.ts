@@ -1127,7 +1127,9 @@ export async function createImportRun(actor: ImportActor, fileName: string, rawB
   const workbook = XLSX.read(rawBuffer, { type: "buffer", cellDates: true });
   for (const sheet of EXPECTED_SHEETS) {
     if (!workbook.SheetNames.includes(sheet)) {
-      throw new AppError(422, "REFERENCE_NOT_FOUND", `Missing required sheet: ${sheet}.`);
+      // A missing sheet is a malformed file, not a missing referenced record —
+      // ID_INVALID is the established pairing for boundary-shape failures (audit W7).
+      throw new AppError(422, "ID_INVALID", `Missing required sheet: ${sheet}.`);
     }
   }
 
@@ -1217,37 +1219,44 @@ export async function createImportRun(actor: ImportActor, fileName: string, rawB
     prisma.testCase.count({ where: { lifecycleState: { not: TestCaseLifecycleState.RETIRED } } })
   ]);
 
-  const completed = await prisma.importRun.update({
-    where: { id: run.id },
-    data: {
-      status: "COMPLETED",
-      completedAt: new Date(),
-      reportJson: {
-        outcomeCounts,
-        unknownColumns,
-        dashboard: { products: productCount, testCases: testCaseCount },
-        policyGaps: [
-          "Product Status is imported as preserved text: the workbook seeds no Status catalogue, so no catalogue validation was possible (policy gap; QA Lead follow-up).",
-          "Test Repository Execution Status is a legacy summary; it is preserved in each row report's details and creates no execution."
-        ]
+  // One transaction, deliberately: every per-record audit event inside the batches is
+  // written atomically with its record, and the completion pair must hold to the same
+  // standard — a crash between the status update and the IMPORT_COMPLETED event would
+  // otherwise leave a completed run with no completion event (audit W9).
+  const completed = await prisma.$transaction(async (tx) => {
+    const updated = await tx.importRun.update({
+      where: { id: run.id },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        reportJson: {
+          outcomeCounts,
+          unknownColumns,
+          dashboard: { products: productCount, testCases: testCaseCount },
+          policyGaps: [
+            "Test cases were imported as Approved with the importing QA Lead recorded as author, per the seed-import exception in roles-workflows.md; they did not pass through Draft → In Review.",
+            "Product Status is imported as preserved text: the workbook seeds no Status catalogue, so no catalogue validation was possible (policy gap; QA Lead follow-up).",
+            "Test Repository Execution Status is a legacy summary; it is preserved in each row report's details and creates no execution."
+          ]
+        }
       }
-    }
-  });
-
-  await appendAudit(prisma, {
-    actorId,
-    action: "IMPORT_COMPLETED",
-    entityType: "ImportRun",
-    entityId: run.id,
-    requestId,
-    beforeAfterJson: {
-      after: {
-        sourceFileName: fileName,
-        status: completed.status,
-        rowCount: ctx.allReports.length,
-        outcomeCounts
+    });
+    await appendAudit(tx, {
+      actorId,
+      action: "IMPORT_COMPLETED",
+      entityType: "ImportRun",
+      entityId: run.id,
+      requestId,
+      beforeAfterJson: {
+        after: {
+          sourceFileName: fileName,
+          status: updated.status,
+          rowCount: ctx.allReports.length,
+          outcomeCounts
+        }
       }
-    }
+    });
+    return updated;
   });
 
   return completed;
