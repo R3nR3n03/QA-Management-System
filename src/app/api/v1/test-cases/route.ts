@@ -1,5 +1,6 @@
 import { createTestCase, listTestCases } from "@/domain/test-cases";
-import { parseJson } from "@/lib/request";
+import { parseWith } from "@/lib/request";
+import { createTestCaseSchema } from "@/lib/request-schemas";
 import { withRoute } from "@/lib/route";
 
 export async function GET(request: Request) {
@@ -11,22 +12,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return withRoute(request, async ({ auth, requestId }) => {
-    const body = await parseJson<{
-      businessId: string;
-      productId: string;
-      moduleId: string;
-      featureId: string;
-      requirementId: string;
-      cycle: string;
-      sprint: string;
-      release: string;
-      environment: string;
-      priority: string;
-      severity: string;
-      title: string;
-      objective: string;
-      expectedResult: string;
-    }>(request);
+    const body = await parseWith(createTestCaseSchema, request);
 
     const created = await createTestCase(body, { userId: auth.userId, role: auth.role, requestId });
     return Response.json(created, { status: 201 });

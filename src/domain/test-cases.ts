@@ -1,4 +1,4 @@
-import { QamsRole, TestCaseLifecycleState } from "@prisma/client";
+import { Prisma, QamsRole, TestCaseLifecycleState } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
@@ -10,7 +10,7 @@ import { appendAudit } from "@/lib/audit";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
-type CreateTestCaseInput = {
+export type CreateTestCaseInput = {
   businessId: string;
   productId: string;
   moduleId: string;
@@ -57,6 +57,45 @@ async function validateHierarchy(productId: string, moduleId: string, featureId:
   }
 }
 
+/**
+ * Builds the Prisma create payload for a test case from an explicit allow-list.
+ *
+ * Never spread the request body into a Prisma payload: `lifecycleState`, `version`,
+ * `reviewReason` and `retirementReason` are server-controlled and a caller that supplies
+ * them must not be able to reach the database with them. Only the fields enumerated here
+ * are writable on create; `lifecycleState` is always forced to DRAFT so the
+ * DRAFT -> IN_REVIEW -> APPROVED lifecycle (and its audit events) cannot be bypassed.
+ *
+ * The `Prisma.TestCaseUncheckedCreateInput` return type is the compile-time guard: any
+ * stray key added here later is a type error.
+ */
+export function buildTestCaseCreateData(
+  input: CreateTestCaseInput,
+  actor: Pick<Actor, "userId">
+): Prisma.TestCaseUncheckedCreateInput {
+  return {
+    businessId: input.businessId.trim(),
+    productId: input.productId,
+    moduleId: input.moduleId,
+    featureId: input.featureId,
+    requirementId: input.requirementId,
+    cycle: input.cycle.trim(),
+    sprint: input.sprint.trim(),
+    release: input.release.trim(),
+    environment: input.environment.trim(),
+    priority: input.priority.trim(),
+    severity: input.severity.trim(),
+    title: input.title.trim(),
+    objective: input.objective.trim(),
+    expectedResult: input.expectedResult.trim(),
+    revisesTestCaseId: input.revisesTestCaseId ?? undefined,
+    lifecycleState: TestCaseLifecycleState.DRAFT,
+    authorUserId: actor.userId,
+    createdBy: actor.userId,
+    updatedBy: actor.userId
+  };
+}
+
 export async function createTestCase(input: CreateTestCaseInput, actor: Actor) {
   ensureRole([...RoleSets.canAuthor], actor.role);
   requireNonBlank(input.businessId, "businessId", "Test case ID is required.");
@@ -92,16 +131,7 @@ export async function createTestCase(input: CreateTestCaseInput, actor: Actor) {
 
   return prisma.$transaction(async (tx) => {
     const created = await tx.testCase.create({
-      data: {
-        ...input,
-        businessId: input.businessId.trim(),
-        title: input.title.trim(),
-        objective: input.objective.trim(),
-        expectedResult: input.expectedResult.trim(),
-        authorUserId: actor.userId,
-        createdBy: actor.userId,
-        updatedBy: actor.userId
-      }
+      data: buildTestCaseCreateData(input, actor)
     });
 
     await appendAudit(tx, {
