@@ -267,6 +267,13 @@ export async function listAssignableTesters() {
   });
 }
 
+/** Unfinished runs assigned to one person — powers the My work badge in the navigation. */
+export async function openAssignedExecutionCount(testerId: string) {
+  return prisma.testExecution.count({
+    where: { testerId, state: { not: ExecutionLifecycleState.FINALIZED } }
+  });
+}
+
 /** A tester's work queue: everything assigned to them, unfinished work first. */
 export async function listExecutionsForTester(testerId: string) {
   const rows = await prisma.testExecution.findMany({

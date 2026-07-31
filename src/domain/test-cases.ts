@@ -36,6 +36,11 @@ export async function listTestCases() {
   });
 }
 
+/** Cases waiting for a reviewer — powers the Review badge in the navigation. */
+export async function reviewQueueCount() {
+  return prisma.testCase.count({ where: { lifecycleState: TestCaseLifecycleState.IN_REVIEW } });
+}
+
 export async function getTestCase(id: string) {
   const row = await prisma.testCase.findUnique({
     where: { id },

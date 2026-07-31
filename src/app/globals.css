@@ -47,8 +47,10 @@
   --radius: 3px;
 }
 
+/* Dark tokens apply two ways and must agree: the system preference (unless the user
+   explicitly chose light in the sidebar), and the explicit in-app choice. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #0f1116;
     --surface: #171a21;
     --surface-2: #1e222b;
@@ -69,6 +71,28 @@
     --blocked-wash: #282018;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
   }
+}
+
+:root[data-theme="dark"] {
+  --paper: #0f1116;
+  --surface: #171a21;
+  --surface-2: #1e222b;
+  --line: #2c313d;
+  --line-soft: #242935;
+  --ink: #e6e9f0;
+  --ink-2: #b4bac7;
+  --ink-3: #868d9c;
+  --accent: #93a6dc;
+  --accent-2: #7c90cb;
+  --accent-wash: #1d2333;
+  --on-accent: #0f1116;
+  --pass: #62b98d;
+  --pass-wash: #16261f;
+  --fail: #e08076;
+  --fail-wash: #2a1b19;
+  --blocked: #d8a94e;
+  --blocked-wash: #282018;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 * {
@@ -313,32 +337,116 @@ a {
 
 /* ---------- authenticated shell ---------- */
 
+/* Sidebar-local scale: an 8px spacing grid and 10px radii, kept as rail variables so
+   the redesign does not silently restyle cards and buttons elsewhere. Motion is one
+   duration and one curve everywhere in the rail; prefers-reduced-motion (above)
+   already collapses it to nothing. */
 .shell {
+  --rail-w: 248px;
+  --rail-w-collapsed: 76px;
+  --rail-radius: 10px;
+  --rail-ease: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   min-height: 100vh;
   align-items: stretch;
 }
 
 .rail {
-  width: 216px;
-  flex: 0 0 216px;
+  width: var(--rail-w);
+  flex: 0 0 auto;
   background: var(--surface-2);
   border-right: 1px solid var(--line);
-  padding: var(--sp-5) 0;
+  padding: var(--sp-4) var(--sp-3);
   display: flex;
   flex-direction: column;
+  gap: var(--sp-4);
+  transition: width var(--rail-ease);
+  overflow: hidden;
+}
+.rail-collapsed {
+  width: var(--rail-w-collapsed);
+}
+
+.rail-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-2);
+  min-height: 28px;
 }
 
 .rail-brand {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0.14em;
-  color: var(--ink-3);
-  padding: 0 var(--sp-4) var(--sp-5);
+  color: var(--accent);
+  white-space: nowrap;
 }
 
-.rail-group {
-  margin-bottom: var(--sp-4);
+.rail-icon-btn {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background var(--rail-ease), color var(--rail-ease);
+}
+.rail-icon-btn:hover {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.rail-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-2) 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--rail-radius);
+  background: var(--surface);
+  transition: border-color var(--rail-ease), box-shadow var(--rail-ease);
+}
+.rail-search:focus-within {
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+.rail-search-icon {
+  color: var(--ink-3);
+  flex: none;
+}
+.rail-search input {
+  font: inherit;
+  font-size: 13.5px;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+}
+.rail-search input:focus {
+  outline: none; /* the wrapper's focus-within ring carries the indication */
+}
+.rail-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.rail-groups {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
 }
 
 .rail-heading {
@@ -347,33 +455,147 @@ a {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-3);
-  padding: 0 var(--sp-4) var(--sp-1);
+  padding: 0 10px var(--sp-1);
+  white-space: nowrap;
+  transition: opacity var(--rail-ease);
+}
+
+.rail-empty {
+  font-size: 13px;
+  color: var(--ink-3);
+  padding: 0 10px;
 }
 
 .nav-link {
-  display: block;
-  padding: 6px var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 2px;
   font-size: 14px;
   font-weight: 550;
   color: var(--ink-2);
   text-decoration: none;
-  border-left: 3px solid transparent;
+  border-radius: var(--rail-radius);
+  white-space: nowrap;
+  transition: background var(--rail-ease), color var(--rail-ease);
+}
+.nav-link svg {
+  flex: none;
+}
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity var(--rail-ease);
 }
 .nav-link:hover {
   background: var(--accent-wash);
   color: var(--ink);
 }
 .nav-link[aria-current="page"] {
-  background: var(--accent-wash);
-  color: var(--accent);
-  border-left-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
   font-weight: 640;
+  box-shadow: var(--shadow);
+}
+
+.nav-badge {
+  flex: none;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--fail);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.5;
+}
+.nav-link[aria-current="page"] .nav-badge {
+  background: var(--on-accent);
+  color: var(--accent);
 }
 
 .rail-footer {
-  margin-top: auto;
-  padding: var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-2) 0;
   border-top: 1px solid var(--line);
+}
+.rail-avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.rail-identity {
+  flex: 1;
+  min-width: 0;
+}
+.rail-name {
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-role {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* Collapsed: icon rail. Labels, headings, badges and identity fade out; icons stay
+   centered; the item's title attribute carries the label as a tooltip. */
+.rail-collapsed .rail-top {
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.rail-collapsed .rail-heading,
+.rail-collapsed .nav-label,
+.rail-collapsed .nav-badge,
+.rail-collapsed .rail-identity,
+.rail-collapsed .rail-empty {
+  display: none;
+}
+.rail-collapsed .nav-link {
+  justify-content: center;
+  padding: 10px 0;
+  position: relative;
+}
+/* A collapsed item with a badge keeps a dot, so pending work stays visible. */
+.rail-collapsed .nav-link:has(.nav-badge)::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 16px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--fail);
+}
+.rail-collapsed .rail-group {
+  border-top: 1px solid var(--line-soft);
+  padding-top: var(--sp-2);
+}
+.rail-collapsed .rail-group:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.rail-collapsed .rail-footer {
+  flex-direction: column;
+  gap: var(--sp-2);
 }
 
 .shell-main {
@@ -384,32 +606,45 @@ a {
 }
 
 /* On narrow screens the rail becomes a top bar and the groups wrap side by side,
-   so no screen is unreachable on a phone. */
+   so no screen is unreachable on a phone. Collapse is a desktop affordance only. */
 @media (max-width: 760px) {
   .shell {
     flex-direction: column;
   }
-  .rail {
+  .rail,
+  .rail-collapsed {
     width: auto;
     flex: none;
     border-right: none;
     border-bottom: 1px solid var(--line);
-    padding: var(--sp-3) 0 var(--sp-2);
+    padding: var(--sp-3);
+    gap: var(--sp-3);
   }
-  .rail-brand {
-    padding-bottom: var(--sp-3);
+  .rail-collapse-btn {
+    display: none;
+  }
+  .rail-collapsed .rail-heading,
+  .rail-collapsed .nav-label,
+  .rail-collapsed .nav-badge,
+  .rail-collapsed .rail-identity {
+    display: initial;
   }
   .rail-groups {
-    display: flex;
+    flex-direction: row;
     flex-wrap: wrap;
-    gap: 0 var(--sp-5);
-    padding: 0 var(--sp-2);
+    gap: var(--sp-2) var(--sp-4);
+    overflow: visible;
   }
-  .rail-footer {
-    margin-top: var(--sp-2);
-    display: flex;
+  .rail-collapsed .nav-link,
+  .nav-link {
+    justify-content: flex-start;
+    padding: 6px 10px;
+    margin-bottom: 0;
+  }
+  .rail-footer,
+  .rail-collapsed .rail-footer {
+    flex-direction: row;
     align-items: center;
-    gap: var(--sp-3);
   }
   .shell-main {
     padding: var(--sp-4);

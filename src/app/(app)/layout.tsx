@@ -1,19 +1,23 @@
 import { redirect } from "next/navigation";
+import { QamsRole } from "@prisma/client";
 import { profile } from "@/domain/auth";
+import { openAssignedExecutionCount } from "@/domain/executions";
+import { reviewQueueCount } from "@/domain/test-cases";
 import { navGroupsFor, roleLabel } from "@/ui/navigation";
-import { NavRail } from "@/ui/nav-rail";
+import { Sidebar } from "@/ui/sidebar";
 import { requireSession } from "@/ui/session";
 import { signOut } from "../login/actions";
 
 /**
- * The authenticated shell. The rail is generated from the role/capability matrix
+ * The authenticated shell. The sidebar is generated from the role/capability matrix
  * (`src/ui/navigation.ts`), so a screen a role cannot reach is absent rather than
  * present-and-rejecting — `docs/excel-source-map.md:11`, "application navigation
- * derives from authorized capabilities". The link list itself is a client component
- * (`NavRail`) so the current screen is marked; layout and identity stay server-side.
+ * derives from authorized capabilities". Identity, the item list, and the badge
+ * counts are resolved server-side here; `Sidebar` handles presentation only.
  *
- * This is presentation only. Every screen behind it still goes through the domain
- * services, which are the single enforcement point.
+ * Badges are read models, not new capability: open runs assigned to the viewer on
+ * "My work", and the review queue size on "Review" — which only reviewers have in
+ * their nav to begin with, so the count follows the same gate as the screen.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const auth = await requireSession();
@@ -25,26 +29,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     items: section.items.map((item) => ({ href: item.href, label: item.label }))
   }));
 
+  const isReviewer = me.role === QamsRole.SENIOR_QA_ENGINEER || me.role === QamsRole.QA_LEAD;
+  const [myOpen, inReview] = await Promise.all([
+    openAssignedExecutionCount(me.id),
+    isReviewer ? reviewQueueCount() : Promise.resolve(0)
+  ]);
+  const badges: Record<string, number> = {};
+  if (myOpen > 0) badges["/my-work"] = myOpen;
+  if (inReview > 0) badges["/review"] = inReview;
+
   return (
     <div className="shell">
-      <nav aria-label="Main" className="rail">
-        <div className="rail-brand">QAMS</div>
-
-        <NavRail groups={groups} />
-
-        <div className="rail-footer">
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 620, color: "var(--ink)" }}>{me.displayName}</div>
-            <div className="muted" style={{ marginBottom: "var(--sp-2)" }}>{roleLabel(me.role)}</div>
-          </div>
-          <form action={signOut}>
-            <button className="btn btn-secondary" type="submit" style={{ fontSize: 13, padding: "5px 12px" }}>
-              Sign out
-            </button>
-          </form>
-        </div>
-      </nav>
-
+      <Sidebar
+        groups={groups}
+        badges={badges}
+        user={{ displayName: me.displayName, roleLabel: roleLabel(me.role) }}
+        signOutAction={signOut}
+      />
       <main className="shell-main">{children}</main>
     </div>
   );
