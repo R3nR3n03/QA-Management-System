@@ -1,11 +1,9 @@
 import { createImportRun } from "@/domain/imports";
 import { withRoute } from "@/lib/route";
-import { ensureRole, RoleSets } from "@/lib/rbac";
 import { AppError } from "@/lib/errors";
 
 export async function POST(request: Request) {
   return withRoute(request, async ({ auth, requestId }) => {
-    ensureRole([...RoleSets.canAdmin], auth.role);
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) {
@@ -14,7 +12,13 @@ export async function POST(request: Request) {
       throw new AppError(422, "ID_INVALID", "Missing workbook file.", "file");
     }
     const bytes = await file.arrayBuffer();
-    const run = await createImportRun(auth.userId, file.name, Buffer.from(bytes), requestId);
+    // The QA-Lead gate now lives in createImportRun, where api-and-security.md:38
+    // requires it, rather than only here.
+    const run = await createImportRun(
+      { userId: auth.userId, role: auth.role, requestId },
+      file.name,
+      Buffer.from(bytes)
+    );
     return Response.json(run, { status: 201 });
   });
 }

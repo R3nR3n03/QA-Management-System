@@ -5,13 +5,17 @@ import {
   ExecutionLifecycleState,
   ExecutionOutcome,
   Prisma,
+  QamsRole,
   TestCaseLifecycleState
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError, type ErrorCode } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
 import { BUSINESS_ID_PATTERNS } from "@/lib/business-ids";
+import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence } from "@/lib/validation";
+import { createFeature, createModule, createProduct, createRequirement } from "@/domain/catalogue";
+import { decideCatalogueRow, type RowDecision } from "@/domain/import-decisions";
 import {
   SHEET_SPECS,
   extractRows,
@@ -66,8 +70,16 @@ type StagedBugRef = {
   bug: string;
 };
 
+/**
+ * The importing user. Carries the role because the catalogue passes now delegate to
+ * the domain services, which enforce `ensureRole` themselves — the import no longer
+ * asserts authorization on their behalf.
+ */
+type ImportActor = { userId: string; role: QamsRole; requestId: string };
+
 type ImportContext = {
   runId: string;
+  actor: ImportActor;
   actorId: string;
   requestId: string;
   allReports: ReportRow[];
@@ -75,6 +87,54 @@ type ImportContext = {
   /** catalogue -> active controlled values, loaded once after the Settings batch commits. */
   activeValues: Map<string, Set<string>>;
 };
+
+/**
+ * Run a domain-service create inside the batch transaction and record the outcome.
+ *
+ * The services throw `AppError` where the import must instead *report* the row and
+ * carry on — a rejected row is data, not a failed import. Every throw reachable here
+ * happens before the service issues a write (role, non-blank, ID format, duplicate),
+ * so catching it cannot leave the transaction in an aborted state.
+ */
+async function createViaService(
+  sheet: string,
+  sourceRow: number,
+  report: ReportRow[],
+  create: () => Promise<{ id: string }>
+): Promise<void> {
+  try {
+    const created = await create();
+    report.push({ sourceSheet: sheet, sourceRow, outcome: "CREATED", recordId: created.id });
+  } catch (error) {
+    if (error instanceof AppError) {
+      report.push(rejectedRow(sheet, sourceRow, error.code, error.message));
+      return;
+    }
+    throw error;
+  }
+}
+
+/** Turn a pure `RowDecision` into a report row. Only CREATE needs the caller to act. */
+function recordDecision(
+  sheet: string,
+  sourceRow: number,
+  report: ReportRow[],
+  decision: RowDecision
+): boolean {
+  switch (decision.kind) {
+    case "REJECTED":
+      report.push(rejectedRow(sheet, sourceRow, decision.errorCode, decision.details));
+      return false;
+    case "SKIPPED_UNCHANGED":
+      report.push(skippedRow(sheet, sourceRow, decision.recordId, decision.details));
+      return false;
+    case "RECONCILIATION_REQUIRED":
+      report.push(reconciliationRow(sheet, sourceRow, decision.recordId, decision.details));
+      return false;
+    case "CREATE":
+      return true;
+  }
+}
 
 function rejectedRow(sheet: string, sourceRow: number, errorCode: ErrorCode, details: string): ReportRow {
   return { sourceSheet: sheet, sourceRow, outcome: "REJECTED", errorCode, details };
@@ -246,46 +306,43 @@ async function importProducts(ctx: ImportContext, data: ParsedSheet) {
   await commitBatch(ctx, async (tx) => {
     const report: ReportRow[] = [];
     const rows = completeRows(spec, data, report);
-    const existing = await tx.product.findMany();
-    const byBiz = new Map(existing.map((p) => [p.businessId, p]));
+    const byBiz = new Map((await tx.product.findMany()).map((p) => [p.businessId, p]));
     const seen = new Set<string>();
 
     for (const row of rows) {
       const businessId = row.values["Product ID"];
-      if (!BUSINESS_ID_PATTERNS.product.test(businessId)) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "ID_INVALID", `Product ID "${businessId}" must match PROD###.`));
-        continue;
-      }
-      if (seen.has(businessId)) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "ID_DUPLICATE", `Duplicate Product ID "${businessId}" in sheet.`));
-        continue;
-      }
-      seen.add(businessId);
       const current = byBiz.get(businessId);
-      if (current) {
-        const same =
-          valuesEqual(current.name, row.values["Product"]) &&
-          valuesEqual(current.versionTag, row.values["Version"]) &&
-          valuesEqual(current.status, row.values["Status"]);
-        report.push(
-          same
-            ? skippedRow(spec.sheet, row.sourceRow, current.id)
-            : reconciliationRow(spec.sheet, row.sourceRow, current.id, `Product "${businessId}" exists with different values; automatic overwrite is not permitted.`)
-        );
-        continue;
-      }
-      const created = await tx.product.create({
-        data: {
-          businessId,
-          name: row.values["Product"],
-          versionTag: row.values["Version"],
-          status: row.values["Status"],
-          createdBy: ctx.actorId,
-          updatedBy: ctx.actorId
-        }
+      const decision = decideCatalogueRow({
+        entityLabel: "Product",
+        businessId,
+        pattern: BUSINESS_ID_PATTERNS.product,
+        patternLabel: "PROD###",
+        alreadySeenInSheet: seen.has(businessId),
+        existing: current
+          ? {
+              id: current.id,
+              unchanged:
+                valuesEqual(current.name, row.values["Product"]) &&
+                valuesEqual(current.versionTag, row.values["Version"]) &&
+                valuesEqual(current.status, row.values["Status"])
+            }
+          : null
       });
-      await auditImport(tx, ctx, "PRODUCT_CREATED", "Product", created.id, created);
-      report.push({ sourceSheet: spec.sheet, sourceRow: row.sourceRow, outcome: "CREATED", recordId: created.id });
+      seen.add(businessId);
+      if (!recordDecision(spec.sheet, row.sourceRow, report, decision)) continue;
+
+      await createViaService(spec.sheet, row.sourceRow, report, () =>
+        createProduct(
+          {
+            businessId,
+            name: row.values["Product"],
+            versionTag: row.values["Version"],
+            status: row.values["Status"]
+          },
+          ctx.actor,
+          tx
+        )
+      );
     }
     return report;
   });
@@ -302,41 +359,37 @@ async function importModules(ctx: ImportContext, data: ParsedSheet) {
 
     for (const row of rows) {
       const businessId = row.values["Module ID"];
-      if (!BUSINESS_ID_PATTERNS.module.test(businessId)) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "ID_INVALID", `Module ID "${businessId}" must match MOD###.`));
-        continue;
-      }
-      if (seen.has(businessId)) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "ID_DUPLICATE", `Duplicate Module ID "${businessId}" in sheet.`));
-        continue;
-      }
-      seen.add(businessId);
-      const parent = products.get(row.values["Product ID"]);
-      if (!parent) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "REFERENCE_NOT_FOUND", `Product "${row.values["Product ID"]}" was not found.`));
-        continue;
-      }
+      const parentBusinessId = row.values["Product ID"];
+      const parent = products.get(parentBusinessId);
       const current = existing.get(businessId);
-      if (current) {
-        const same = valuesEqual(current.name, row.values["Module"]) && current.productId === parent.id;
-        report.push(
-          same
-            ? skippedRow(spec.sheet, row.sourceRow, current.id)
-            : reconciliationRow(spec.sheet, row.sourceRow, current.id, `Module "${businessId}" exists with different values; automatic overwrite is not permitted.`)
-        );
-        continue;
-      }
-      const created = await tx.module.create({
-        data: {
-          businessId,
-          name: row.values["Module"],
-          productId: parent.id,
-          createdBy: ctx.actorId,
-          updatedBy: ctx.actorId
-        }
+      const decision = decideCatalogueRow({
+        entityLabel: "Module",
+        businessId,
+        pattern: BUSINESS_ID_PATTERNS.module,
+        patternLabel: "MOD###",
+        alreadySeenInSheet: seen.has(businessId),
+        missingParent: parent ? null : { label: "Product", businessId: parentBusinessId },
+        existing:
+          current && parent
+            ? {
+                id: current.id,
+                unchanged:
+                  valuesEqual(current.name, row.values["Module"]) && current.productId === parent.id
+              }
+            : current
+              ? { id: current.id, unchanged: false }
+              : null
       });
-      await auditImport(tx, ctx, "MODULE_CREATED", "Module", created.id, created);
-      report.push({ sourceSheet: spec.sheet, sourceRow: row.sourceRow, outcome: "CREATED", recordId: created.id });
+      seen.add(businessId);
+      if (!recordDecision(spec.sheet, row.sourceRow, report, decision)) continue;
+
+      await createViaService(spec.sheet, row.sourceRow, report, () =>
+        createModule(
+          { businessId, name: row.values["Module"], productId: parent!.id },
+          ctx.actor,
+          tx
+        )
+      );
     }
     return report;
   });
@@ -353,41 +406,33 @@ async function importFeatures(ctx: ImportContext, data: ParsedSheet) {
 
     for (const row of rows) {
       const businessId = row.values["Feature ID"];
-      if (!BUSINESS_ID_PATTERNS.feature.test(businessId)) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "ID_INVALID", `Feature ID "${businessId}" must match FEAT###.`));
-        continue;
-      }
-      if (seen.has(businessId)) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "ID_DUPLICATE", `Duplicate Feature ID "${businessId}" in sheet.`));
-        continue;
-      }
-      seen.add(businessId);
-      const parent = modules.get(row.values["Module ID"]);
-      if (!parent) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "REFERENCE_NOT_FOUND", `Module "${row.values["Module ID"]}" was not found.`));
-        continue;
-      }
+      const parentBusinessId = row.values["Module ID"];
+      const parent = modules.get(parentBusinessId);
       const current = existing.get(businessId);
-      if (current) {
-        const same = valuesEqual(current.name, row.values["Feature"]) && current.moduleId === parent.id;
-        report.push(
-          same
-            ? skippedRow(spec.sheet, row.sourceRow, current.id)
-            : reconciliationRow(spec.sheet, row.sourceRow, current.id, `Feature "${businessId}" exists with different values; automatic overwrite is not permitted.`)
-        );
-        continue;
-      }
-      const created = await tx.feature.create({
-        data: {
-          businessId,
-          name: row.values["Feature"],
-          moduleId: parent.id,
-          createdBy: ctx.actorId,
-          updatedBy: ctx.actorId
-        }
+      const decision = decideCatalogueRow({
+        entityLabel: "Feature",
+        businessId,
+        pattern: BUSINESS_ID_PATTERNS.feature,
+        patternLabel: "FEAT###",
+        alreadySeenInSheet: seen.has(businessId),
+        missingParent: parent ? null : { label: "Module", businessId: parentBusinessId },
+        existing:
+          current && parent
+            ? {
+                id: current.id,
+                unchanged:
+                  valuesEqual(current.name, row.values["Feature"]) && current.moduleId === parent.id
+              }
+            : current
+              ? { id: current.id, unchanged: false }
+              : null
       });
-      await auditImport(tx, ctx, "FEATURE_CREATED", "Feature", created.id, created);
-      report.push({ sourceSheet: spec.sheet, sourceRow: row.sourceRow, outcome: "CREATED", recordId: created.id });
+      seen.add(businessId);
+      if (!recordDecision(spec.sheet, row.sourceRow, report, decision)) continue;
+
+      await createViaService(spec.sheet, row.sourceRow, report, () =>
+        createFeature({ businessId, name: row.values["Feature"], moduleId: parent!.id }, ctx.actor, tx)
+      );
     }
     return report;
   });
@@ -404,45 +449,43 @@ async function importRequirements(ctx: ImportContext, data: ParsedSheet) {
 
     for (const row of rows) {
       const businessId = row.values["Requirement ID"];
-      if (!BUSINESS_ID_PATTERNS.requirement.test(businessId)) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "ID_INVALID", `Requirement ID "${businessId}" must match REQ###.`));
-        continue;
-      }
-      if (seen.has(businessId)) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "ID_DUPLICATE", `Duplicate Requirement ID "${businessId}" in sheet.`));
-        continue;
-      }
-      seen.add(businessId);
-      const parent = features.get(row.values["Feature ID"]);
-      if (!parent) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "REFERENCE_NOT_FOUND", `Feature "${row.values["Feature ID"]}" was not found.`));
-        continue;
-      }
+      const parentBusinessId = row.values["Feature ID"];
+      const parent = features.get(parentBusinessId);
       const current = existing.get(businessId);
-      if (current) {
-        const same = valuesEqual(current.statement, row.values["Requirement"]) && current.featureId === parent.id;
-        report.push(
-          same
-            ? skippedRow(spec.sheet, row.sourceRow, current.id)
-            : reconciliationRow(spec.sheet, row.sourceRow, current.id, `Requirement "${businessId}" exists with different values; automatic overwrite is not permitted.`)
-        );
-        continue;
-      }
-      const created = await tx.requirement.create({
-        data: {
-          businessId,
-          statement: row.values["Requirement"],
-          featureId: parent.id,
-          createdBy: ctx.actorId,
-          updatedBy: ctx.actorId
-        }
+      const decision = decideCatalogueRow({
+        entityLabel: "Requirement",
+        businessId,
+        pattern: BUSINESS_ID_PATTERNS.requirement,
+        patternLabel: "REQ###",
+        alreadySeenInSheet: seen.has(businessId),
+        missingParent: parent ? null : { label: "Feature", businessId: parentBusinessId },
+        existing:
+          current && parent
+            ? {
+                id: current.id,
+                unchanged:
+                  valuesEqual(current.statement, row.values["Requirement"]) &&
+                  current.featureId === parent.id
+              }
+            : current
+              ? { id: current.id, unchanged: false }
+              : null
       });
-      await auditImport(tx, ctx, "REQUIREMENT_CREATED", "Requirement", created.id, created);
-      report.push({ sourceSheet: spec.sheet, sourceRow: row.sourceRow, outcome: "CREATED", recordId: created.id });
+      seen.add(businessId);
+      if (!recordDecision(spec.sheet, row.sourceRow, report, decision)) continue;
+
+      await createViaService(spec.sheet, row.sourceRow, report, () =>
+        createRequirement(
+          { businessId, statement: row.values["Requirement"], featureId: parent!.id },
+          ctx.actor,
+          tx
+        )
+      );
     }
     return report;
   });
 }
+
 
 type CaseState =
   | { kind: "created"; id: string; reportRow: ReportRow; hasStepRows: boolean }
@@ -1066,7 +1109,21 @@ async function importRtmLinks(ctx: ImportContext, data: ParsedSheet) {
   });
 }
 
-export async function createImportRun(actorId: string, fileName: string, rawBuffer: Buffer, requestId: string) {
+/**
+ * Run a seed import.
+ *
+ * The role gate lives HERE, not only in the route. `docs/api-and-security.md:38`
+ * requires the role/action matrix be enforced in domain services, and
+ * `roles-workflows.md:16` confines imports to a QA Lead. Leaving it to the route
+ * meant any future caller — a CLI, a scheduled job, a test — reached a thousand lines
+ * of privileged, cross-table mutation with no authorization at all
+ * (WORKBOOK-IMPORT-AUDIT-2026-07-31.md W3).
+ */
+export async function createImportRun(actor: ImportActor, fileName: string, rawBuffer: Buffer) {
+  ensureRole([...RoleSets.canAdmin], actor.role);
+
+  const actorId = actor.userId;
+  const requestId = actor.requestId;
   const workbook = XLSX.read(rawBuffer, { type: "buffer", cellDates: true });
   for (const sheet of EXPECTED_SHEETS) {
     if (!workbook.SheetNames.includes(sheet)) {
@@ -1108,6 +1165,7 @@ export async function createImportRun(actorId: string, fileName: string, rawBuff
 
   const ctx: ImportContext = {
     runId: run.id,
+    actor,
     actorId,
     requestId,
     allReports: [],
@@ -1153,7 +1211,9 @@ export async function createImportRun(actorId: string, fileName: string, rawBuff
     }
   }
   const [productCount, testCaseCount] = await Promise.all([
-    prisma.product.count({ where: { status: { not: { equals: "Retired", mode: "insensitive" } } } }),
+    // Same Prisma shape fix as dashboardSnapshot: `mode` is invalid nested inside
+    // `not: {}` and threw, failing the whole import at the finalize step.
+    prisma.product.count({ where: { NOT: { status: { equals: "Retired", mode: "insensitive" } } } }),
     prisma.testCase.count({ where: { lifecycleState: { not: TestCaseLifecycleState.RETIRED } } })
   ]);
 
