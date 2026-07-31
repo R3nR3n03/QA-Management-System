@@ -1,17 +1,312 @@
+/*
+ * QAMS design tokens and base styles.
+ *
+ * Direction: semantic colour (Pass / Fail / Blocked, severity) is the loud channel
+ * because it does real work on every screen, so the brand accent stays quiet and the
+ * neutrals are biased cool toward it. Monospace is reserved for business IDs, which
+ * people compare character by character.
+ *
+ * PROPOSAL, NOT APPROVED POLICY - docs/ specifies no visual treatment.
+ */
+
+:root {
+  --paper: #f5f6f9;
+  --surface: #ffffff;
+  --surface-2: #edeff4;
+  --line: #d8dce6;
+  --line-soft: #e6e9f0;
+
+  --ink: #171a21;
+  --ink-2: #454b59;
+  --ink-3: #6b7280;
+
+  --accent: #3a4a7a;
+  --accent-2: #55689c;
+  --accent-wash: #e7eaf4;
+  --on-accent: #ffffff;
+
+  --pass: #2e7d5b;
+  --pass-wash: #e2f0e9;
+  --fail: #b3392f;
+  --fail-wash: #f8e5e3;
+  --blocked: #a9761a;
+  --blocked-wash: #f7eedc;
+
+  --shadow: 0 1px 2px rgba(23, 26, 33, 0.06), 0 4px 16px rgba(23, 26, 33, 0.05);
+
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --radius: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0f1116;
+    --surface: #171a21;
+    --surface-2: #1e222b;
+    --line: #2c313d;
+    --line-soft: #242935;
+    --ink: #e6e9f0;
+    --ink-2: #b4bac7;
+    --ink-3: #868d9c;
+    --accent: #93a6dc;
+    --accent-2: #7c90cb;
+    --accent-wash: #1d2333;
+    --on-accent: #0f1116;
+    --pass: #62b98d;
+    --pass-wash: #16261f;
+    --fail: #e08076;
+    --fail-wash: #2a1b19;
+    --blocked: #d8a94e;
+    --blocked-wash: #282018;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-main {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 24px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
+h2,
+h3 {
+  letter-spacing: -0.014em;
+  text-wrap: balance;
+  margin: 0 0 var(--sp-3);
+}
+
+h1 {
+  font-size: 26px;
+  font-weight: 640;
+}
 h2 {
-  margin: 0 0 12px;
+  font-size: 19px;
+  font-weight: 640;
+}
+h3 {
+  font-size: 15px;
+  font-weight: 640;
+}
+
+p {
+  margin: 0 0 var(--sp-3);
+  color: var(--ink-2);
+  max-width: 68ch;
+}
+
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- primitives ---------- */
+
+.bid {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 3px 10px 3px 8px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.state::before {
+  content: "";
+  width: 3px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--ink-3);
+}
+.state-review {
+  background: var(--accent-wash);
+  border-color: var(--accent-2);
+  color: var(--accent);
+}
+.state-review::before {
+  background: var(--accent);
+}
+.state-pass {
+  background: var(--pass-wash);
+  border-color: var(--pass);
+  color: var(--pass);
+}
+.state-pass::before {
+  background: var(--pass);
+}
+.state-fail {
+  background: var(--fail-wash);
+  border-color: var(--fail);
+  color: var(--fail);
+}
+.state-fail::before {
+  background: var(--fail);
+}
+.state-blocked {
+  background: var(--blocked-wash);
+  border-color: var(--blocked);
+  color: var(--blocked);
+}
+.state-blocked::before {
+  background: var(--blocked);
+}
+
+.btn {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+.btn-secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.btn:disabled {
+  background: var(--surface-2);
+  color: var(--ink-3);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+
+/* A blocked action always carries its reason inline, never in a tooltip. */
+.why {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  background: var(--blocked-wash);
+  border-left: 3px solid var(--blocked);
+  padding: 9px 13px;
+  border-radius: 0 2px 2px 0;
+  max-width: 52ch;
+  margin: 0;
+}
+.why strong {
+  color: var(--ink);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--sp-5);
+  box-shadow: var(--shadow);
+}
+
+.field {
+  display: block;
+  margin-bottom: var(--sp-4);
+}
+.field > span {
+  display: block;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink-2);
+  margin-bottom: var(--sp-1);
+}
+.field input,
+.field textarea,
+.field select {
+  font: inherit;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+.field .hint {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-weight: 400;
+  margin-top: var(--sp-1);
+}
+.field-bad input,
+.field-bad textarea,
+.field-bad select {
+  border-color: var(--fail);
+}
+
+/* Error copy. .notice-advisory is POLICY_NOT_DEFINED - reported calmly, not in red,
+   per docs/business-rules-and-validation.md:38. */
+.notice {
+  border: 1px solid var(--fail);
+  background: var(--fail-wash);
+  border-radius: var(--radius);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.notice strong {
+  display: block;
+  color: var(--ink);
+  font-size: 14.5px;
+}
+.notice span {
+  display: block;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  margin-top: 2px;
+}
+.notice code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.notice-advisory {
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+.muted {
+  color: var(--ink-3);
+  font-size: 13px;
 }

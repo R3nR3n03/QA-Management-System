@@ -220,3 +220,57 @@ export async function executionHistory(executionId: string) {
     orderBy: { occurredAt: "asc" }
   });
 }
+
+/**
+ * Reads for the web interface. Added for the UI vertical slice so screens never
+ * reach for Prisma directly - `docs/architecture.md:33` keeps data access behind
+ * the domain layer regardless of which caller is asking.
+ *
+ * Neither selects `passwordHash`; `docs/data-model.md:35` forbids returning it, and
+ * the API already leaks it once (audit section 2.2). Select tester fields explicitly so
+ * this cannot become the second place.
+ */
+const TESTER_SELECT = { id: true, displayName: true, email: true } as const;
+
+const TEST_CASE_SELECT = {
+  id: true,
+  businessId: true,
+  title: true,
+  lifecycleState: true,
+  priority: true,
+  severity: true
+} as const;
+
+/** A tester's work queue: everything assigned to them, unfinished work first. */
+export async function listExecutionsForTester(testerId: string) {
+  const rows = await prisma.testExecution.findMany({
+    where: { testerId },
+    include: { testCase: { select: TEST_CASE_SELECT } },
+    orderBy: { createdAt: "desc" }
+  });
+
+  // Sort in memory rather than in SQL: the documented lifecycle order
+  // (Planned -> In Progress -> Finalized) is not the enum's storage order, and the
+  // knowledge base defines no sort policy for collections (audit section 5.4 - the
+  // "documented fields" for sorting are never enumerated). Kept out of the query so
+  // it is visibly a presentation choice, not an invented rule.
+  const order: Record<ExecutionLifecycleState, number> = {
+    IN_PROGRESS: 0,
+    PLANNED: 1,
+    FINALIZED: 2
+  };
+  return rows.sort((a, b) => order[a.state] - order[b.state]);
+}
+
+export async function executionDetail(executionId: string) {
+  return prisma.testExecution.findUnique({
+    where: { id: executionId },
+    include: {
+      testCase: {
+        select: { ...TEST_CASE_SELECT, steps: { orderBy: { sequence: "asc" as const } } }
+      },
+      tester: { select: TESTER_SELECT },
+      history: { orderBy: { occurredAt: "asc" as const } }
+    }
+  });
+}
