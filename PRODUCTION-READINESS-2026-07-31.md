@@ -13,28 +13,30 @@ cross-referenced rather than restated.
 
 ## Verdict
 
-**Not deployable to a production environment in its current state.**
+**Original verdict (2026-07-31): not deployable to a production environment in its current
+state.** All nine blockers have since been closed — see the table below. The verdict now is
+**no longer blocked, but not yet proven in production**: seven HIGH findings remain, the CI
+pipeline has never executed, and nothing here has run behind a real proxy or over HTTPS.
 
-The domain layer is genuinely well built — lifecycle rules, RBAC, audit emission and validation are
-coherent and now well covered by unit tests. What is missing is nearly everything *around* it: the
-application has no deployment pipeline, no runtime observability, no rate limiting, no security
-headers, no health endpoint, a dependency with four unfixed high-severity CVEs sitting directly in
-the file-upload path, and a database with no non-unique indexes.
+The domain layer was already well built — lifecycle rules, RBAC, audit emission and validation are
+coherent and well covered by unit tests. What was missing was nearly everything *around* it: no
+deployment pipeline, no runtime observability, no rate limiting, no security headers, no health
+endpoint, a dependency with four unfixed high-severity CVEs sitting directly in the file-upload
+path, and a database with no non-unique indexes. Of those, only the health endpoint (C2) and the
+indexes (C4) are still open, and both are HIGH rather than blocking.
 
-None of that is a criticism of the sequencing so far — the project has been building the domain
-first, on purpose. It does mean the remaining distance to production is larger than the remaining
-distance to feature-complete.
+None of it was a criticism of the sequencing — the project built the domain first, on purpose.
 
 ### Severity summary
 
 | | Count | Open findings | Meaning |
 |---|---|---|---|
-| **BLOCKER** | 5 *(was 9)* | A3, A5, A6, A7, D1 | Must be resolved before any deployment reachable by real users |
+| **BLOCKER** | 0 *(was 9)* | — | Must be resolved before any deployment reachable by real users |
 | **HIGH** | 7 | B1, B2, B3, C2, C3, D2, E1 | Resolve before or immediately alongside first deployment |
 | **MEDIUM** | 9 | B4, B5, B6, C4, D3, D4, D5, E2, E3 | Will cause operational pain; schedule deliberately |
 | **MISSING** | 5 | F1–F5 | Documented or implied functionality that does not exist yet |
 
-Thirty findings in total, **four blockers now resolved** — see the marked sections:
+Thirty findings in total, **all nine blockers now resolved** — see the marked sections:
 
 | Resolved | What | Landed |
 |---|---|---|
@@ -42,6 +44,11 @@ Thirty findings in total, **four blockers now resolved** — see the marked sect
 | **A1** | `xlsx` migrated off the frozen npm copy to the vendor build | `main`, 2026-07-31 |
 | **A2** | Workbook upload size limit, checked before the body is buffered | `main`, 2026-07-31 |
 | **A4** | `passwordHash` no longer returned — projection, not deletion | `main`, 2026-07-31 |
+| **A3** | Rate limiting on both login doors and on import, failures-only client dimension | `c4e9993` |
+| **A5** | Six security headers; nonced CSP via middleware | `c4e9993` |
+| **A7** | `SameSite=Strict`, cookie options centralised | `c4e9993` |
+| **D1** | CI workflow mirroring the gates; `output: "standalone"` | `c4e9993` |
+| **A6** | Sessions revocable via `User.sessionsValidFrom` | `9941c9e` |
 
 With A4 closed, **no CRITICAL from `IMPLEMENTATION-AUDIT-2026-07-31.md` remains open** —
 §2.1, §2.2 and §2.3 are all fixed and verified against a running server.
@@ -51,10 +58,12 @@ made **`GET /dashboard` return 500 on every request since it was written** (fixe
 That defect was invisible precisely because errors were being swallowed — which is the argument
 for **F3** in one line.
 
-Four of the five remaining blockers are security-related, which reflects where the work has not
-been done rather than anything unsound in what has. The fifth, **D1**, is the absence of any
-deployment pipeline — and until it exists, every fix above is protected only by somebody
-remembering to run the gates by hand.
+**What closing them did not buy.** D1 shipped a CI workflow that **has never executed** — there is
+no git remote and `gh` is not installed — so every fix above is still protected only by somebody
+running the gates by hand. A3's limiter is one process's memory. A5's CSP was proven by
+inspecting served HTML, never in a browser. A7's `allowedOrigins` and HSTS need a real deployment.
+A6 gives per-user, not per-device, revocation. Each is recorded in its own section; none is a
+reason to reopen a blocker, and all of them are reasons not to call this done.
 
 ### How each finding was established
 
@@ -231,7 +240,27 @@ which is the right instinct, but headers are the backstop for when that slips.
 **Fix.** A `headers()` block in `next.config.ts`. CSP will need care with Next's inline
 bootstrap scripts — plan for `strict-dynamic` with nonces rather than a naive `default-src 'self'`.
 
-### A6. BLOCKER · Sessions cannot be revoked
+### A6. ~~BLOCKER~~ **RESOLVED 2026-07-31** · Sessions could not be revoked
+
+> **Fixed.** The token now carries an issue time, checked against a new nullable
+> `User.sessionsValidFrom`. Signing out stamps that column, so every token issued before
+> that instant is refused on its next request, on every device. Both logout doors revoke,
+> and both stay idempotent — logging out must never fail.
+>
+> **A column, not a `Session` entity.** `data-model.md` enumerates four entities and
+> `Session` is not one; inventing it needs QA Lead approval. **So this does NOT deliver
+> per-device sign-out or a register of who was signed in when** — both genuinely need the
+> table, and that question stays open.
+>
+> Every existing cookie became invalid on deploy (3-part → 4-part token): everyone is signed
+> out once, deliberately, because a 3-part token carries no issue time and cannot be checked.
+>
+> Verified live: replaying a cookie after logout returns **403** where it previously returned
+> 200 until expiry; re-login still works; deactivation still takes effect immediately.
+
+The original finding follows.
+
+
 
 **CODE-READ** — `src/lib/session.ts` is a stateless HMAC: `userId.expiresAt.signature`, verified by
 recomputing the signature. There is no session table, no token ID, no revocation list.
