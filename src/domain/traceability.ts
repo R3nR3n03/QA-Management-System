@@ -52,6 +52,32 @@ export async function createRtmLink(input: {
     }
   }
 
+  // The friendly half of the duplicate check. The authoritative half is the unique index,
+  // which since migration 20260731110000 finally covers the NULL-defect case too (B3) — and
+  // a P2002 from it now surfaces as 409 ID_DUPLICATE rather than a 500 (B2). This exists so
+  // the ordinary case gets a sentence that names the actual problem, because the constraint's
+  // generic wording ("a record with that identifier") makes little sense for a trace link,
+  // which has no identifier of its own.
+  //
+  // It does not race safely on its own and is not meant to: two concurrent callers can both
+  // pass here, and the index is what stops the second.
+  const duplicate = await prisma.requirementTraceLink.findFirst({
+    where: {
+      requirementId: input.requirementId,
+      testCaseId: input.testCaseId,
+      defectId: input.defectId ?? null
+    }
+  });
+  if (duplicate) {
+    throw new AppError(
+      409,
+      "ID_DUPLICATE",
+      input.defectId
+        ? "That requirement, test case and defect are already linked."
+        : "That requirement and test case are already linked."
+    );
+  }
+
   return prisma.$transaction(async (tx) => {
     const link = await tx.requirementTraceLink.create({
       data: {

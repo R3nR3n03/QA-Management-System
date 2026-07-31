@@ -280,6 +280,19 @@ model RequirementTraceLink {
   testCase    TestCase    @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
   defect      Defect?     @relation(fields: [defectId], references: [id], onDelete: SetNull)
 
+  /// IMPORTANT: this line is not the whole constraint, and Prisma cannot express the rest.
+  ///
+  /// `docs/data-model.md:27` calls for uniqueness on (requirementId, testCaseId, defectId).
+  /// Written like this the generated index takes it literally, and PostgreSQL never treats
+  /// two NULLs as equal — so it deduplicated NOTHING whenever `defectId` was NULL, which
+  /// `docs/business-rules-and-validation.md:36` explicitly permits. Unlimited identical
+  /// (requirement, testCase, NULL) rows were insertable.
+  ///
+  /// Migration `20260731110000_rtm_unique_nulls_not_distinct` recreates this index with
+  /// `NULLS NOT DISTINCT` (PostgreSQL 15+). Prisma has no syntax for that, so the schema
+  /// cannot show it — verified that `prisma migrate dev` does NOT see it as drift and will
+  /// not revert it, but **anyone regenerating this index from scratch must reapply that
+  /// migration**, or the NULL case silently stops being unique again.
   @@unique([requirementId, testCaseId, defectId])
 }
 
