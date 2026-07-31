@@ -12,7 +12,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
     "demo:data": "tsx scripts/demo-data.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:acceptance": "vitest run --config vitest.acceptance.config.ts"
   },
   "keywords": [],
   "author": "",
