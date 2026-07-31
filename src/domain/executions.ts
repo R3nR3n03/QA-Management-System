@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank } from "@/lib/validation";
+import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
@@ -74,12 +75,12 @@ export async function startExecution(executionId: string, version: number | unde
   if (execution.state !== ExecutionLifecycleState.PLANNED) {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Only Planned executions can be started.");
   }
-  ensureVersion(execution.version, version);
+  const expectedVersion = ensureVersion(execution.version, version);
   ensureAssignedTester(execution, actor);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.testExecution.update({
-      where: { id: executionId },
+      where: { id: executionId, version: expectedVersion },
       data: {
         state: ExecutionLifecycleState.IN_PROGRESS,
         startedAt: new Date(),
@@ -96,7 +97,7 @@ export async function startExecution(executionId: string, version: number | unde
       beforeAfterJson: { after: { state: updated.state, startedAt: updated.startedAt } }
     });
     return updated;
-  });
+  }));
 }
 
 type FinalizeInput = {
@@ -122,7 +123,7 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
   if (execution.state !== ExecutionLifecycleState.IN_PROGRESS) {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Only In Progress can be finalized.");
   }
-  ensureVersion(execution.version, input.version);
+  const expectedVersion = ensureVersion(execution.version, input.version);
   ensureAssignedTester(execution, actor);
 
   if (input.result === ExecutionOutcome.BLOCKED) {
@@ -151,7 +152,7 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     let linkedDefectId = input.defectId;
 
     if (input.createDefect) {
@@ -170,7 +171,7 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
     }
 
     if (linkedDefectId) {
-      const defect = await tx.defect.findUnique({ where: { id: linkedDefectId } });
+      const defect = await tx.defect.findUnique({ where: { id: linkedDefectId, version: expectedVersion } });
       if (!defect || defect.testCaseId !== execution.testCaseId) {
         throw new AppError(422, "HIERARCHY_MISMATCH", "Defect must reference the same test case.", "defectId");
       }
@@ -211,7 +212,7 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
       beforeAfterJson: { after: { state: updated.state, result: updated.result } }
     });
     return updated;
-  });
+  }));
 }
 
 export async function executionHistory(executionId: string) {

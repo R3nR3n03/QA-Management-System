@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
+import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { appendAudit } from "@/lib/audit";
 
@@ -64,11 +65,11 @@ export async function updateProduct(
   requireNonBlankIfProvided(input.status, "status", "Status cannot be blank.");
   const current = await prisma.product.findUnique({ where: { id } });
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Product not found.", "id");
-  ensureVersion(current.version, input.version);
+  const expectedVersion = ensureVersion(current.version, input.version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.product.update({
-      where: { id },
+      where: { id, version: expectedVersion },
       data: {
         name: input.name?.trim() ?? current.name,
         versionTag: input.versionTag?.trim() ?? current.versionTag,
@@ -86,7 +87,7 @@ export async function updateProduct(
       beforeAfterJson: { before: current, after: updated }
     });
     return updated;
-  });
+  }));
 }
 
 export async function listModules() {
@@ -135,11 +136,11 @@ export async function updateModule(id: string, input: { name?: string; version?:
   requireNonBlankIfProvided(input.name, "name", "Module name cannot be blank.");
   const current = await prisma.module.findUnique({ where: { id } });
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Module not found.", "id");
-  ensureVersion(current.version, input.version);
+  const expectedVersion = ensureVersion(current.version, input.version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.module.update({
-      where: { id },
+      where: { id, version: expectedVersion },
       data: { name: input.name?.trim() ?? current.name, version: { increment: 1 }, updatedBy: actor.userId }
     });
     await appendAudit(tx, {
@@ -151,7 +152,7 @@ export async function updateModule(id: string, input: { name?: string; version?:
       beforeAfterJson: { before: current, after: updated }
     });
     return updated;
-  });
+  }));
 }
 
 export async function listFeatures() {
@@ -200,11 +201,11 @@ export async function updateFeature(id: string, input: { name?: string; version?
   requireNonBlankIfProvided(input.name, "name", "Feature name cannot be blank.");
   const current = await prisma.feature.findUnique({ where: { id } });
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Feature not found.", "id");
-  ensureVersion(current.version, input.version);
+  const expectedVersion = ensureVersion(current.version, input.version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.feature.update({
-      where: { id },
+      where: { id, version: expectedVersion },
       data: { name: input.name?.trim() ?? current.name, version: { increment: 1 }, updatedBy: actor.userId }
     });
     await appendAudit(tx, {
@@ -216,7 +217,7 @@ export async function updateFeature(id: string, input: { name?: string; version?
       beforeAfterJson: { before: current, after: updated }
     });
     return updated;
-  });
+  }));
 }
 
 export async function listRequirements() {
@@ -269,11 +270,11 @@ export async function updateRequirement(
   requireNonBlankIfProvided(input.statement, "statement", "Requirement statement cannot be blank.");
   const current = await prisma.requirement.findUnique({ where: { id } });
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Requirement not found.", "id");
-  ensureVersion(current.version, input.version);
+  const expectedVersion = ensureVersion(current.version, input.version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.requirement.update({
-      where: { id },
+      where: { id, version: expectedVersion },
       data: { statement: input.statement?.trim() ?? current.statement, version: { increment: 1 }, updatedBy: actor.userId }
     });
     await appendAudit(tx, {
@@ -285,5 +286,5 @@ export async function updateRequirement(
       beforeAfterJson: { before: current, after: updated }
     });
     return updated;
-  });
+  }));
 }

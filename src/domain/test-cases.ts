@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence, ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
+import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
@@ -177,14 +178,14 @@ export async function updateTestCaseDraft(
   if (current.lifecycleState !== TestCaseLifecycleState.DRAFT) {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Only a Draft test case can be edited.");
   }
-  ensureVersion(current.version, input.version);
+  const expectedVersion = ensureVersion(current.version, input.version);
 
   if (input.priority?.trim()) await ensureActiveControlledValue(CATALOGUE_PRIORITY, input.priority.trim(), "priority");
   if (input.severity?.trim()) await ensureActiveControlledValue(CATALOGUE_SEVERITY, input.severity.trim(), "severity");
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.testCase.update({
-      where: { id: testCaseId },
+      where: { id: testCaseId, version: expectedVersion },
       data: {
         cycle: input.cycle?.trim() ?? current.cycle,
         sprint: input.sprint?.trim() ?? current.sprint,
@@ -208,7 +209,7 @@ export async function updateTestCaseDraft(
       beforeAfterJson: { before: current, after: updated }
     });
     return updated;
-  });
+  }));
 }
 
 export async function replaceSteps(
@@ -224,14 +225,14 @@ export async function replaceSteps(
   if (tc.lifecycleState !== TestCaseLifecycleState.DRAFT) {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Only Draft test cases can be edited.");
   }
-  ensureVersion(tc.version, version);
+  const expectedVersion = ensureVersion(tc.version, version);
   ensureStepSequence(steps);
   steps.forEach((s, i) => {
     requireNonBlank(s.action, `steps.${i}.action`, "Step action is required.");
     requireNonBlank(s.expectedResult, `steps.${i}.expectedResult`, "Step expected result is required.");
   });
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     await tx.testStep.deleteMany({ where: { testCaseId } });
     await tx.testStep.createMany({
       data: steps.map((step) => ({
@@ -245,7 +246,7 @@ export async function replaceSteps(
     });
 
     const updated = await tx.testCase.update({
-      where: { id: testCaseId },
+      where: { id: testCaseId, version: expectedVersion },
       data: { version: { increment: 1 }, updatedBy: actor.userId }
     });
 
@@ -258,7 +259,7 @@ export async function replaceSteps(
       beforeAfterJson: { after: { stepCount: steps.length, version: updated.version } }
     });
     return updated;
-  });
+  }));
 }
 
 export async function submitTestCase(testCaseId: string, version: number | undefined, actor: Actor) {
@@ -271,7 +272,7 @@ export async function submitTestCase(testCaseId: string, version: number | undef
   if (actor.role === QamsRole.QA_ENGINEER && tc.authorUserId !== actor.userId) {
     throw new AppError(403, "UNAUTHORIZED", "QA Engineer can submit only own cases.");
   }
-  ensureVersion(tc.version, version);
+  const expectedVersion = ensureVersion(tc.version, version);
   if (tc.steps.length < 1) throw new AppError(422, "ID_INVALID", "At least one step is required.", "steps");
 
   requireNonBlank(tc.cycle, "cycle", "Cycle is required before review.");
@@ -283,9 +284,9 @@ export async function submitTestCase(testCaseId: string, version: number | undef
   await ensureActiveControlledValue(CATALOGUE_PRIORITY, tc.priority, "priority");
   await ensureActiveControlledValue(CATALOGUE_SEVERITY, tc.severity, "severity");
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.testCase.update({
-      where: { id: testCaseId },
+      where: { id: testCaseId, version: expectedVersion },
       data: {
         lifecycleState: TestCaseLifecycleState.IN_REVIEW,
         version: { increment: 1 },
@@ -301,7 +302,7 @@ export async function submitTestCase(testCaseId: string, version: number | undef
       beforeAfterJson: { after: { lifecycleState: updated.lifecycleState } }
     });
     return updated;
-  });
+  }));
 }
 
 export async function approveTestCase(testCaseId: string, version: number | undefined, actor: Actor) {
@@ -314,11 +315,11 @@ export async function approveTestCase(testCaseId: string, version: number | unde
   if (actor.role === QamsRole.SENIOR_QA_ENGINEER && tc.authorUserId === actor.userId) {
     throw new AppError(403, "UNAUTHORIZED", "Senior QA Engineer cannot approve own case.");
   }
-  ensureVersion(tc.version, version);
+  const expectedVersion = ensureVersion(tc.version, version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.testCase.update({
-      where: { id: testCaseId },
+      where: { id: testCaseId, version: expectedVersion },
       data: {
         lifecycleState: TestCaseLifecycleState.APPROVED,
         version: { increment: 1 },
@@ -334,7 +335,7 @@ export async function approveTestCase(testCaseId: string, version: number | unde
       beforeAfterJson: { after: { lifecycleState: updated.lifecycleState } }
     });
     return updated;
-  });
+  }));
 }
 
 export async function returnTestCaseToDraft(
@@ -349,11 +350,11 @@ export async function returnTestCaseToDraft(
   if (tc.lifecycleState !== TestCaseLifecycleState.IN_REVIEW) {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Only In Review can be returned to Draft.");
   }
-  ensureVersion(tc.version, payload.version);
+  const expectedVersion = ensureVersion(tc.version, payload.version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.testCase.update({
-      where: { id: testCaseId },
+      where: { id: testCaseId, version: expectedVersion },
       data: {
         lifecycleState: TestCaseLifecycleState.DRAFT,
         reviewReason: payload.reviewReason.trim(),
@@ -370,7 +371,7 @@ export async function returnTestCaseToDraft(
       beforeAfterJson: { after: { lifecycleState: updated.lifecycleState, reviewReason: updated.reviewReason } }
     });
     return updated;
-  });
+  }));
 }
 
 export async function retireTestCase(
@@ -385,11 +386,11 @@ export async function retireTestCase(
   if (tc.lifecycleState !== TestCaseLifecycleState.APPROVED) {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Only Approved can be retired.");
   }
-  ensureVersion(tc.version, payload.version);
+  const expectedVersion = ensureVersion(tc.version, payload.version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.testCase.update({
-      where: { id: testCaseId },
+      where: { id: testCaseId, version: expectedVersion },
       data: {
         lifecycleState: TestCaseLifecycleState.RETIRED,
         retirementReason: payload.retirementReason.trim(),
@@ -406,5 +407,5 @@ export async function retireTestCase(
       beforeAfterJson: { after: { lifecycleState: updated.lifecycleState } }
     });
     return updated;
-  });
+  }));
 }

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
 import { ensureVersion } from "@/lib/validation";
+import { withVersionCheck } from "@/lib/optimistic-lock";
 
 export async function listControlledValues() {
   return prisma.controlledValue.findMany({
@@ -16,11 +17,11 @@ export async function updateControlledValue(
 ) {
   const current = await prisma.controlledValue.findUnique({ where: { id } });
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Controlled value not found.", "id");
-  ensureVersion(current.version, input.version);
+  const expectedVersion = ensureVersion(current.version, input.version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.controlledValue.update({
-      where: { id },
+      where: { id, version: expectedVersion },
       data: {
         active: input.active,
         version: { increment: 1 },
@@ -36,7 +37,7 @@ export async function updateControlledValue(
       beforeAfterJson: { before: { active: current.active }, after: { active: updated.active } }
     });
     return updated;
-  });
+  }));
 }
 
 /**
@@ -75,11 +76,11 @@ export async function updateUserRole(
     select: { ...USER_RESPONSE_SELECT }
   });
   if (!user) throw new AppError(404, "REFERENCE_NOT_FOUND", "User not found.", "id");
-  ensureVersion(user.version, input.version);
+  const expectedVersion = ensureVersion(user.version, input.version);
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.user.update({
-      where: { id },
+      where: { id, version: expectedVersion },
       data: { role: input.role, version: { increment: 1 }, updatedBy: input.actorId },
       select: { ...USER_RESPONSE_SELECT }
     });
@@ -94,5 +95,5 @@ export async function updateUserRole(
       beforeAfterJson: { before: { role: user.role }, after: { role: updated.role } }
     });
     return updated;
-  });
+  }));
 }

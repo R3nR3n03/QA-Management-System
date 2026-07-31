@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
+import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
@@ -71,14 +72,14 @@ export async function updateDefectDetails(
   if (current.status !== DefectLifecycleState.NEW) {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Only a New defect can have its details edited.");
   }
-  ensureVersion(current.version, input.version);
+  const expectedVersion = ensureVersion(current.version, input.version);
 
   if (input.priority?.trim()) await ensureActiveControlledValue(CATALOGUE_PRIORITY, input.priority.trim(), "priority");
   if (input.severity?.trim()) await ensureActiveControlledValue(CATALOGUE_SEVERITY, input.severity.trim(), "severity");
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.defect.update({
-      where: { id: defectId },
+      where: { id: defectId, version: expectedVersion },
       data: {
         summary: input.summary?.trim() ?? current.summary,
         priority: input.priority?.trim() ?? current.priority,
@@ -96,7 +97,7 @@ export async function updateDefectDetails(
       beforeAfterJson: { before: current, after: updated }
     });
     return updated;
-  });
+  }));
 }
 
 const defectTransitions: Record<DefectLifecycleState, DefectLifecycleState[]> = {
@@ -124,7 +125,7 @@ export async function transitionDefect(
 
   const defect = await prisma.defect.findUnique({ where: { id: defectId } });
   if (!defect) throw new AppError(404, "REFERENCE_NOT_FOUND", "Defect not found.", "defectId");
-  ensureVersion(defect.version, input.version);
+  const expectedVersion = ensureVersion(defect.version, input.version);
 
   if (!defectTransitions[defect.status].includes(input.targetStatus)) {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Invalid defect transition.");
@@ -173,9 +174,9 @@ export async function transitionDefect(
     requireNonBlank(input.reopenReason, "reopenReason", "Reopen reason is required.");
   }
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.defect.update({
-      where: { id: defectId },
+      where: { id: defectId, version: expectedVersion },
       data: {
         status: input.targetStatus,
         investigationOwnerId: input.investigationOwnerId ?? defect.investigationOwnerId,
@@ -195,5 +196,5 @@ export async function transitionDefect(
       beforeAfterJson: { before: { status: defect.status }, after: { status: updated.status } }
     });
     return updated;
-  });
+  }));
 }
