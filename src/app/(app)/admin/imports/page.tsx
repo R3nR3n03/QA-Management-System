@@ -28,26 +28,16 @@ export default async function ImportsPage() {
       </div>
 
       <h2>Runs</h2>
-      <div className="card" style={{ padding: 0 }}>
+      <div className="card card-flush">
         {runs.length === 0 ? (
-          <p className="muted" style={{ padding: "var(--sp-4) var(--sp-5)", margin: 0 }}>
-            No imports yet.
-          </p>
+          <div className="empty">
+            <p>No imports yet.</p>
+          </div>
         ) : (
           runs.map((run) => (
-            <div
-              key={run.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--sp-4)",
-                padding: "var(--sp-3) var(--sp-5)",
-                borderBottom: "1px solid var(--line-soft)",
-                flexWrap: "wrap"
-              }}
-            >
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={{ fontWeight: 600, color: "var(--ink)" }}>{run.sourceFileName}</div>
+            <div key={run.id} className="list-row">
+              <div className="row-main">
+                <div className="row-title">{run.sourceFileName}</div>
                 <div className="muted">
                   {run.startedAt.toISOString()} · {run.status}
                   {run.completedAt ? ` · completed ${run.completedAt.toISOString()}` : ""}
@@ -55,11 +45,9 @@ export default async function ImportsPage() {
               </div>
               <span
                 className={
-                  run.status === "COMPLETED"
-                    ? "state state-pass"
-                    : run.status === "FAILED"
-                      ? "state state-fail"
-                      : "state"
+                  run.status === "COMPLETED" || run.status === "FAILED"
+                    ? "state state-accent"
+                    : "state"
                 }
               >
                 {run.status}

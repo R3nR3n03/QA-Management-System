@@ -40,12 +40,9 @@ export default async function TraceabilityPage() {
       {unlinked.length > 0 ? (
         <>
           <h2>Requirements without trace links</h2>
-          <div className="card" style={{ padding: 0, marginBottom: "var(--sp-5)" }}>
+          <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
             {unlinked.map((requirement) => (
-              <div
-                key={requirement.id}
-                style={{ display: "flex", gap: "var(--sp-4)", padding: "var(--sp-3) var(--sp-5)", borderBottom: "1px solid var(--line-soft)" }}
-              >
+              <div key={requirement.id} className="list-row">
                 <span className="bid">{requirement.businessId}</span>
                 <span style={{ color: "var(--ink-2)" }}>{requirement.statement}</span>
               </div>
@@ -55,21 +52,18 @@ export default async function TraceabilityPage() {
       ) : null}
 
       <h2>Trace links</h2>
-      <div className="card" style={{ padding: 0, marginBottom: "var(--sp-5)" }}>
+      <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
         {links.length === 0 ? (
-          <p className="muted" style={{ padding: "var(--sp-4) var(--sp-5)", margin: 0 }}>
-            No trace links yet.
-          </p>
+          <div className="empty">
+            <p>No trace links yet.</p>
+          </div>
         ) : (
           links.map((link) => {
             const requirement = requirementById.get(link.requirementId);
             const testCase = caseById.get(link.testCaseId);
             const defect = link.defectId ? defectById.get(link.defectId) : null;
             return (
-              <div
-                key={link.id}
-                style={{ display: "flex", gap: "var(--sp-4)", padding: "var(--sp-3) var(--sp-5)", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap" }}
-              >
+              <div key={link.id} className="list-row">
                 <span className="bid">{requirement?.businessId ?? "?"}</span>
                 <span className="muted">→</span>
                 <span className="bid">{testCase?.businessId ?? "?"}</span>
@@ -79,7 +73,7 @@ export default async function TraceabilityPage() {
                     <span className="bid">{defect.businessId}</span>
                   </>
                 ) : null}
-                <span style={{ color: "var(--ink-2)", flex: 1, minWidth: 200 }}>{testCase?.title}</span>
+                <span className="row-main" style={{ color: "var(--ink-2)" }}>{testCase?.title}</span>
               </div>
             );
           })

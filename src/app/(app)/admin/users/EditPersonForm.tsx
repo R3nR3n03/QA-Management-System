@@ -5,7 +5,11 @@ import { FormNotice } from "@/ui/notice";
 import { ConfirmDialog, Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { setUserActiveAction, updateUserProfileAction } from "./actions";
+
+const PROFILE_FORM_ID = "edit-person";
+const ACTIVE_FORM_ID = "edit-person-active";
 
 /**
  * Profile editing and deactivation/reactivation for one person, in a modal opened
@@ -64,17 +68,12 @@ export function EditPersonForm({
     wasActivePending.current = activePending;
   }, [activePending, activeState, open, active, toast]);
 
-  const bad = (field: string) => (profileState?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(profileState, field);
   const pending = profilePending || activePending;
 
   return (
     <>
-      <button
-        type="button"
-        className="btn btn-ghost"
-        onClick={() => setOpen(true)}
-        style={{ fontSize: 13, padding: "4px 10px" }}
-      >
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(true)}>
         Edit
       </button>
 
@@ -87,15 +86,15 @@ export function EditPersonForm({
         <form action={profileAction}>
           <input type="hidden" name="userId" value={userId} />
           <input type="hidden" name="version" value={version} />
-          <FormNotice state={profileState} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
+          <FormNotice state={profileState} id={noticeId(PROFILE_FORM_ID)} />
+          <div className="form-grid-2">
             <label className={bad("displayName")}>
               <span>Name</span>
-              <input name="displayName" defaultValue={displayName} required disabled={pending} autoFocus />
+              <input name="displayName" defaultValue={displayName} required disabled={pending} autoFocus {...fieldProps(profileState, "displayName", PROFILE_FORM_ID)} />
             </label>
             <label className={bad("email")}>
               <span>Email</span>
-              <input name="email" type="email" defaultValue={email} required disabled={pending} />
+              <input name="email" type="email" defaultValue={email} required disabled={pending} {...fieldProps(profileState, "email", PROFILE_FORM_ID)} />
             </label>
           </div>
           <button className="btn" type="submit" disabled={pending}>
@@ -104,7 +103,7 @@ export function EditPersonForm({
         </form>
 
         <div style={{ marginTop: "var(--sp-5)", borderTop: "1px solid var(--line-soft)", paddingTop: "var(--sp-4)" }}>
-          <FormNotice state={activeState} />
+          <FormNotice state={activeState} id={noticeId(ACTIVE_FORM_ID)} />
           {isSelf ? (
             <p className="why" style={{ margin: 0 }}>
               <strong>You cannot deactivate your own account.</strong> Ask another QA Lead if it

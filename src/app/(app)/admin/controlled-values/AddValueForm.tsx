@@ -6,6 +6,7 @@ import { FormNotice } from "@/ui/notice";
 import { Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import {
   CATALOGUE_PRIORITY,
   CATALOGUE_RESULT,
@@ -14,6 +15,8 @@ import {
 import { createControlledValueAction } from "./actions";
 
 const CATALOGUES = [CATALOGUE_PRIORITY, CATALOGUE_SEVERITY, CATALOGUE_RESULT];
+
+const FORM_ID = "add-value";
 
 /**
  * Adds a value to one of the three documented catalogues, in a modal. New values
@@ -34,7 +37,7 @@ export function AddValueModal() {
     wasPending.current = pending;
   }, [pending, state, open, toast]);
 
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <>
@@ -51,10 +54,10 @@ export function AddValueModal() {
         size="sm"
       >
         <form action={formAction}>
-          <FormNotice state={state} />
+          <FormNotice state={state} id={noticeId(FORM_ID)} />
           <label className={bad("catalogue")}>
             <span>Catalogue</span>
-            <select name="catalogue" defaultValue={CATALOGUE_PRIORITY} disabled={pending} autoFocus>
+            <select name="catalogue" defaultValue={CATALOGUE_PRIORITY} disabled={pending} autoFocus {...fieldProps(state, "catalogue", FORM_ID)}>
               {CATALOGUES.map((catalogue) => (
                 <option key={catalogue} value={catalogue}>
                   {catalogue}
@@ -64,7 +67,7 @@ export function AddValueModal() {
           </label>
           <label className={bad("value")}>
             <span>Value</span>
-            <input name="value" required disabled={pending} />
+            <input name="value" required disabled={pending} {...fieldProps(state, "value", FORM_ID)} />
           </label>
           <button className="btn" type="submit" disabled={pending}>
             {pending ? "Adding…" : "Add value"}

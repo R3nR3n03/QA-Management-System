@@ -12,8 +12,8 @@ export default async function ExecutionsPage() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        <h1 style={{ flex: 1 }}>Executions</h1>
+      <div className="page-head">
+        <h1>Executions</h1>
         <Link className="btn" href="/executions/new">
           Plan execution
         </Link>

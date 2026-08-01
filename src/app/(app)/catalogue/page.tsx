@@ -41,18 +41,18 @@ export default async function CataloguePage() {
 
   const section = (title: string, addControl: React.ReactNode, rows: React.ReactNode) => (
     <>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        <h2 style={{ flex: 1 }}>{title}</h2>
+      <div className="page-head">
+        <h2>{title}</h2>
         {addControl}
       </div>
-      <div className="card" style={{ padding: 0, marginBottom: "var(--sp-6)" }}>{rows}</div>
+      <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>{rows}</div>
     </>
   );
 
   const empty = (
-    <p className="muted" style={{ padding: "var(--sp-3) var(--sp-5)", margin: 0 }}>
-      None yet.
-    </p>
+    <div className="empty">
+      <p>None yet.</p>
+    </div>
   );
 
   return (

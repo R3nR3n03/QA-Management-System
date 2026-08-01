@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
 import type { TestCaseLifecycleState } from "@prisma/client";
 import { TestCaseStateChip } from "./chips";
+import { FilterToolbar } from "./toolbar";
 
 /**
  * The one way a list of test cases renders, so `/test-cases`, `/my-work/drafts` and
@@ -43,22 +43,15 @@ export function CaseTable({ rows, emptyText }: { rows: CaseRow[]; emptyText: str
   return (
     <>
       {rows.length > 5 ? (
-        <div className="list-toolbar">
-          <Search size={14} aria-hidden />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setQuery("");
-            }}
-            placeholder="Filter by ID, title, or state…"
-            aria-label="Filter test cases"
-          />
-        </div>
+        <FilterToolbar
+          value={query}
+          onChange={setQuery}
+          placeholder="Filter by ID, title, or state…"
+          label="Filter test cases"
+        />
       ) : null}
 
-      <div className="card" style={{ padding: 0 }}>
+      <div className="card card-flush">
         {visible.length === 0 ? (
           <div className="empty">
             <p>Nothing matches &ldquo;{query}&rdquo;.</p>
@@ -66,12 +59,12 @@ export function CaseTable({ rows, emptyText }: { rows: CaseRow[]; emptyText: str
         ) : (
           visible.map((row) => (
             <div key={row.id} className="list-row">
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", flexWrap: "wrap" }}>
+              <div className="row-main">
+                <div className="cluster">
                   <span className="bid">{row.businessId}</span>
                   <TestCaseStateChip state={row.lifecycleState} />
                 </div>
-                <div style={{ fontWeight: 600, color: "var(--ink)", marginTop: 2 }}>{row.title}</div>
+                <div className="row-title">{row.title}</div>
                 <div className="muted">
                   {row.priority || "no"} priority · {row.severity || "no"} severity
                 </div>

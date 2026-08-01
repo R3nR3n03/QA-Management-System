@@ -29,27 +29,15 @@ export default async function MyWorkPage() {
       </p>
 
       {open.length > 0 ? (
-        <div className="card" style={{ padding: 0, marginBottom: "var(--sp-6)" }}>
+        <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>
           {open.map((execution) => (
-            <div
-              key={execution.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--sp-4)",
-                padding: "var(--sp-3) var(--sp-5)",
-                borderBottom: "1px solid var(--line-soft)",
-                flexWrap: "wrap"
-              }}
-            >
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", flexWrap: "wrap" }}>
+            <div key={execution.id} className="list-row">
+              <div className="row-main">
+                <div className="cluster">
                   <span className="bid">{execution.businessId}</span>
                   <ExecutionStateChip state={execution.state} />
                 </div>
-                <div style={{ fontWeight: 600, color: "var(--ink)", marginTop: 2 }}>
-                  {execution.testCase.title}
-                </div>
+                <div className="row-title">{execution.testCase.title}</div>
                 <div className="muted">
                   <span className="bid">{execution.testCase.businessId}</span>
                   {" · "}
@@ -71,20 +59,10 @@ export default async function MyWorkPage() {
             Finalized runs are immutable. A rerun creates a new execution against the same approved
             test case.
           </p>
-          <div className="card" style={{ padding: 0 }}>
+          <div className="card card-flush">
             {done.slice(0, 8).map((execution) => (
-              <div
-                key={execution.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--sp-4)",
-                  padding: "var(--sp-3) var(--sp-5)",
-                  borderBottom: "1px solid var(--line-soft)",
-                  flexWrap: "wrap"
-                }}
-              >
-                <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+              <div key={execution.id} className="list-row">
+                <div className="row-main">
                   <span className="bid">{execution.businessId}</span>
                   <div style={{ color: "var(--ink-2)" }}>{execution.testCase.title}</div>
                 </div>

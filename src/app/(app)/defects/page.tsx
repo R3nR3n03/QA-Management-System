@@ -11,8 +11,8 @@ export default async function DefectsPage() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        <h1 style={{ flex: 1 }}>Defects</h1>
+      <div className="page-head">
+        <h1>Defects</h1>
         <Link className="btn" href="/defects/new">
           New defect
         </Link>

@@ -3,9 +3,12 @@
 import { useActionState, useState } from "react";
 import { FormNotice } from "@/ui/notice";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { createTestCaseAction } from "../actions";
 
 type Option = { id: string; businessId: string; label: string; parentId?: string };
+
+const FORM_ID = "new-case";
 
 /**
  * The hierarchy selects cascade — a module list only ever shows the chosen
@@ -35,7 +38,7 @@ export function NewCaseForm({
   const [moduleId, setModuleId] = useState("");
   const [featureId, setFeatureId] = useState("");
 
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
   const moduleOptions = modules.filter((m) => m.parentId === productId);
   const featureOptions = features.filter((f) => f.parentId === moduleId);
   const requirementOptions = requirements.filter((r) => r.parentId === featureId);
@@ -43,20 +46,20 @@ export function NewCaseForm({
   return (
     <form action={formAction}>
       {revisesTestCaseId ? <input type="hidden" name="revisesTestCaseId" value={revisesTestCaseId} /> : null}
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
 
       <fieldset className="form-section">
         <legend>Identity</legend>
         <label className={bad("businessId")}>
           <span>Test case ID</span>
-          <input name="businessId" placeholder="TC-PROD001-0001" required disabled={pending} />
+          <input name="businessId" placeholder="TC-PROD001-0001" required disabled={pending} {...fieldProps(state, "businessId", FORM_ID)} />
           <span className="hint">Format TC-&lt;product tag&gt;-#### — unique across the repository.</span>
         </label>
       </fieldset>
 
       <fieldset className="form-section">
         <legend>Where it belongs</legend>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
+      <div className="form-grid-2">
         <label className={bad("productId")}>
           <span>Product</span>
           <select
@@ -69,6 +72,7 @@ export function NewCaseForm({
               setFeatureId("");
             }}
             disabled={pending}
+            {...fieldProps(state, "productId", FORM_ID)}
           >
             <option value="" disabled>
               Choose…
@@ -92,6 +96,7 @@ export function NewCaseForm({
               setFeatureId("");
             }}
             disabled={pending || !productId}
+            {...fieldProps(state, "moduleId", FORM_ID)}
           >
             <option value="" disabled>
               {productId ? "Choose…" : "Pick a product first"}
@@ -112,6 +117,7 @@ export function NewCaseForm({
             value={featureId}
             onChange={(e) => setFeatureId(e.target.value)}
             disabled={pending || !moduleId}
+            {...fieldProps(state, "featureId", FORM_ID)}
           >
             <option value="" disabled>
               {moduleId ? "Choose…" : "Pick a module first"}
@@ -126,7 +132,7 @@ export function NewCaseForm({
 
         <label className={bad("requirementId")}>
           <span>Requirement</span>
-          <select name="requirementId" required disabled={pending || !featureId} defaultValue="">
+          <select name="requirementId" required disabled={pending || !featureId} defaultValue="" {...fieldProps(state, "requirementId", FORM_ID)}>
             <option value="" disabled>
               {featureId ? "Choose…" : "Pick a feature first"}
             </option>
@@ -142,32 +148,32 @@ export function NewCaseForm({
 
       <fieldset className="form-section">
         <legend>Planning</legend>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0 var(--sp-3)" }}>
+      <div className="form-grid-4">
         <label className={bad("cycle")}>
           <span>Cycle</span>
-          <input name="cycle" required disabled={pending} />
+          <input name="cycle" required disabled={pending} {...fieldProps(state, "cycle", FORM_ID)} />
         </label>
         <label className={bad("sprint")}>
           <span>Sprint</span>
-          <input name="sprint" required disabled={pending} />
+          <input name="sprint" required disabled={pending} {...fieldProps(state, "sprint", FORM_ID)} />
         </label>
         <label className={bad("release")}>
           <span>Release</span>
-          <input name="release" required disabled={pending} />
+          <input name="release" required disabled={pending} {...fieldProps(state, "release", FORM_ID)} />
         </label>
         <label className={bad("environment")}>
           <span>Environment</span>
-          <input name="environment" required disabled={pending} />
+          <input name="environment" required disabled={pending} {...fieldProps(state, "environment", FORM_ID)} />
         </label>
       </div>
       </fieldset>
 
       <fieldset className="form-section">
         <legend>Classification</legend>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
+      <div className="form-grid-2">
         <label className={bad("priority")}>
           <span>Priority</span>
-          <select name="priority" required defaultValue="" disabled={pending}>
+          <select name="priority" required defaultValue="" disabled={pending} {...fieldProps(state, "priority", FORM_ID)}>
             <option value="" disabled>
               Choose…
             </option>
@@ -180,7 +186,7 @@ export function NewCaseForm({
         </label>
         <label className={bad("severity")}>
           <span>Severity</span>
-          <select name="severity" required defaultValue="" disabled={pending}>
+          <select name="severity" required defaultValue="" disabled={pending} {...fieldProps(state, "severity", FORM_ID)}>
             <option value="" disabled>
               Choose…
             </option>
@@ -198,15 +204,15 @@ export function NewCaseForm({
         <legend>What it verifies</legend>
       <label className={bad("title")}>
         <span>Title</span>
-        <input name="title" required disabled={pending} />
+        <input name="title" required disabled={pending} {...fieldProps(state, "title", FORM_ID)} />
       </label>
       <label className={bad("objective")}>
         <span>Objective</span>
-        <textarea name="objective" rows={2} required disabled={pending} />
+        <textarea name="objective" rows={2} required disabled={pending} {...fieldProps(state, "objective", FORM_ID)} />
       </label>
       <label className={bad("expectedResult")}>
         <span>Expected result</span>
-        <textarea name="expectedResult" rows={2} required disabled={pending} />
+        <textarea name="expectedResult" rows={2} required disabled={pending} {...fieldProps(state, "expectedResult", FORM_ID)} />
       </label>
       </fieldset>
 

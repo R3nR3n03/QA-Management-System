@@ -6,6 +6,7 @@ import { FormNotice } from "@/ui/notice";
 import { Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import {
   createFeatureAction,
   createModuleAction,
@@ -31,30 +32,32 @@ function useSuccess(pending: boolean, state: FormState, onDone: () => void) {
   }, [pending, state, onDone]);
 }
 
+const PRODUCT_FORM_ID = "add-product";
+
 export function ProductForm({ onDone }: { onDone: () => void }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(createProductAction, null);
   useSuccess(pending, state, onDone);
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
   return (
     <form action={formAction}>
-      <FormNotice state={state} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-3)" }}>
+      <FormNotice state={state} id={noticeId(PRODUCT_FORM_ID)} />
+      <div className="form-grid-2">
         <label className={bad("businessId")}>
           <span>Product ID</span>
-          <input name="businessId" placeholder="PROD001" required disabled={pending} autoFocus />
+          <input name="businessId" placeholder="PROD001" required disabled={pending} autoFocus {...fieldProps(state, "businessId", PRODUCT_FORM_ID)} />
           <span className="hint">Format PROD### — immutable once created.</span>
         </label>
         <label className={bad("name")}>
           <span>Name</span>
-          <input name="name" required disabled={pending} />
+          <input name="name" required disabled={pending} {...fieldProps(state, "name", PRODUCT_FORM_ID)} />
         </label>
         <label className={bad("versionTag")}>
           <span>Version</span>
-          <input name="versionTag" required disabled={pending} />
+          <input name="versionTag" required disabled={pending} {...fieldProps(state, "versionTag", PRODUCT_FORM_ID)} />
         </label>
         <label className={bad("status")}>
           <span>Status</span>
-          <input name="status" placeholder="Active" required disabled={pending} />
+          <input name="status" placeholder="Active" required disabled={pending} {...fieldProps(state, "status", PRODUCT_FORM_ID)} />
         </label>
       </div>
       <button className="btn" type="submit" disabled={pending}>
@@ -63,6 +66,8 @@ export function ProductForm({ onDone }: { onDone: () => void }) {
     </form>
   );
 }
+
+const CHILD_FORM_ID = "add-catalogue-child";
 
 function ChildForm({
   action,
@@ -89,13 +94,13 @@ function ChildForm({
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, null);
   useSuccess(pending, state, onDone);
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
   return (
     <form action={formAction}>
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(CHILD_FORM_ID)} />
       <label className={bad(parentField)}>
         <span>{parentLabel}</span>
-        <select name={parentField} required defaultValue="" disabled={pending} autoFocus>
+        <select name={parentField} required defaultValue="" disabled={pending} autoFocus {...fieldProps(state, parentField, CHILD_FORM_ID)}>
           <option value="" disabled>
             Choose…
           </option>
@@ -106,14 +111,14 @@ function ChildForm({
           ))}
         </select>
       </label>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-3)" }}>
+      <div className="form-grid-2">
         <label className={bad("businessId")}>
           <span>{idLabel}</span>
-          <input name="businessId" placeholder={idPlaceholder} required disabled={pending} />
+          <input name="businessId" placeholder={idPlaceholder} required disabled={pending} {...fieldProps(state, "businessId", CHILD_FORM_ID)} />
         </label>
         <label className={bad(nameField)}>
           <span>{nameLabel}</span>
-          <input name={nameField} required disabled={pending} />
+          <input name={nameField} required disabled={pending} {...fieldProps(state, nameField, CHILD_FORM_ID)} />
         </label>
       </div>
       <button className="btn" type="submit" disabled={pending}>

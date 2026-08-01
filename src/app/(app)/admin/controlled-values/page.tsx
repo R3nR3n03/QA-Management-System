@@ -17,8 +17,8 @@ export default async function ControlledValuesPage() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        <h1 style={{ flex: 1 }}>Controlled values</h1>
+      <div className="page-head">
+        <h1>Controlled values</h1>
         <AddValueModal />
       </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
@@ -29,24 +29,15 @@ export default async function ControlledValuesPage() {
       {catalogues.map((catalogue) => (
         <div key={catalogue}>
           <h2>{catalogue}</h2>
-          <div className="card" style={{ padding: 0, marginBottom: "var(--sp-5)" }}>
+          <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
             {rows
               .filter((row) => row.catalogue === catalogue)
               .map((row) => (
-                <div
-                  key={row.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "var(--sp-4)",
-                    padding: "var(--sp-3) var(--sp-5)",
-                    borderBottom: "1px solid var(--line-soft)"
-                  }}
-                >
+                <div key={row.id} className="list-row">
                   <span style={{ flex: 1, fontWeight: 600, color: row.active ? "var(--ink)" : "var(--ink-3)" }}>
                     {row.value}
                   </span>
-                  <span className={row.active ? "state state-pass" : "state"}>
+                  <span className={row.active ? "state state-accent" : "state"}>
                     {row.active ? "Active" : "Inactive"}
                   </span>
                   <ToggleForm

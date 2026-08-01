@@ -1,9 +1,13 @@
 "use client";
 
 import { useActionState } from "react";
+import { FormNotice } from "@/ui/notice";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { updateExecutionAction, type FormState } from "./actions";
 
 type TesterOption = { id: string; displayName: string; email: string };
+
+const FORM_ID = "reassign-execution";
 
 /**
  * Reassignment is Planned-only — once a run starts, its tester is part of the record.
@@ -28,17 +32,11 @@ export function ReassignForm({
       <input type="hidden" name="executionId" value={executionId} />
       <input type="hidden" name="version" value={version} />
 
-      {state ? (
-        <div className={state.advisory ? "notice notice-advisory" : "notice"} role="alert">
-          <strong>{state.title}</strong>
-          <span>{state.detail}</span>
-          {state.requestId ? <code>Reference {state.requestId}</code> : null}
-        </div>
-      ) : null}
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
 
-      <label className={state?.field === "testerId" ? "field field-bad" : "field"}>
+      <label className={fieldClass(state, "testerId")}>
         <span>Reassign to</span>
-        <select name="testerId" defaultValue={currentTesterId} disabled={pending}>
+        <select name="testerId" defaultValue={currentTesterId} disabled={pending} {...fieldProps(state, "testerId", FORM_ID)}>
           {testers.map((tester) => (
             <option key={tester.id} value={tester.id}>
               {tester.displayName} · {tester.email}

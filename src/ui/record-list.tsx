@@ -2,43 +2,15 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
 import type { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome } from "@prisma/client";
 import { DefectStatusChip, ExecutionStateChip, OutcomeChip } from "./chips";
+import { FilterToolbar } from "./toolbar";
 
 /**
  * The filterable record lists for executions and defects. Presentation only: which
  * rows exist is the server's answer; what the viewer may do with one is the
  * domain's. The filter matches ID, title/summary, state, and the tester's name.
  */
-
-function Toolbar({
-  value,
-  onChange,
-  placeholder,
-  label
-}: {
-  value: string;
-  onChange: (next: string) => void;
-  placeholder: string;
-  label: string;
-}) {
-  return (
-    <div className="list-toolbar">
-      <Search size={14} aria-hidden />
-      <input
-        type="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") onChange("");
-        }}
-        placeholder={placeholder}
-        aria-label={label}
-      />
-    </div>
-  );
-}
 
 export type ExecutionRowData = {
   id: string;
@@ -73,14 +45,14 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
   return (
     <>
       {rows.length > 5 ? (
-        <Toolbar
+        <FilterToolbar
           value={query}
           onChange={setQuery}
           placeholder="Filter by ID, case, tester, or state…"
           label="Filter executions"
         />
       ) : null}
-      <div className="card" style={{ padding: 0 }}>
+      <div className="card card-flush">
         {visible.length === 0 ? (
           <div className="empty">
             <p>Nothing matches &ldquo;{query}&rdquo;.</p>
@@ -88,13 +60,13 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
         ) : (
           visible.map((row) => (
             <div key={row.id} className="list-row">
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", flexWrap: "wrap" }}>
+              <div className="row-main">
+                <div className="cluster">
                   <span className="bid">{row.businessId}</span>
                   <ExecutionStateChip state={row.state} />
                   {row.result ? <OutcomeChip outcome={row.result} /> : null}
                 </div>
-                <div style={{ fontWeight: 600, color: "var(--ink)", marginTop: 2 }}>{row.caseTitle}</div>
+                <div className="row-title">{row.caseTitle}</div>
                 <div className="muted">
                   <span className="bid">{row.caseBusinessId}</span>
                   {" · "}
@@ -145,14 +117,14 @@ export function DefectList({ rows }: { rows: DefectRowData[] }) {
   return (
     <>
       {rows.length > 5 ? (
-        <Toolbar
+        <FilterToolbar
           value={query}
           onChange={setQuery}
           placeholder="Filter by ID, summary, severity, or status…"
           label="Filter defects"
         />
       ) : null}
-      <div className="card" style={{ padding: 0 }}>
+      <div className="card card-flush">
         {visible.length === 0 ? (
           <div className="empty">
             <p>Nothing matches &ldquo;{query}&rdquo;.</p>
@@ -160,12 +132,12 @@ export function DefectList({ rows }: { rows: DefectRowData[] }) {
         ) : (
           visible.map((defect) => (
             <div key={defect.id} className="list-row">
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", flexWrap: "wrap" }}>
+              <div className="row-main">
+                <div className="cluster">
                   <span className="bid">{defect.businessId}</span>
                   <DefectStatusChip status={defect.status} />
                 </div>
-                <div style={{ fontWeight: 600, color: "var(--ink)", marginTop: 2 }}>{defect.summary}</div>
+                <div className="row-title">{defect.summary}</div>
                 <div className="muted">
                   <span className="bid">{defect.caseBusinessId}</span>
                   {" · "}

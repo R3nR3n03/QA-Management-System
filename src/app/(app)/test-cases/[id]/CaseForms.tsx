@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { FormNotice } from "@/ui/notice";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import {
   approveTestCaseAction,
   replaceStepsAction,
@@ -32,6 +33,8 @@ type CaseFields = {
   expectedResult: string;
 };
 
+const DRAFT_EDIT_FORM_ID = "edit-draft";
+
 export function DraftEditForm({
   testCase,
   priorities,
@@ -42,50 +45,50 @@ export function DraftEditForm({
   severities: string[];
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(updateDraftAction, null);
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <form action={formAction}>
       <input type="hidden" name="testCaseId" value={testCase.id} />
       <input type="hidden" name="version" value={testCase.version} />
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(DRAFT_EDIT_FORM_ID)} />
 
       <label className={bad("title")}>
         <span>Title</span>
-        <input name="title" defaultValue={testCase.title} required disabled={pending} />
+        <input name="title" defaultValue={testCase.title} required disabled={pending} {...fieldProps(state, "title", DRAFT_EDIT_FORM_ID)} />
       </label>
       <label className={bad("objective")}>
         <span>Objective</span>
-        <textarea name="objective" rows={2} defaultValue={testCase.objective} required disabled={pending} />
+        <textarea name="objective" rows={2} defaultValue={testCase.objective} required disabled={pending} {...fieldProps(state, "objective", DRAFT_EDIT_FORM_ID)} />
       </label>
       <label className={bad("expectedResult")}>
         <span>Expected result</span>
-        <textarea name="expectedResult" rows={2} defaultValue={testCase.expectedResult} required disabled={pending} />
+        <textarea name="expectedResult" rows={2} defaultValue={testCase.expectedResult} required disabled={pending} {...fieldProps(state, "expectedResult", DRAFT_EDIT_FORM_ID)} />
       </label>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0 var(--sp-3)" }}>
+      <div className="form-grid-4">
         <label className={bad("cycle")}>
           <span>Cycle</span>
-          <input name="cycle" defaultValue={testCase.cycle} required disabled={pending} />
+          <input name="cycle" defaultValue={testCase.cycle} required disabled={pending} {...fieldProps(state, "cycle", DRAFT_EDIT_FORM_ID)} />
         </label>
         <label className={bad("sprint")}>
           <span>Sprint</span>
-          <input name="sprint" defaultValue={testCase.sprint} required disabled={pending} />
+          <input name="sprint" defaultValue={testCase.sprint} required disabled={pending} {...fieldProps(state, "sprint", DRAFT_EDIT_FORM_ID)} />
         </label>
         <label className={bad("release")}>
           <span>Release</span>
-          <input name="release" defaultValue={testCase.release} required disabled={pending} />
+          <input name="release" defaultValue={testCase.release} required disabled={pending} {...fieldProps(state, "release", DRAFT_EDIT_FORM_ID)} />
         </label>
         <label className={bad("environment")}>
           <span>Environment</span>
-          <input name="environment" defaultValue={testCase.environment} required disabled={pending} />
+          <input name="environment" defaultValue={testCase.environment} required disabled={pending} {...fieldProps(state, "environment", DRAFT_EDIT_FORM_ID)} />
         </label>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
+      <div className="form-grid-2">
         <label className={bad("priority")}>
           <span>Priority</span>
-          <select name="priority" defaultValue={testCase.priority} required disabled={pending}>
+          <select name="priority" defaultValue={testCase.priority} required disabled={pending} {...fieldProps(state, "priority", DRAFT_EDIT_FORM_ID)}>
             {priorities.map((value) => (
               <option key={value} value={value}>
                 {value}
@@ -95,7 +98,7 @@ export function DraftEditForm({
         </label>
         <label className={bad("severity")}>
           <span>Severity</span>
-          <select name="severity" defaultValue={testCase.severity} required disabled={pending}>
+          <select name="severity" defaultValue={testCase.severity} required disabled={pending} {...fieldProps(state, "severity", DRAFT_EDIT_FORM_ID)}>
             {severities.map((value) => (
               <option key={value} value={value}>
                 {value}
@@ -117,6 +120,8 @@ export function DraftEditForm({
 // nodes in order — so the LAST row's text vanished instead of the removed one's.
 // The counter is module-scope (not a ref) because keys only need uniqueness, and
 // refs must not be read during render.
+const STEPS_FORM_ID = "edit-steps";
+
 let stepRowKey = 0;
 function makeRow(action = "", expectedResult = "") {
   return { key: stepRowKey++, action, expectedResult };
@@ -143,14 +148,14 @@ export function StepsEditor({
     <form action={formAction}>
       <input type="hidden" name="testCaseId" value={testCaseId} />
       <input type="hidden" name="version" value={version} />
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(STEPS_FORM_ID)} />
 
       {rows.map((row, index) => (
-        <div key={row.key} style={{ display: "flex", gap: "var(--sp-3)", alignItems: "flex-start" }}>
-          <span className="bid" style={{ paddingTop: 34, minWidth: 20, textAlign: "right" }}>
+        <div key={row.key} className="steps-row">
+          <span className="steps-index" style={{ minWidth: 20, textAlign: "right" }}>
             {index + 1}
           </span>
-          <label className="field" style={{ flex: 1 }}>
+          <label className="field">
             <span>Action</span>
             <input
               name="stepAction"
@@ -159,7 +164,7 @@ export function StepsEditor({
               disabled={pending}
             />
           </label>
-          <label className="field" style={{ flex: 1 }}>
+          <label className="field">
             <span>Expected</span>
             <input
               name="stepExpected"
@@ -170,8 +175,7 @@ export function StepsEditor({
           </label>
           <button
             type="button"
-            className="btn btn-secondary"
-            style={{ marginTop: 26, padding: "5px 10px", fontSize: 13 }}
+            className="btn btn-secondary btn-sm"
             onClick={() => setRows((current) => current.filter((r) => r.key !== row.key))}
             disabled={pending || rows.length === 1}
             aria-label={`Remove step ${index + 1}`}
@@ -181,7 +185,7 @@ export function StepsEditor({
         </div>
       ))}
 
-      <div style={{ display: "flex", gap: "var(--sp-3)", marginTop: "var(--sp-2)" }}>
+      <div className="row" style={{ marginTop: "var(--sp-2)" }}>
         <button
           type="button"
           className="btn btn-secondary"
@@ -202,6 +206,8 @@ export function StepsEditor({
 }
 
 /** One-button lifecycle actions with a shared shape: submit, approve. */
+const LIFECYCLE_FORM_ID = "case-lifecycle";
+
 export function LifecycleButton({
   testCaseId,
   version,
@@ -222,7 +228,7 @@ export function LifecycleButton({
     <form action={formAction} style={{ marginBottom: "var(--sp-3)" }}>
       <input type="hidden" name="testCaseId" value={testCaseId} />
       <input type="hidden" name="version" value={version} />
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(LIFECYCLE_FORM_ID)} />
       {warning ? (
         <p className="why" style={{ marginBottom: "var(--sp-3)" }}>
           {warning}
@@ -235,18 +241,20 @@ export function LifecycleButton({
   );
 }
 
+const RETURN_TO_DRAFT_FORM_ID = "return-to-draft";
+
 export function ReturnToDraftForm({ testCaseId, version }: { testCaseId: string; version: number }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(returnToDraftAction, null);
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <form action={formAction}>
       <input type="hidden" name="testCaseId" value={testCaseId} />
       <input type="hidden" name="version" value={version} />
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(RETURN_TO_DRAFT_FORM_ID)} />
       <label className={bad("reviewReason")}>
         <span>Review feedback</span>
-        <textarea name="reviewReason" rows={2} required disabled={pending} />
+        <textarea name="reviewReason" rows={2} required disabled={pending} {...fieldProps(state, "reviewReason", RETURN_TO_DRAFT_FORM_ID)} />
         <span className="hint">Recorded with the case — the author sees exactly this.</span>
       </label>
       <button className="btn btn-secondary" type="submit" disabled={pending}>
@@ -256,18 +264,20 @@ export function ReturnToDraftForm({ testCaseId, version }: { testCaseId: string;
   );
 }
 
+const RETIRE_FORM_ID = "retire-case";
+
 export function RetireForm({ testCaseId, version }: { testCaseId: string; version: number }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(retireTestCaseAction, null);
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <form action={formAction}>
       <input type="hidden" name="testCaseId" value={testCaseId} />
       <input type="hidden" name="version" value={version} />
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(RETIRE_FORM_ID)} />
       <label className={bad("retirementReason")}>
         <span>Retirement reason</span>
-        <textarea name="retirementReason" rows={2} required disabled={pending} />
+        <textarea name="retirementReason" rows={2} required disabled={pending} {...fieldProps(state, "retirementReason", RETIRE_FORM_ID)} />
       </label>
       <p className="why" style={{ marginBottom: "var(--sp-3)" }}>
         <strong>Retiring preserves the case.</strong> Historical executions keep referencing it; it

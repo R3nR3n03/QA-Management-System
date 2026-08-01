@@ -4,6 +4,8 @@ import { getImportRun } from "@/domain/imports";
 import { AppError } from "@/lib/errors";
 import { requireSession } from "@/ui/session";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
+import { OUTCOME_TONE } from "./outcome-tone";
+import { RowsTable } from "./RowsTable";
 
 export const dynamic = "force-dynamic";
 
@@ -12,13 +14,6 @@ type RunReport = {
   unknownColumns?: Record<string, string[]>;
   dashboard?: { products: number; testCases: number };
   policyGaps?: string[];
-};
-
-const OUTCOME_TONE: Record<string, string> = {
-  CREATED: "state state-pass",
-  SKIPPED_UNCHANGED: "state",
-  RECONCILIATION_REQUIRED: "state state-blocked",
-  REJECTED: "state state-fail"
 };
 
 /**
@@ -61,9 +56,9 @@ export default async function ImportRunPage({ params }: { params: Promise<{ id: 
       </p>
 
       {report.policyGaps && report.policyGaps.length > 0 ? (
-        <div style={{ marginBottom: "var(--sp-5)" }}>
+        <div className="stack" style={{ marginBottom: "var(--sp-5)" }}>
           {report.policyGaps.map((gap) => (
-            <p key={gap} className="why" style={{ marginBottom: "var(--sp-2)" }}>
+            <p key={gap} className="why">
               {gap}
             </p>
           ))}
@@ -73,12 +68,9 @@ export default async function ImportRunPage({ params }: { params: Promise<{ id: 
       {Object.keys(outcomeCounts).length > 0 ? (
         <>
           <h2>Outcomes by sheet</h2>
-          <div className="card" style={{ padding: 0, marginBottom: "var(--sp-5)" }}>
+          <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
             {Object.entries(outcomeCounts).map(([sheet, counts]) => (
-              <div
-                key={sheet}
-                style={{ display: "flex", gap: "var(--sp-3)", padding: "var(--sp-3) var(--sp-5)", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap", alignItems: "center" }}
-              >
+              <div key={sheet} className="list-row">
                 <span style={{ fontWeight: 620, minWidth: 160 }}>{sheet}</span>
                 {Object.entries(counts).map(([outcome, count]) => (
                   <span key={outcome} className={OUTCOME_TONE[outcome] ?? "state"}>
@@ -92,27 +84,22 @@ export default async function ImportRunPage({ params }: { params: Promise<{ id: 
       ) : null}
 
       <h2>Rows</h2>
-      <div className="card" style={{ padding: 0 }}>
+      <div className="card card-flush">
         {run.rows.length === 0 ? (
-          <p className="muted" style={{ padding: "var(--sp-4) var(--sp-5)", margin: 0 }}>
-            No row reports for this run.
-          </p>
+          <div className="empty">
+            <p>No row reports for this run.</p>
+          </div>
         ) : (
-          run.rows.map((row) => (
-            <div
-              key={row.id}
-              style={{ display: "flex", gap: "var(--sp-3)", padding: "var(--sp-2) var(--sp-5)", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap", alignItems: "baseline" }}
-            >
-              <span className="muted" style={{ minWidth: 150 }}>
-                {row.sourceSheet} · row {row.sourceRow}
-              </span>
-              <span className={OUTCOME_TONE[row.outcome] ?? "state"}>{row.outcome}</span>
-              {row.errorCode ? <span className="bid">{row.errorCode}</span> : null}
-              <span style={{ flex: 1, minWidth: 220, color: "var(--ink-2)", fontSize: 13.5 }}>
-                {row.details ?? ""}
-              </span>
-            </div>
-          ))
+          <RowsTable
+            rows={run.rows.map((row) => ({
+              id: row.id,
+              sourceSheet: row.sourceSheet,
+              sourceRow: row.sourceRow,
+              outcome: row.outcome,
+              errorCode: row.errorCode,
+              details: row.details
+            }))}
+          />
         )}
       </div>
     </>

@@ -14,8 +14,8 @@ export default async function TestCasesPage() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        <h1 style={{ flex: 1 }}>Test cases</h1>
+      <div className="page-head">
+        <h1>Test cases</h1>
         {mayAuthor ? (
           <Link className="btn" href="/test-cases/new">
             New draft

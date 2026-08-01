@@ -1,7 +1,11 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { FormNotice } from "@/ui/notice";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { finalizeExecutionAction, type FormState } from "./actions";
+
+const FORM_ID = "finalize-execution";
 
 /**
  * Finalizing is the only irreversible step a tester takes: a finalized execution
@@ -30,20 +34,14 @@ export function FinalizeForm({
   );
   const [outcome, setOutcome] = useState("");
 
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <form action={formAction}>
       <input type="hidden" name="executionId" value={executionId} />
       <input type="hidden" name="version" value={version} />
 
-      {state ? (
-        <div className={state.advisory ? "notice notice-advisory" : "notice"} role="alert">
-          <strong>{state.title}</strong>
-          <span>{state.detail}</span>
-          {state.requestId ? <code>Reference {state.requestId}</code> : null}
-        </div>
-      ) : null}
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
 
       <label className={bad("result")}>
         <span>Result</span>
@@ -53,6 +51,7 @@ export function FinalizeForm({
           value={outcome}
           onChange={(e) => setOutcome(e.target.value)}
           disabled={pending}
+          {...fieldProps(state, "result", FORM_ID)}
         >
           <option value="" disabled>
             Choose a result…
@@ -65,7 +64,7 @@ export function FinalizeForm({
 
       <label className={bad("actualResult")}>
         <span>What actually happened</span>
-        <textarea name="actualResult" rows={3} required disabled={pending} />
+        <textarea name="actualResult" rows={3} required disabled={pending} {...fieldProps(state, "actualResult", FORM_ID)} />
         <span className="hint">
           This is the evidence the result rests on, so it is kept with the execution permanently.
         </span>
@@ -74,7 +73,7 @@ export function FinalizeForm({
       {outcome === "BLOCKED" ? (
         <label className={bad("blockReason")}>
           <span>What blocked it</span>
-          <textarea name="blockReason" rows={2} disabled={pending} />
+          <textarea name="blockReason" rows={2} disabled={pending} {...fieldProps(state, "blockReason", FORM_ID)} />
           <span className="hint">
             Say what stopped the run, so whoever picks it up knows where to start.
           </span>
@@ -82,17 +81,8 @@ export function FinalizeForm({
       ) : null}
 
       {outcome === "FAIL" ? (
-        <fieldset
-          style={{
-            border: "1px solid var(--line)",
-            borderRadius: "var(--radius)",
-            padding: "var(--sp-4)",
-            marginBottom: "var(--sp-4)"
-          }}
-        >
-          <legend style={{ fontSize: 13, fontWeight: 620, padding: "0 var(--sp-2)" }}>
-            Raise a defect
-          </legend>
+        <fieldset className="form-section">
+          <legend>Raise a defect</legend>
           <p className="muted" style={{ marginBottom: "var(--sp-3)" }}>
             A failed run needs a defect against this same test case. Fill this in to raise one now,
             or leave it blank if a defect already exists — you will be asked to pick it.
@@ -100,18 +90,18 @@ export function FinalizeForm({
 
           <label className={bad("createDefect.businessId")}>
             <span>Defect ID</span>
-            <input name="defectBusinessId" placeholder="BUG-0001" disabled={pending} />
+            <input name="defectBusinessId" placeholder="BUG-0001" disabled={pending} {...fieldProps(state, "createDefect.businessId", FORM_ID)} />
           </label>
 
           <label className={bad("createDefect.summary")}>
             <span>Summary</span>
-            <input name="defectSummary" disabled={pending} />
+            <input name="defectSummary" disabled={pending} {...fieldProps(state, "createDefect.summary", FORM_ID)} />
           </label>
 
-          <div style={{ display: "flex", gap: "var(--sp-3)" }}>
-            <label className={bad("createDefect.priority")} style={{ flex: 1 }}>
+          <div className="form-grid-2">
+            <label className={bad("createDefect.priority")}>
               <span>Priority</span>
-              <select name="defectPriority" disabled={pending} defaultValue="">
+              <select name="defectPriority" disabled={pending} defaultValue="" {...fieldProps(state, "createDefect.priority", FORM_ID)}>
                 <option value="">Not set yet</option>
                 {priorities.map((value) => (
                   <option key={value} value={value}>
@@ -120,9 +110,9 @@ export function FinalizeForm({
                 ))}
               </select>
             </label>
-            <label className={bad("createDefect.severity")} style={{ flex: 1 }}>
+            <label className={bad("createDefect.severity")}>
               <span>Severity</span>
-              <select name="defectSeverity" disabled={pending} defaultValue="">
+              <select name="defectSeverity" disabled={pending} defaultValue="" {...fieldProps(state, "createDefect.severity", FORM_ID)}>
                 <option value="">Not set yet</option>
                 {severities.map((value) => (
                   <option key={value} value={value}>
@@ -132,7 +122,7 @@ export function FinalizeForm({
               </select>
             </label>
           </div>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted" style={{ margin: "0 0 var(--sp-2)" }}>
             Priority and severity can wait — they are required before the defect is triaged, not to
             raise it.
           </p>

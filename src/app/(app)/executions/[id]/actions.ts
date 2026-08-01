@@ -3,7 +3,7 @@
 import { ExecutionOutcome } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { finalizeExecution, startExecution, updateExecution } from "@/domain/executions";
-import { runAction } from "@/ui/action";
+import { failState, runAction, type FormState } from "@/ui/action";
 
 /**
  * Server actions for the execution lifecycle. Each one authenticates, calls exactly
@@ -13,13 +13,7 @@ import { runAction } from "@/ui/action";
  * `src/domain/executions.ts` and are enforced there whichever caller asks.
  */
 
-export type FormState = {
-  title: string;
-  detail: string;
-  field?: string;
-  requestId?: string;
-  advisory?: boolean;
-} | null;
+export type { FormState } from "@/ui/action";
 
 export async function startExecutionAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const id = String(formData.get("executionId") ?? "");
@@ -27,15 +21,7 @@ export async function startExecutionAction(_prev: FormState, formData: FormData)
 
   const result = await runAction((actor) => startExecution(id, version, actor));
 
-  if (!result.ok) {
-    return {
-      title: result.copy.title,
-      detail: result.copy.detail,
-      field: result.field,
-      requestId: result.code === "INTERNAL_ERROR" ? result.requestId : undefined,
-      advisory: result.copy.advisory
-    };
-  }
+  if (!result.ok) return failState(result);
 
   revalidatePath(`/executions/${id}`);
   revalidatePath("/my-work");
@@ -49,15 +35,7 @@ export async function updateExecutionAction(_prev: FormState, formData: FormData
 
   const result = await runAction((actor) => updateExecution(id, { testerId, version }, actor));
 
-  if (!result.ok) {
-    return {
-      title: result.copy.title,
-      detail: result.copy.detail,
-      field: result.field,
-      requestId: result.code === "INTERNAL_ERROR" ? result.requestId : undefined,
-      advisory: result.copy.advisory
-    };
-  }
+  if (!result.ok) return failState(result);
 
   revalidatePath(`/executions/${id}`);
   // Both queues change: the run leaves the old tester's My work and joins the new one's.
@@ -105,15 +83,7 @@ export async function finalizeExecutionAction(
     )
   );
 
-  if (!result.ok) {
-    return {
-      title: result.copy.title,
-      detail: result.copy.detail,
-      field: result.field,
-      requestId: result.code === "INTERNAL_ERROR" ? result.requestId : undefined,
-      advisory: result.copy.advisory
-    };
-  }
+  if (!result.ok) return failState(result);
 
   revalidatePath(`/executions/${id}`);
   revalidatePath("/my-work");

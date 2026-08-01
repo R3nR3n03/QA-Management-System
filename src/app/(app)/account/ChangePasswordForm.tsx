@@ -3,7 +3,10 @@
 import { useActionState, useEffect, useRef } from "react";
 import { FormNotice } from "@/ui/notice";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { changePasswordAction } from "./actions";
+
+const FORM_ID = "change-password";
 
 export function ChangePasswordForm() {
   const [state, formAction, pending] = useActionState<FormState, FormData>(changePasswordAction, null);
@@ -14,20 +17,20 @@ export function ChangePasswordForm() {
     if (state?.success) formRef.current?.reset();
   }, [state]);
 
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <form ref={formRef} action={formAction}>
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
 
       <label className={bad("currentPassword")}>
         <span>Current password</span>
-        <input name="currentPassword" type="password" autoComplete="current-password" required disabled={pending} />
+        <input name="currentPassword" type="password" autoComplete="current-password" required disabled={pending} {...fieldProps(state, "currentPassword", FORM_ID)} />
       </label>
 
       <label className={bad("newPassword")}>
         <span>New password</span>
-        <input name="newPassword" type="password" autoComplete="new-password" required minLength={8} disabled={pending} />
+        <input name="newPassword" type="password" autoComplete="new-password" required minLength={8} disabled={pending} {...fieldProps(state, "newPassword", FORM_ID)} />
         <span className="hint">At least 8 characters.</span>
       </label>
 

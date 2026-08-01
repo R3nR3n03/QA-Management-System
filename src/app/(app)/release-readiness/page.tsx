@@ -55,7 +55,7 @@ export default async function ReleaseReadinessPage({
       </p>
 
       <div className="card" style={{ marginBottom: "var(--sp-5)" }}>
-        <form method="get" style={{ display: "flex", gap: "var(--sp-3)", alignItems: "flex-end", flexWrap: "wrap" }}>
+        <form method="get" className="row" style={{ alignItems: "flex-end" }}>
           <label className="field" style={{ flex: "2 1 220px", marginBottom: 0 }}>
             <span>Product</span>
             <select name="productId" defaultValue={productId} required>
@@ -104,17 +104,14 @@ export default async function ReleaseReadinessPage({
 
           <h2>Finalized executions by result</h2>
           <p className="muted">{snapshot.executionFinalizedByResult.filters}</p>
-          <div className="card" style={{ padding: 0, marginBottom: "var(--sp-5)" }}>
+          <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
             {snapshot.executionFinalizedByResult.counts.length === 0 ? (
-              <p className="muted" style={{ padding: "var(--sp-4) var(--sp-5)", margin: 0 }}>
-                No finalized executions in scope.
-              </p>
+              <div className="empty">
+                <p>No finalized executions in scope.</p>
+              </div>
             ) : (
               snapshot.executionFinalizedByResult.counts.map((row) => (
-                <div
-                  key={row.result ?? "none"}
-                  style={{ display: "flex", gap: "var(--sp-4)", alignItems: "center", padding: "var(--sp-3) var(--sp-5)", borderBottom: "1px solid var(--line-soft)" }}
-                >
+                <div key={row.result ?? "none"} className="list-row">
                   {row.result ? <OutcomeChip outcome={row.result as ExecutionOutcome} /> : <span className="state">No result</span>}
                   <span style={{ fontWeight: 620 }}>{row._count}</span>
                   <span className="muted">of {snapshot.executionFinalizedByResult.denominatorCount} finalized in scope</span>
@@ -125,17 +122,14 @@ export default async function ReleaseReadinessPage({
 
           <h2>Open defects by severity</h2>
           <p className="muted">{snapshot.openDefectsBySeverity.filters}</p>
-          <div className="card" style={{ padding: 0, marginBottom: "var(--sp-5)" }}>
+          <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
             {snapshot.openDefectsBySeverity.counts.length === 0 ? (
-              <p className="muted" style={{ padding: "var(--sp-4) var(--sp-5)", margin: 0 }}>
-                No open defects in scope.
-              </p>
+              <div className="empty">
+                <p>No open defects in scope.</p>
+              </div>
             ) : (
               snapshot.openDefectsBySeverity.counts.map((row) => (
-                <div
-                  key={row.severity || "unset"}
-                  style={{ display: "flex", gap: "var(--sp-4)", alignItems: "center", padding: "var(--sp-3) var(--sp-5)", borderBottom: "1px solid var(--line-soft)" }}
-                >
+                <div key={row.severity || "unset"} className="list-row">
                   <span style={{ fontWeight: 620, minWidth: 90 }}>{row.severity || "Not set"}</span>
                   <span style={{ fontWeight: 620 }}>{row._count}</span>
                   <span className="muted">of {snapshot.openDefectsBySeverity.denominatorCount} open in scope</span>
@@ -145,14 +139,14 @@ export default async function ReleaseReadinessPage({
           </div>
 
           <h2>Requirements without trace links</h2>
-          <div className="card" style={{ padding: 0 }}>
+          <div className="card card-flush">
             {snapshot.requirementsWithoutTraceLinks.length === 0 ? (
-              <p className="muted" style={{ padding: "var(--sp-4) var(--sp-5)", margin: 0 }}>
-                Every requirement in this product has at least one trace link.
-              </p>
+              <div className="empty">
+                <p>Every requirement in this product has at least one trace link.</p>
+              </div>
             ) : (
               snapshot.requirementsWithoutTraceLinks.map((businessId) => (
-                <div key={businessId} style={{ padding: "var(--sp-2) var(--sp-5)", borderBottom: "1px solid var(--line-soft)" }}>
+                <div key={businessId} className="list-row">
                   <span className="bid">{businessId}</span>
                 </div>
               ))

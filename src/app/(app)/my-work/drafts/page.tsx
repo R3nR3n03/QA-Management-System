@@ -22,8 +22,8 @@ export default async function MyDraftsPage() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        <h1 style={{ flex: 1 }}>My drafts</h1>
+      <div className="page-head">
+        <h1>My drafts</h1>
         <Link className="btn" href="/test-cases/new">
           New draft
         </Link>

@@ -3,7 +3,10 @@
 import { useActionState, useState } from "react";
 import { FormNotice } from "@/ui/notice";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { createRtmLinkAction } from "./actions";
+
+const FORM_ID = "rtm-link";
 
 /**
  * Linking is constrained twice before the domain sees it: only test cases under the
@@ -24,13 +27,13 @@ export function LinkForm({
   const [requirementId, setRequirementId] = useState("");
   const [testCaseId, setTestCaseId] = useState("");
 
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
   const caseOptions = cases.filter((c) => c.requirementId === requirementId);
   const defectOptions = defects.filter((d) => d.testCaseId === testCaseId);
 
   return (
     <form action={formAction}>
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
 
       <label className={bad("requirementId")}>
         <span>Requirement</span>
@@ -43,6 +46,7 @@ export function LinkForm({
             setTestCaseId("");
           }}
           disabled={pending}
+          {...fieldProps(state, "requirementId", FORM_ID)}
         >
           <option value="" disabled>
             Choose…
@@ -63,6 +67,7 @@ export function LinkForm({
           value={testCaseId}
           onChange={(e) => setTestCaseId(e.target.value)}
           disabled={pending || !requirementId}
+          {...fieldProps(state, "testCaseId", FORM_ID)}
         >
           <option value="" disabled>
             {requirementId ? "Choose…" : "Pick a requirement first"}
@@ -78,7 +83,7 @@ export function LinkForm({
 
       <label className={bad("defectId")}>
         <span>Defect (optional)</span>
-        <select name="defectId" defaultValue="" disabled={pending || !testCaseId}>
+        <select name="defectId" defaultValue="" disabled={pending || !testCaseId} {...fieldProps(state, "defectId", FORM_ID)}>
           <option value="">No defect</option>
           {defectOptions.map((d) => (
             <option key={d.id} value={d.id}>

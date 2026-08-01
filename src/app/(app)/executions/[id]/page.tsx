@@ -6,6 +6,7 @@ import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-c
 import { ExecutionStateChip, OutcomeChip, TestCaseStateChip } from "@/ui/chips";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
 import { requireSession } from "@/ui/session";
+import { Stepper } from "@/ui/stepper";
 import { FinalizeForm } from "./FinalizeForm";
 import { ReassignForm } from "./ReassignForm";
 import { StartForm } from "./StartForm";
@@ -47,7 +48,7 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
   return (
     <>
       <Breadcrumbs trail={[{ href: "/executions", label: "Executions" }]} here={execution.businessId} />
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
+      <div className="cluster">
         <span className="bid">{execution.businessId}</span>
         <ExecutionStateChip state={execution.state} />
         {execution.result ? <OutcomeChip outcome={execution.result} /> : null}
@@ -62,39 +63,13 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
         {isAssignee ? " (you)" : ""}
       </p>
 
-      <div style={{ display: "flex", marginBottom: "var(--sp-6)", flexWrap: "wrap" }}>
-        {RAIL.map((step, i) => (
-          <span
-            key={step.state}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 9,
-              fontSize: 13,
-              fontWeight: 600,
-              padding: "6px 14px",
-              border: "1px solid var(--line)",
-              borderLeft: i === 0 ? "1px solid var(--line)" : "0",
-              borderRadius: i === 0 ? "3px 0 0 3px" : i === RAIL.length - 1 ? "0 3px 3px 0" : "0",
-              background: i === currentIndex ? "var(--accent-wash)" : "var(--surface-2)",
-              color: i === currentIndex ? "var(--accent)" : i < currentIndex ? "var(--ink-2)" : "var(--ink-3)"
-            }}
-          >
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background:
-                  i === currentIndex ? "var(--accent)" : i < currentIndex ? "var(--pass)" : "var(--line)"
-              }}
-            />
-            {step.label}
-          </span>
-        ))}
-      </div>
+      <Stepper
+        steps={RAIL.map((step) => ({ key: step.state, label: step.label }))}
+        currentIndex={currentIndex}
+        label="Execution lifecycle"
+      />
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,340px)", gap: "var(--sp-6)" }}>
+      <div className="detail-cols">
         <div>
           <h2>Steps</h2>
           {execution.testCase.steps.length === 0 ? (
@@ -115,7 +90,7 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
               <h2 style={{ marginTop: "var(--sp-6)" }}>History</h2>
               <p className="muted">Append-only. Corrections create a new execution, never an edit.</p>
               {execution.history.map((row) => (
-                <div key={row.id} style={{ display: "flex", gap: "var(--sp-3)", alignItems: "center", padding: "var(--sp-2) 0" }}>
+                <div key={row.id} className="row" style={{ padding: "var(--sp-2) 0" }}>
                   <OutcomeChip outcome={row.result} />
                   <span className="muted">{row.occurredAt.toISOString().replace("T", " ").slice(0, 16)} UTC</span>
                 </div>

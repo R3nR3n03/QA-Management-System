@@ -5,6 +5,7 @@ import { FormNotice } from "@/ui/notice";
 import { Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import {
   updateFeatureAction,
   updateModuleAction,
@@ -22,6 +23,8 @@ import {
  */
 
 type FieldSpec = { name: string; label: string; defaultValue: string };
+
+const FORM_ID = "edit-catalogue";
 
 function EditableRow({
   action,
@@ -55,17 +58,12 @@ function EditableRow({
     wasPending.current = pending;
   }, [pending, state, open, entity, toast]);
 
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <div className="list-row">
       {children}
-      <button
-        type="button"
-        className="btn btn-ghost"
-        onClick={() => setOpen(true)}
-        style={{ fontSize: 13, padding: "4px 10px" }}
-      >
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(true)}>
         Edit
       </button>
 
@@ -78,11 +76,11 @@ function EditableRow({
         <form action={formAction}>
           <input type="hidden" name="id" value={id} />
           <input type="hidden" name="version" value={version} />
-          <FormNotice state={state} />
+          <FormNotice state={state} id={noticeId(FORM_ID)} />
           {fields.map((field) => (
             <label key={field.name} className={bad(field.name)}>
               <span>{field.label}</span>
-              <input name={field.name} defaultValue={field.defaultValue} required disabled={pending} />
+              <input name={field.name} defaultValue={field.defaultValue} required disabled={pending} {...fieldProps(state, field.name, FORM_ID)} />
             </label>
           ))}
           <button className="btn" type="submit" disabled={pending}>

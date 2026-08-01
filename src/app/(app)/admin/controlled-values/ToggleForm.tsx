@@ -5,7 +5,10 @@ import { FormNotice } from "@/ui/notice";
 import { ConfirmDialog } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
+import { noticeId } from "@/ui/form";
 import { toggleControlledValueAction } from "./actions";
+
+const FORM_ID = "toggle-value";
 
 /**
  * Deactivating stops NEW records using the value; existing records keep it
@@ -53,13 +56,8 @@ export function ToggleForm({
     return (
       <form action={formAction} style={{ display: "inline" }}>
         {hidden}
-        <FormNotice state={state} />
-        <button
-          className="btn btn-secondary"
-          type="submit"
-          disabled={pending}
-          style={{ fontSize: 13, padding: "4px 10px" }}
-        >
+        <FormNotice state={state} id={noticeId(FORM_ID)} />
+        <button className="btn btn-secondary btn-sm" type="submit" disabled={pending}>
           {pending ? "Saving…" : "Reactivate"}
         </button>
       </form>
@@ -68,13 +66,12 @@ export function ToggleForm({
 
   return (
     <>
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
       <button
         type="button"
-        className="btn btn-danger"
+        className="btn btn-danger btn-sm"
         onClick={() => setConfirming(true)}
         disabled={pending}
-        style={{ fontSize: 13, padding: "4px 10px" }}
       >
         Deactivate…
       </button>

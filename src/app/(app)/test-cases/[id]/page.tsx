@@ -45,7 +45,7 @@ export default async function TestCasePage({ params }: { params: Promise<{ id: s
   return (
     <>
       <Breadcrumbs trail={[{ href: "/test-cases", label: "Test cases" }]} here={testCase.businessId} />
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
+      <div className="cluster">
         <span className="bid" style={{ fontSize: 15 }}>{testCase.businessId}</span>
         <TestCaseStateChip state={state} />
       </div>
@@ -84,20 +84,17 @@ export default async function TestCasePage({ params }: { params: Promise<{ id: s
           />
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, marginBottom: "var(--sp-5)" }}>
+        <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
           {testCase.steps.length === 0 ? (
-            <p className="muted" style={{ padding: "var(--sp-4) var(--sp-5)", margin: 0 }}>
-              No steps yet.
-            </p>
+            <div className="empty">
+              <p>No steps yet.</p>
+            </div>
           ) : (
             testCase.steps.map((step) => (
-              <div
-                key={step.id}
-                style={{ display: "flex", gap: "var(--sp-4)", padding: "var(--sp-3) var(--sp-5)", borderBottom: "1px solid var(--line-soft)" }}
-              >
+              <div key={step.id} className="list-row">
                 <span className="bid" style={{ minWidth: 20, textAlign: "right" }}>{step.sequence}</span>
-                <div style={{ flex: 1 }}>{step.action}</div>
-                <div style={{ flex: 1, color: "var(--ink-2)" }}>{step.expectedResult}</div>
+                <div className="row-main">{step.action}</div>
+                <div className="row-main" style={{ color: "var(--ink-2)" }}>{step.expectedResult}</div>
               </div>
             ))
           )}

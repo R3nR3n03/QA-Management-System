@@ -1,7 +1,11 @@
 "use client";
 
 import { useActionState } from "react";
+import { FormNotice } from "@/ui/notice";
+import { noticeId } from "@/ui/form";
 import { startExecutionAction, type FormState } from "./actions";
+
+const FORM_ID = "start-execution";
 
 export function StartForm({ executionId, version }: { executionId: string; version: number }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(
@@ -14,13 +18,7 @@ export function StartForm({ executionId, version }: { executionId: string; versi
       <input type="hidden" name="executionId" value={executionId} />
       <input type="hidden" name="version" value={version} />
 
-      {state ? (
-        <div className={state.advisory ? "notice notice-advisory" : "notice"} role="alert">
-          <strong>{state.title}</strong>
-          <span>{state.detail}</span>
-          {state.requestId ? <code>Reference {state.requestId}</code> : null}
-        </div>
-      ) : null}
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
 
       <button className="btn" type="submit" disabled={pending}>
         {pending ? "Starting…" : "Start this run"}

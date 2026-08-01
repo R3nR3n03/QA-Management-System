@@ -6,7 +6,10 @@ import { FormNotice } from "@/ui/notice";
 import { Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { createUserAction } from "./actions";
+
+const FORM_ID = "add-person";
 
 const ROLES = [
   { value: "QA_TESTER", label: "QA Tester" },
@@ -35,7 +38,7 @@ export function AddPersonModal() {
     wasPending.current = pending;
   }, [pending, state, open, toast]);
 
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <>
@@ -51,19 +54,19 @@ export function AddPersonModal() {
         description="Enter their details and an initial password to share with them securely."
       >
         <form action={formAction}>
-          <FormNotice state={state} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 var(--sp-4)" }}>
+          <FormNotice state={state} id={noticeId(FORM_ID)} />
+          <div className="form-grid-2">
             <label className={bad("displayName")}>
               <span>Name</span>
-              <input name="displayName" autoComplete="off" required disabled={pending} autoFocus />
+              <input name="displayName" autoComplete="off" required disabled={pending} autoFocus {...fieldProps(state, "displayName", FORM_ID)} />
             </label>
             <label className={bad("email")}>
               <span>Email</span>
-              <input name="email" type="email" autoComplete="off" required disabled={pending} />
+              <input name="email" type="email" autoComplete="off" required disabled={pending} {...fieldProps(state, "email", FORM_ID)} />
             </label>
             <label className={bad("role")}>
               <span>Role</span>
-              <select name="role" defaultValue="QA_TESTER" disabled={pending}>
+              <select name="role" defaultValue="QA_TESTER" disabled={pending} {...fieldProps(state, "role", FORM_ID)}>
                 {ROLES.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -80,6 +83,7 @@ export function AddPersonModal() {
                 required
                 minLength={8}
                 disabled={pending}
+                {...fieldProps(state, "password", FORM_ID)}
               />
               <span className="hint">At least 8 characters.</span>
             </label>

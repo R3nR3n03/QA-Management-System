@@ -123,7 +123,7 @@ export default async function DashboardPage() {
 
       <h2>Finalized executions by result</h2>
       <MetricStatement metric={executions} />
-      <div className="card" style={{ padding: "var(--sp-2) 0", marginBottom: "var(--sp-6)" }}>
+      <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>
         {executions.counts.length === 0 ? (
           <div className="empty">
             <p>No finalized executions yet — results land here as runs are finalized.</p>
@@ -132,37 +132,49 @@ export default async function DashboardPage() {
             </Link>
           </div>
         ) : (
-          <BarRows
-            rows={executions.counts.map((row) => ({
-              key: row.result ?? "none",
-              head: row.result ? (
-                <OutcomeChip outcome={row.result as ExecutionOutcome} />
-              ) : (
-                <span className="state">No result</span>
-              ),
-              count: row._count,
-              fill: OUTCOME_FILL[row.result ?? ""] ?? "var(--accent)"
-            }))}
-          />
+          <>
+            <p className="sr-only">
+              Finalized executions by result:{" "}
+              {executions.counts.map((row) => `${row.result ?? "No result"} ${row._count}`).join(", ")}.
+            </p>
+            <BarRows
+              rows={executions.counts.map((row) => ({
+                key: row.result ?? "none",
+                head: row.result ? (
+                  <OutcomeChip outcome={row.result as ExecutionOutcome} />
+                ) : (
+                  <span className="state">No result</span>
+                ),
+                count: row._count,
+                fill: OUTCOME_FILL[row.result ?? ""] ?? "var(--accent)"
+              }))}
+            />
+          </>
         )}
       </div>
 
       <h2>Open defects by severity</h2>
       <MetricStatement metric={defects} />
-      <div className="card" style={{ padding: "var(--sp-2) 0" }}>
+      <div className="card card-flush">
         {defects.counts.length === 0 ? (
           <div className="empty">
             <p>No open defects. New and reopened defects appear here by severity.</p>
           </div>
         ) : (
-          <BarRows
-            rows={defects.counts.map((row) => ({
-              key: row.severity || "unset",
-              head: <span style={{ fontWeight: 620, fontSize: 13.5 }}>{row.severity || "Not set"}</span>,
-              count: row._count,
-              fill: "var(--accent)"
-            }))}
-          />
+          <>
+            <p className="sr-only">
+              Open defects by severity:{" "}
+              {defects.counts.map((row) => `${row.severity || "Not set"} ${row._count}`).join(", ")}.
+            </p>
+            <BarRows
+              rows={defects.counts.map((row) => ({
+                key: row.severity || "unset",
+                head: <span style={{ fontWeight: 620, fontSize: 13.5 }}>{row.severity || "Not set"}</span>,
+                count: row._count,
+                fill: "var(--accent)"
+              }))}
+            />
+          </>
         )}
       </div>
     </>

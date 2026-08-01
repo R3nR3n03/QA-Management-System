@@ -31,6 +31,8 @@
   --fail-wash: #f8e5e3;
   --blocked: #a9761a;
   --blocked-wash: #f7eedc;
+  /* Ink placed on top of a status-colored fill (danger buttons, badges). */
+  --on-status: #ffffff;
 
   --shadow: 0 1px 2px rgba(23, 26, 33, 0.06), 0 4px 16px rgba(23, 26, 33, 0.05);
 
@@ -63,6 +65,7 @@
    explicitly chose light in the sidebar), and the explicit in-app choice. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    /* DARK-TOKENS-START */
     --paper: #0f1116;
     --surface: #171a21;
     --surface-2: #1e222b;
@@ -81,13 +84,16 @@
     --fail-wash: #2a1b19;
     --blocked: #d8a94e;
     --blocked-wash: #282018;
+    --on-status: #0f1116;
     --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
     --elev-2: 0 2px 4px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
     --shadow: var(--elev-1);
+    /* DARK-TOKENS-END */
   }
 }
 
 :root[data-theme="dark"] {
+  /* DARK-TOKENS-START */
   --paper: #0f1116;
   --surface: #171a21;
   --surface-2: #1e222b;
@@ -106,9 +112,11 @@
   --fail-wash: #2a1b19;
   --blocked: #d8a94e;
   --blocked-wash: #282018;
+  --on-status: #0f1116;
   --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.3);
   --elev-2: 0 2px 4px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow: var(--elev-1);
+  /* DARK-TOKENS-END */
 }
 
 * {
@@ -233,6 +241,16 @@ a {
 .state-blocked::before {
   background: var(--blocked);
 }
+/* Informational availability/outcome chip (accent-toned). Never a lifecycle result —
+   the Pass/Fail/Blocked palette stays reserved for what policy actually grades. */
+.state-accent {
+  background: var(--accent-wash);
+  border-color: var(--accent-2);
+  color: var(--accent);
+}
+.state-accent::before {
+  background: var(--accent);
+}
 
 /* Button system: primary (accent), secondary (outlined), ghost (bare), danger
    (destructive). One radius, one motion voice, a pressed nudge, and hover
@@ -280,7 +298,7 @@ a {
 .btn-danger {
   background: var(--fail);
   border-color: var(--fail);
-  color: #fff;
+  color: var(--on-status);
 }
 .btn-danger:hover:not(:disabled) {
   box-shadow: var(--elev-2);
@@ -292,6 +310,33 @@ a {
   cursor: not-allowed;
   box-shadow: none;
   transform: none;
+}
+/* Compact variant for row-level actions inside lists and modals. */
+.btn-sm {
+  font-size: 13px;
+  padding: 4px 10px;
+}
+
+/* Generic icon-only button (modal close, toast dismiss). The rail keeps its own
+   .rail-icon-btn so rail motion stays scoped to the rail variables. */
+.icon-btn {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background var(--ease), color var(--ease);
+}
+.icon-btn:hover {
+  background: var(--accent-wash);
+  color: var(--ink);
 }
 
 /* A blocked action always carries its reason inline, never in a tooltip. */
@@ -394,6 +439,69 @@ a {
   font-size: 13px;
 }
 
+/* ---------- layout utilities ---------- */
+
+/* The recurring compositions, named once, so pages stop re-declaring them inline.
+   .row = a labeled flex line; .cluster = tight chip/id grouping; .stack = vertical flow. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.cluster {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* Page header: h1 takes the room, actions sit on the baseline and wrap on phones. */
+.page-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.page-head > h1,
+.page-head > h2 {
+  flex: 1;
+}
+
+/* Content cell of a record row: grows, truncates instead of overflowing. */
+.row-main {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.row-title {
+  font-weight: 600;
+  color: var(--ink);
+  margin-top: 2px;
+}
+
+/* A card that hosts flush row lists instead of padded prose. */
+.card-flush {
+  padding: 0;
+}
+
+/* Visually hidden but present for assistive tech. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---------- lists, sections, and states ---------- */
 
 /* A record row inside a padding-0 card. Hover marks the row as interactive without
@@ -469,6 +577,65 @@ a {
   padding: 0 var(--sp-2);
 }
 
+/* Field grids that collapse instead of squeezing: 4 → 2 → 1 columns. */
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--sp-4);
+}
+.form-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 var(--sp-3);
+}
+@media (max-width: 900px) {
+  .form-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .form-grid-2,
+  .form-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Detail screens: record body plus a fixed-width aside, stacking on narrow screens. */
+.detail-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: var(--sp-6);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .detail-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Steps editor row: index, fields, and Remove align on the shared bottom edge of the
+   inputs, so alignment survives type-scale changes (no per-site pixel offsets). */
+.steps-row {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.steps-row .field {
+  flex: 1 1 200px;
+  margin-bottom: var(--sp-3);
+}
+.steps-row .steps-index,
+.steps-row .btn {
+  margin-bottom: calc(var(--sp-3) + 9px);
+}
+.steps-row .steps-index {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-3);
+  flex: none;
+}
+
 /* Empty state: one calm sentence and, when useful, the action that fills it. */
 .empty {
   padding: var(--sp-6) var(--sp-5);
@@ -517,6 +684,115 @@ a {
 .crumbs .crumb-here {
   color: var(--ink-2);
   font-weight: 600;
+}
+
+/* ---------- lifecycle stepper ---------- */
+
+/* An ordered list of lifecycle segments. Identity is the label (and sr-only
+   completion text), never fill alone; the current step carries aria-current. */
+.stepper {
+  display: flex;
+  gap: var(--sp-1);
+  list-style: none;
+  margin: 0 0 var(--sp-4);
+  padding: 0;
+  flex-wrap: wrap;
+}
+.stepper li {
+  flex: 1 1 120px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+}
+.stepper li:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.stepper li:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.stepper .step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-3);
+  flex: none;
+}
+.stepper li[aria-current="step"] {
+  background: var(--accent-wash);
+  border-color: var(--accent-2);
+  color: var(--accent);
+}
+.stepper li[aria-current="step"] .step-dot {
+  background: var(--accent);
+}
+.stepper li.step-done {
+  color: var(--ink-2);
+}
+.stepper li.step-done .step-dot {
+  background: var(--accent-2);
+}
+
+/* ---------- data table ---------- */
+
+/* Semantic table for homogeneous, multi-column data (import reports). Record rows
+   with a story stay .list-row; this is for rows people scan and compare. */
+.table-scroll {
+  overflow-x: auto;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.data-table th {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-3);
+  text-align: left;
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.data-table td {
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+  color: var(--ink-2);
+}
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.data-table tbody tr {
+  transition: background var(--ease);
+}
+.data-table tbody tr:hover {
+  background: var(--accent-wash);
+}
+/* Sortable headers are real buttons; the arrow is reinforcement, not the channel. */
+.data-table th button {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.data-table th button:hover {
+  color: var(--ink);
 }
 
 /* ---------- dashboard ---------- */
@@ -689,6 +965,9 @@ dialog.modal::backdrop {
   pointer-events: none;
 }
 .toast {
+  /* The stack ignores the pointer so it never blocks the page; each toast takes it
+     back so it can be paused (hover/focus) and dismissed. */
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -905,7 +1184,7 @@ dialog.modal::backdrop {
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--fail);
-  color: #fff;
+  color: var(--on-status);
   font-size: 11px;
   font-weight: 700;
   text-align: center;
@@ -962,10 +1241,22 @@ dialog.modal::backdrop {
 }
 .rail-collapsed .rail-heading,
 .rail-collapsed .nav-label,
-.rail-collapsed .nav-badge,
 .rail-collapsed .rail-identity,
 .rail-collapsed .rail-empty {
   display: none;
+}
+/* The badge count stays in the accessibility tree when the rail collapses (its
+   aria-label still announces "N waiting"); the ::after dot below is the visual. */
+.rail-collapsed .nav-badge {
+  position: absolute;
+  width: 1px;
+  min-width: 0;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 .rail-collapsed .nav-link {
   justify-content: center;
@@ -1023,9 +1314,23 @@ dialog.modal::backdrop {
   }
   .rail-collapsed .rail-heading,
   .rail-collapsed .nav-label,
-  .rail-collapsed .nav-badge,
   .rail-collapsed .rail-identity {
     display: initial;
+  }
+  /* Undo the collapsed-rail clipping: on a phone the rail is a top bar and the
+     badge is fully visible again. */
+  .rail-collapsed .nav-badge {
+    position: static;
+    width: auto;
+    min-width: 20px;
+    height: auto;
+    padding: 1px 6px;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+  }
+  .rail-collapsed .nav-link:has(.nav-badge)::after {
+    display: none;
   }
   .rail-groups {
     flex-direction: row;

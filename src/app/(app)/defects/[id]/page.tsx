@@ -34,7 +34,7 @@ export default async function DefectPage({ params }: { params: Promise<{ id: str
   return (
     <>
       <Breadcrumbs trail={[{ href: "/defects", label: "Defects" }]} here={defect.businessId} />
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", flexWrap: "wrap" }}>
+      <div className="cluster">
         <span className="bid" style={{ fontSize: 15 }}>{defect.businessId}</span>
         <DefectStatusChip status={status} />
       </div>

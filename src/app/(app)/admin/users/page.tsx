@@ -24,8 +24,8 @@ export default async function UsersPage() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "var(--sp-4)", flexWrap: "wrap" }}>
-        <h1 style={{ flex: 1 }}>People</h1>
+      <div className="page-head">
+        <h1>People</h1>
         <AddPersonModal />
       </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
@@ -33,21 +33,11 @@ export default async function UsersPage() {
         that person can do everywhere, and every change is audited.
       </p>
 
-      <div className="card" style={{ padding: 0 }}>
+      <div className="card card-flush">
         {users.map((user) => (
-          <div
-            key={user.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--sp-4)",
-              padding: "var(--sp-3) var(--sp-5)",
-              borderBottom: "1px solid var(--line-soft)",
-              flexWrap: "wrap"
-            }}
-          >
-            <div style={{ flex: "1 1 240px", minWidth: 0 }}>
-              <div style={{ fontWeight: 600, color: "var(--ink)" }}>
+          <div key={user.id} className="list-row">
+            <div className="row-main">
+              <div className="row-title">
                 {user.displayName}
                 {user.id === auth.userId ? <span className="muted"> (you)</span> : null}
               </div>

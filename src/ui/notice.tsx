@@ -6,11 +6,11 @@ import type { FormState } from "./action";
  * and the request reference shown only for INTERNAL_ERROR, where it ties the report
  * to a log line. No hooks, so it renders from server and client components alike.
  */
-export function FormNotice({ state }: { state: FormState }) {
+export function FormNotice({ state, id }: { state: FormState; id?: string }) {
   if (!state) return null;
   const calm = state.advisory || state.success;
   return (
-    <div className={calm ? "notice notice-advisory" : "notice"} role={state.success ? "status" : "alert"}>
+    <div id={id} className={calm ? "notice notice-advisory" : "notice"} role={state.success ? "status" : "alert"}>
       <strong>{state.title}</strong>
       <span>{state.detail}</span>
       {state.requestId ? <code>Reference {state.requestId}</code> : null}

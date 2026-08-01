@@ -3,7 +3,10 @@
 import { useActionState } from "react";
 import { FormNotice } from "@/ui/notice";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { createDefectAction } from "../actions";
+
+const FORM_ID = "new-defect";
 
 /**
  * Any role with defect-edit permission may raise a New defect
@@ -20,20 +23,20 @@ export function NewDefectForm({
   severities: string[];
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(createDefectAction, null);
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <form action={formAction}>
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
 
       <label className={bad("businessId")}>
         <span>Defect ID</span>
-        <input name="businessId" placeholder="BUG-0001" required disabled={pending} />
+        <input name="businessId" placeholder="BUG-0001" required disabled={pending} {...fieldProps(state, "businessId", FORM_ID)} />
       </label>
 
       <label className={bad("testCaseId")}>
         <span>Test case</span>
-        <select name="testCaseId" required defaultValue="" disabled={pending}>
+        <select name="testCaseId" required defaultValue="" disabled={pending} {...fieldProps(state, "testCaseId", FORM_ID)}>
           <option value="" disabled>
             Choose…
           </option>
@@ -47,13 +50,13 @@ export function NewDefectForm({
 
       <label className={bad("summary")}>
         <span>Summary</span>
-        <textarea name="summary" rows={2} required disabled={pending} />
+        <textarea name="summary" rows={2} required disabled={pending} {...fieldProps(state, "summary", FORM_ID)} />
       </label>
 
-      <div style={{ display: "flex", gap: "var(--sp-3)" }}>
-        <label className={bad("priority")} style={{ flex: 1 }}>
+      <div className="form-grid-2">
+        <label className={bad("priority")}>
           <span>Priority</span>
-          <select name="priority" defaultValue="" disabled={pending}>
+          <select name="priority" defaultValue="" disabled={pending} {...fieldProps(state, "priority", FORM_ID)}>
             <option value="">Not set yet</option>
             {priorities.map((value) => (
               <option key={value} value={value}>
@@ -62,9 +65,9 @@ export function NewDefectForm({
             ))}
           </select>
         </label>
-        <label className={bad("severity")} style={{ flex: 1 }}>
+        <label className={bad("severity")}>
           <span>Severity</span>
-          <select name="severity" defaultValue="" disabled={pending}>
+          <select name="severity" defaultValue="" disabled={pending} {...fieldProps(state, "severity", FORM_ID)}>
             <option value="">Not set yet</option>
             {severities.map((value) => (
               <option key={value} value={value}>

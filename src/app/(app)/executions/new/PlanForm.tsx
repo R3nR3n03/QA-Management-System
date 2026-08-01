@@ -3,7 +3,10 @@
 import { useActionState } from "react";
 import { FormNotice } from "@/ui/notice";
 import type { FormState } from "@/ui/action";
+import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { createExecutionAction } from "./actions";
+
+const FORM_ID = "plan-execution";
 
 /**
  * Planning is a small decision: which approved case, who runs it, under what ID.
@@ -18,21 +21,21 @@ export function PlanForm({
   testers: Array<{ id: string; displayName: string }>;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(createExecutionAction, null);
-  const bad = (field: string) => (state?.field === field ? "field field-bad" : "field");
+  const bad = (field: string) => fieldClass(state, field);
 
   return (
     <form action={formAction}>
-      <FormNotice state={state} />
+      <FormNotice state={state} id={noticeId(FORM_ID)} />
 
       <label className={bad("businessId")}>
         <span>Execution ID</span>
-        <input name="businessId" placeholder="EXE-0001" required disabled={pending} />
+        <input name="businessId" placeholder="EXE-0001" required disabled={pending} {...fieldProps(state, "businessId", FORM_ID)} />
         <span className="hint">Format EXE-#### — unique across the repository.</span>
       </label>
 
       <label className={bad("testCaseId")}>
         <span>Approved test case</span>
-        <select name="testCaseId" required defaultValue="" disabled={pending}>
+        <select name="testCaseId" required defaultValue="" disabled={pending} {...fieldProps(state, "testCaseId", FORM_ID)}>
           <option value="" disabled>
             Choose…
           </option>
@@ -46,7 +49,7 @@ export function PlanForm({
 
       <label className={bad("testerId")}>
         <span>Assigned tester</span>
-        <select name="testerId" required defaultValue="" disabled={pending}>
+        <select name="testerId" required defaultValue="" disabled={pending} {...fieldProps(state, "testerId", FORM_ID)}>
           <option value="" disabled>
             Choose…
           </option>

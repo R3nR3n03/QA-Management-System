@@ -71,7 +71,7 @@ export function Modal({
             </p>
           ) : null}
         </div>
-        <button type="button" className="rail-icon-btn" onClick={onClose} aria-label="Close dialog">
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close dialog">
           <X size={16} aria-hidden />
         </button>
       </div>

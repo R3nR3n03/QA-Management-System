@@ -29,6 +29,7 @@ decisions; this file records the craft).
 | Ink | `--ink`, `--ink-2`, `--ink-3` | primary / secondary / muted text |
 | Accent | `--accent`, `--accent-2`, `--accent-wash`, `--on-accent` | brand; wash = hover/active fields |
 | Status | `--pass`, `--fail`, `--blocked` + `-wash` each | **reserved**: lifecycle results, severity emphasis, danger buttons |
+| Status ink | `--on-status` | text placed on a status-colored fill (danger buttons, badges); dark mode flips it to dark ink because the dark status colors are light |
 | Radius | `--radius` 10px, `--radius-ctl` 8px, `--radius-sm` 6px | containers / controls / chips |
 | Elevation | `--elev-1` resting, `--elev-2` raised | interactive surfaces move one step on hover |
 | Motion | `--ease` = 200ms cubic-bezier(0.4,0,0.2,1) | the one motion voice; killed by prefers-reduced-motion |
@@ -37,7 +38,9 @@ decisions; this file records the craft).
 
 **Dark mode** applies two ways and must agree: `@media (prefers-color-scheme: dark)` (unless the
 user chose light) and `:root[data-theme=…]` (the in-app toggle, persisted per browser). Any new
-token must be defined in all three blocks.
+token must be defined in all three blocks. The two dark blocks are wrapped in
+`DARK-TOKENS-START/END` markers and `src/app/globals.dark-sync.test.ts` fails the build if they
+ever disagree.
 
 ## Typography
 
@@ -55,11 +58,16 @@ token must be defined in all three blocks.
 
 | Primitive | Class(es) | Rules |
 |---|---|---|
-| Buttons | `.btn`, `.btn-secondary`, `.btn-ghost`, `.btn-danger` | one radius (`--radius-ctl`); hover = elevation, active = 1px press; loading = disabled + verb ("Saving…"); danger only for destructive commits (retire, deactivate) |
+| Buttons | `.btn`, `.btn-secondary`, `.btn-ghost`, `.btn-danger`, `.btn-sm` | one radius (`--radius-ctl`); hover = elevation, active = 1px press; loading = disabled + verb ("Saving…"); danger only for destructive commits (retire, deactivate); `.btn-sm` for row-level actions |
+| Icon button | `.icon-btn` | icon-only control outside the rail (modal close, toast dismiss); always carries `aria-label`; `.rail-icon-btn` stays rail-only |
+| Layout utilities | `.row`, `.cluster`, `.stack`, `.page-head`, `.row-main`, `.row-title`, `.card-flush`, `.sr-only` | the recurring compositions, named once — pages must not re-declare these as inline styles; `.page-head` is the one page-header pattern (h1 grows, actions on the baseline) |
+| Form grids | `.form-grid-2`, `.form-grid-4`, `.detail-cols`, `.steps-row` | field grids collapse 4→2→1 at 900/560px; `.detail-cols` stacks under 900px; `.steps-row` aligns the steps editor on the inputs' bottom edge (no pixel offsets in JSX) |
 | Card | `.card` | container radius, `--elev-1`; `padding: 0` variant hosts row lists |
 | Record row | `.list-row` | hover wash, soft separator, wraps on narrow screens |
-| List filter | `.list-toolbar` | appears only when a list exceeds 5 rows; Escape clears; filtering is presentation — the server decides what exists |
-| Chips | `.state` + tone classes | word + stripe + wash; survives greyscale |
+| List filter | `FilterToolbar` (`src/ui/toolbar.tsx`), `.list-toolbar` | the one filter toolbar; appears only when a list exceeds 5 rows; Escape clears; filtering is presentation — the server decides what exists |
+| Stepper | `Stepper` (`src/ui/stepper.tsx`), `.stepper` | ordered list of lifecycle stages; current step carries `aria-current="step"`, done steps carry sr-only "(complete)" — never color alone |
+| Data table | `.data-table` in a `.table-scroll` | for homogeneous ≥3-column data people scan and compare (import report); record rows with a story stay `.list-row`. Sortable headers are real buttons with `aria-sort`; long tables reveal in pages of 50, client-side only |
+| Chips | `.state` + tone classes | word + stripe + wash; survives greyscale; `.state-accent` is the informational tone for non-lifecycle statuses (import outcomes, "Active") — the Pass/Fail/Blocked tones stay reserved for what policy grades |
 | Notice | `.notice`, `.notice-advisory` | failures red; POLICY_NOT_DEFINED and successes calm; `FormNotice` renders both |
 | Inline warning | `.why` | a blocked or irreversible action carries its reason inline, never in a tooltip |
 | Form section | `.form-section` fieldset | long forms group into named steps |
@@ -71,8 +79,8 @@ token must be defined in all three blocks.
 | Empty state | `.empty` | one calm sentence + the action that fills it |
 | Sidebar | `.rail*`, `.nav-link`, `.nav-badge` | see `src/ui/sidebar.tsx`; badges are domain read models |
 | Modal | `Modal` (`src/ui/modal.tsx`), `.modal*` | native `<dialog>` (focus trap, Escape, inert page, focus return are the platform's); sizes sm/md/lg; sticky head/foot, scrollable body; full-sheet under 560px; backdrop click closes only when `closeOnBackdrop` (entry forms: no — typed input outlives a stray click) |
-| Confirm dialog | `ConfirmDialog` | warning icon + consequence + the named record + Cancel; the committing control is a caller-supplied server-action form. Used where one click removes availability (deactivate person, deactivate value) |
-| Toast | `ToastProvider`/`useToast` (`src/ui/toast.tsx`), `.toast*` | SUCCESSES ONLY — fires when a modal closes itself and takes its inline notice with it. Failures always stay inline (`FormNotice`) naming the field. Polite live region, 4s auto-dismiss, no actions |
+| Confirm dialog | `ConfirmDialog` | warning icon + consequence + the named record + Cancel; the committing control is a caller-supplied server-action form. Used where one click removes availability (deactivate person, deactivate value). A confirm may stack over an open edit modal: both live in the native top layer, which gives focus and Escape to the topmost and returns them outward — allowed, and nothing else may stack deeper |
+| Toast | `ToastProvider`/`useToast` (`src/ui/toast.tsx`), `.toast*` | SUCCESSES ONLY — fires when a modal closes itself and takes its inline notice with it. Failures always stay inline (`FormNotice`) naming the field. Polite live region, 4s auto-dismiss that pauses on hover/focus, an explicit dismiss button, no other actions |
 
 **Modal vs. page rule:** a create/edit flow lives in a modal when the hosting screen already
 has everything the form needs (catalogue add/edit, add person, edit person, add value); it stays
@@ -82,7 +90,13 @@ transition, reassign, finalize) stay inline on the record — they are the recor
 data-entry interruption.
 
 Component modules: `sidebar.tsx`, `case-table.tsx`, `record-list.tsx`, `chips.tsx`, `notice.tsx`,
-`breadcrumbs.tsx`, `action.ts` (FormState contract), `navigation.ts` (the ratified screen inventory).
+`breadcrumbs.tsx`, `toolbar.tsx` (FilterToolbar), `stepper.tsx`, `modal.tsx`, `toast.tsx`,
+`form.ts` (field-error accessibility helpers), `action.ts` (FormState contract),
+`navigation.ts` (the ratified screen inventory).
+
+**Inline styles:** a page may inline a style only when it is data-driven (a bar's `width: pct%`)
+or a genuine single-property one-off (an odd margin). Recurring compositions — headers, rows,
+identity lines, grids — must use the layout utilities above; re-declaring them inline is drift.
 
 ## Icons
 
@@ -104,7 +118,16 @@ meaning. Icon-per-screen map lives in `sidebar.tsx`, keyed by href so `navigatio
 
 1. Page starts at `h1`; sections use `h2` in order.
 2. Every input inside a `label.field`; errors set `.field-bad` *and* name the field in copy.
-3. State chips, never bare color; icons `aria-hidden` beside text.
-4. Lists reachable and operable by keyboard only; row actions are real links/buttons.
-5. Works in both themes (check the toggle, not just OS preference).
-6. Charts: identity via label/chip; the metric statement renders with the numbers.
+3. A failed field also carries `aria-invalid` and `aria-describedby` pointing at the form's
+   `FormNotice` — use `fieldClass`/`fieldProps`/`noticeId` from `src/ui/form.ts` with a
+   module-level `FORM_ID` slug, so the association survives refactors.
+4. Fields are required by default; the exceptions say so — append "(optional)" to the label of
+   any control without `required`. Never mark conditionally-required fields optional (e.g. the
+   block reason, the finalize-defect fieldset) — their copy explains the condition instead.
+5. State chips, never bare color; icons `aria-hidden` beside text.
+6. Lists reachable and operable by keyboard only; row actions are real links/buttons.
+7. Works in both themes (check the toggle, not just OS preference).
+8. Charts: identity via label/chip; the metric statement renders with the numbers, and a
+   `.sr-only` sentence summarizes the series for readers who don't get the bars.
+9. Anything that disappears on its own can be paused: toasts pause on hover/focus and carry a
+   dismiss button.
