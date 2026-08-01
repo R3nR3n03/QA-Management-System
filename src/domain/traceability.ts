@@ -171,12 +171,15 @@ export async function releaseReadinessSnapshot(
   const testCaseIds = scopedTestCases.map((tc) => tc.id);
 
   const asOfUtc = new Date().toISOString();
+  // Scope is a set of test cases, and an execution may cover cases inside and outside
+  // it — so the execution metrics count per-case results (`ExecutionTestCase` rows of
+  // finalized executions), not whole executions (`docs/data-model.md:25`).
   const [executionFinalizedByResult, openDefectsBySeverity, requirements, finalizedTotal, openDefectTotal] =
     await Promise.all([
-      prisma.testExecution.groupBy({
+      prisma.executionTestCase.groupBy({
         by: ["result"],
         _count: true,
-        where: { testCaseId: { in: testCaseIds }, state: "FINALIZED" }
+        where: { testCaseId: { in: testCaseIds }, execution: { state: "FINALIZED" } }
       }),
       prisma.defect.groupBy({
         by: ["severity"],
@@ -187,7 +190,9 @@ export async function releaseReadinessSnapshot(
         where: { feature: { module: { productId: input.productId } } },
         include: { rtmLinks: true }
       }),
-      prisma.testExecution.count({ where: { testCaseId: { in: testCaseIds }, state: "FINALIZED" } }),
+      prisma.executionTestCase.count({
+        where: { testCaseId: { in: testCaseIds }, execution: { state: "FINALIZED" } }
+      }),
       prisma.defect.count({ where: { testCaseId: { in: testCaseIds }, status: { not: "CLOSED" } } })
     ]);
 
@@ -204,8 +209,8 @@ export async function releaseReadinessSnapshot(
     approvedTestCaseCount: testCaseIds.length,
     executionFinalizedByResult: statedMetric(executionFinalizedByResult, finalizedTotal, asOfUtc, {
       filters: `execution state = FINALIZED; ${scopeFilters}`,
-      numerator: "finalized executions with the row's result, within scope",
-      denominator: "all finalized executions within scope"
+      numerator: "covered test cases of finalized executions with the row's per-case result, within scope",
+      denominator: "all covered test cases of finalized executions within scope"
     }),
     openDefectsBySeverity: statedMetric(openDefectsBySeverity, openDefectTotal, asOfUtc, {
       filters: `defect status != CLOSED; ${scopeFilters}`,

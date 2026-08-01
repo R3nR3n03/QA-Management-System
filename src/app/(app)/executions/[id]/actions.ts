@@ -49,39 +49,42 @@ export async function finalizeExecutionAction(
 ): Promise<FormState> {
   const id = String(formData.get("executionId") ?? "");
   const version = Number(formData.get("version"));
-  const outcome = String(formData.get("result") ?? "") as ExecutionOutcome;
-  const actualResult = String(formData.get("actualResult") ?? "");
-  const blockReason = String(formData.get("blockReason") ?? "");
-  const defectBusinessId = String(formData.get("defectBusinessId") ?? "").trim();
-  const defectSummary = String(formData.get("defectSummary") ?? "").trim();
-  const defectPriority = String(formData.get("defectPriority") ?? "").trim();
-  const defectSeverity = String(formData.get("defectSeverity") ?? "").trim();
 
-  // Shape only. Whether a Fail actually requires a defect, and whether these values
-  // are acceptable, is decided by finalizeExecution — not here.
-  const createDefect =
-    outcome === ExecutionOutcome.FAIL && defectBusinessId
-      ? {
-          businessId: defectBusinessId,
-          summary: defectSummary,
-          priority: defectPriority || undefined,
-          severity: defectSeverity || undefined
-        }
-      : undefined;
+  // One result entry per covered case, in the order the form rendered them (the
+  // hidden `caseIds` inputs). Shape only: whether the set covers the execution's
+  // cases, whether a Fail actually requires a defect, and whether these values are
+  // acceptable, is decided by finalizeExecution — not here.
+  const results = formData.getAll("caseIds").map((rawCaseId) => {
+    const testCaseId = String(rawCaseId);
+    const outcome = String(formData.get(`result:${testCaseId}`) ?? "") as ExecutionOutcome;
+    const blockReason = String(formData.get(`blockReason:${testCaseId}`) ?? "");
+    const defectId = String(formData.get(`defectId:${testCaseId}`) ?? "").trim();
+    const defectBusinessId = String(formData.get(`defectBusinessId:${testCaseId}`) ?? "").trim();
+    const defectSummary = String(formData.get(`defectSummary:${testCaseId}`) ?? "").trim();
+    const defectPriority = String(formData.get(`defectPriority:${testCaseId}`) ?? "").trim();
+    const defectSeverity = String(formData.get(`defectSeverity:${testCaseId}`) ?? "").trim();
 
-  const result = await runAction((actor) =>
-    finalizeExecution(
-      id,
-      {
-        version,
-        result: outcome,
-        actualResult,
-        blockReason: blockReason || undefined,
-        createDefect
-      },
-      actor
-    )
-  );
+    const createDefect =
+      outcome === ExecutionOutcome.FAIL && defectBusinessId
+        ? {
+            businessId: defectBusinessId,
+            summary: defectSummary,
+            priority: defectPriority || undefined,
+            severity: defectSeverity || undefined
+          }
+        : undefined;
+
+    return {
+      testCaseId,
+      result: outcome,
+      actualResult: String(formData.get(`actualResult:${testCaseId}`) ?? ""),
+      blockReason: blockReason || undefined,
+      defectId: defectId || undefined,
+      createDefect
+    };
+  });
+
+  const result = await runAction((actor) => finalizeExecution(id, { version, results }, actor));
 
   if (!result.ok) return failState(result);
 

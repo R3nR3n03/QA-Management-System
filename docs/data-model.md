@@ -19,9 +19,10 @@ Product status is imported as source data and must be a configured catalogue val
 
 | Entity | Business ID | Required attributes | Relationships |
 | --- | --- | --- | --- |
-| Test case | `TC-<PRODUCT>-####` | hierarchy IDs, cycle, sprint, release, environment, priority, severity, title, objective, expectedResult, lifecycleState, optional revisesTestCaseId | has many ordered steps and executions; traces to requirement; a Draft revision may reference the prior Approved test case it revises |
+| Test case | `TC-<PRODUCT>-####` | hierarchy IDs, cycle, sprint, release, environment, priority, severity, title, objective, expectedResult, lifecycleState, optional revisesTestCaseId | has many ordered steps; covered by executions through execution test case links; traces to requirement; a Draft revision may reference the prior Approved test case it revises |
 | Test step | none | testCaseId, sequence, action, expectedResult | unique `(testCaseId, sequence)` |
-| Test execution | `EXE-####` | testCaseId, testerId, state, result when finalized, startedAt/finalizedAt as applicable | has many history events; may link defects |
+| Test execution | `EXE-####` | testerId, state, derived result when finalized, startedAt/finalizedAt as applicable | covers one or more test cases through execution test case links; has many history events; may link defects |
+| Execution test case | none | executionId, testCaseId, per-case result/actualResult/blockReason when finalized | unique `(executionId, testCaseId)`; belongs to execution; references a test case |
 | Execution history | none | executionId, testCaseId, result, occurredAt | append-only; belongs to execution |
 | Defect | `BUG-####` | testCaseId, summary, status, priority, severity | may trace to a requirement and many executions |
 | RTM link | none | requirementId, testCaseId, optional defectId | unique `(requirementId, testCaseId, defectId)` |
@@ -43,7 +44,7 @@ Controlled catalogues initially contain the workbook values for priority, severi
 
 - A test case’s Product, Module, Feature, and Requirement must form one valid parent chain.
 - Each test case must have at least one test step before review submission; its steps have consecutive positive sequence numbers beginning at 1.
-- Every execution references an Approved test case. An execution history row references the same test case as its execution.
+- Every execution covers one or more Approved test cases through its execution test case links. An execution history row references a test case belonging to its execution. The execution-level result is derived from the per-case results: `Fail` if any case failed, else `Blocked` if any case is blocked, else `Pass`.
 - A defect must reference a test case. A trace link’s requirement and test case must be hierarchy-consistent; a linked defect must reference that test case.
 - History and audit data are immutable. Corrections create a new event or execution, never overwrite a finalized outcome.
 

@@ -37,11 +37,24 @@ export default async function MyWorkPage() {
                   <span className="bid">{execution.businessId}</span>
                   <ExecutionStateChip state={execution.state} />
                 </div>
-                <div className="row-title">{execution.testCase.title}</div>
+                <div className="row-title">
+                  {execution.cases.length === 1
+                    ? execution.cases[0].testCase.title
+                    : `${execution.cases.length} test cases`}
+                </div>
                 <div className="muted">
-                  <span className="bid">{execution.testCase.businessId}</span>
-                  {" · "}
-                  {execution.testCase.priority || "no priority"} priority
+                  {execution.cases.map((covered, index) => (
+                    <span key={covered.id}>
+                      {index > 0 ? ", " : ""}
+                      <span className="bid">{covered.testCase.businessId}</span>
+                    </span>
+                  ))}
+                  {execution.cases.length === 1 ? (
+                    <>
+                      {" · "}
+                      {execution.cases[0].testCase.priority || "no priority"} priority
+                    </>
+                  ) : null}
                 </div>
               </div>
               <Link className="btn" href={`/executions/${execution.id}`}>
@@ -56,15 +69,19 @@ export default async function MyWorkPage() {
         <>
           <h2>Recently finalized</h2>
           <p className="muted" style={{ marginBottom: "var(--sp-3)" }}>
-            Finalized runs are immutable. A rerun creates a new execution against the same approved
-            test case.
+            Finalized runs are immutable. A rerun creates a new execution covering only the failed
+            or blocked case(s).
           </p>
           <div className="card card-flush">
             {done.slice(0, 8).map((execution) => (
               <div key={execution.id} className="list-row">
                 <div className="row-main">
                   <span className="bid">{execution.businessId}</span>
-                  <div style={{ color: "var(--ink-2)" }}>{execution.testCase.title}</div>
+                  <div style={{ color: "var(--ink-2)" }}>
+                    {execution.cases.length === 1
+                      ? execution.cases[0].testCase.title
+                      : `${execution.cases.length} test cases`}
+                  </div>
                 </div>
                 {execution.result ? <OutcomeChip outcome={execution.result} /> : null}
                 <Link href={`/executions/${execution.id}`} style={{ fontSize: 14 }}>

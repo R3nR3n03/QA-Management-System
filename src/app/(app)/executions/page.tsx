@@ -20,7 +20,7 @@ export default async function ExecutionsPage() {
       </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         {rows.length} execution{rows.length === 1 ? "" : "s"}. A finalized run is immutable; a rerun
-        is a new execution against the same approved case.
+        is a new execution covering only the failed or blocked case(s).
       </p>
 
       <ExecutionList
@@ -29,8 +29,13 @@ export default async function ExecutionsPage() {
           businessId: execution.businessId,
           state: execution.state,
           result: execution.result,
-          caseBusinessId: execution.testCase.businessId,
-          caseTitle: execution.testCase.title,
+          // A run covers one or more cases; a single case keeps its title, several
+          // show the count and the full ID list.
+          caseBusinessId: execution.cases.map((covered) => covered.testCase.businessId).join(", "),
+          caseTitle:
+            execution.cases.length === 1
+              ? execution.cases[0].testCase.title
+              : `${execution.cases.length} test cases`,
           testerName: execution.tester.displayName
         }))}
       />

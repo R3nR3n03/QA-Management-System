@@ -174,7 +174,7 @@ model TestCase {
   revisesTestCase   TestCase?  @relation("TestCaseRevision", fields: [revisesTestCaseId], references: [id], onDelete: SetNull)
   revisions         TestCase[] @relation("TestCaseRevision")
   steps            TestStep[]
-  executions       TestExecution[]
+  executionCases   ExecutionTestCase[]
   executionHistory ExecutionHistory[]
   defects          Defect[]
   rtmLinks         RequirementTraceLink[]
@@ -200,12 +200,12 @@ model TestStep {
 model TestExecution {
   id               String                  @id @default(uuid())
   businessId       String                  @unique
-  testCaseId       String
   testerId         String
   state            ExecutionLifecycleState @default(PLANNED)
+  /// Derived at finalize from the per-case results on `cases`:
+  /// FAIL if any case failed, else BLOCKED if any case is blocked, else PASS
+  /// (`docs/business-rules-and-validation.md:30`).
   result           ExecutionOutcome?
-  actualResult     String?
-  blockReason      String?
   startedAt        DateTime?
   finalizedAt      DateTime?
   version          Int                     @default(1)
@@ -214,10 +214,31 @@ model TestExecution {
   updatedAt        DateTime                @updatedAt
   updatedBy        String
 
-  testCase   TestCase           @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
   tester     User               @relation("ExecutionTester", fields: [testerId], references: [id], onDelete: Restrict)
+  cases      ExecutionTestCase[]
   history    ExecutionHistory[]
   defects    DefectExecutionLink[]
+}
+
+/// One covered test case of an execution (`docs/data-model.md:25`). The per-case
+/// result, actual result and block reason live here; the execution keeps only its
+/// derived result. Selected together at planning, written exactly once at finalize.
+model ExecutionTestCase {
+  id           String            @id @default(uuid())
+  executionId  String
+  testCaseId   String
+  result       ExecutionOutcome?
+  actualResult String?
+  blockReason  String?
+  createdAt    DateTime          @default(now())
+  createdBy    String
+  updatedAt    DateTime          @updatedAt
+  updatedBy    String
+
+  execution TestExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  testCase  TestCase      @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+
+  @@unique([executionId, testCaseId])
 }
 
 model ExecutionHistory {

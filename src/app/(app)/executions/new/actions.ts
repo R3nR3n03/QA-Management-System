@@ -10,7 +10,8 @@ export async function createExecutionAction(_prev: FormState, formData: FormData
     createExecution(
       {
         businessId: String(formData.get("businessId") ?? ""),
-        testCaseId: String(formData.get("testCaseId") ?? ""),
+        // One checkbox per approved case; the domain enforces non-empty/no-duplicates.
+        testCaseIds: formData.getAll("testCaseIds").map((value) => String(value)),
         testerId: String(formData.get("testerId") ?? "")
       },
       actor

@@ -192,18 +192,18 @@ async function main() {
 
   // --- Executions, all assigned to the QA Tester. ---
   const planned = await createExecution(
-    { businessId: "EXE-0001", testCaseId: approved.id, testerId: tester.userId },
+    { businessId: "EXE-0001", testCaseIds: [approved.id], testerId: tester.userId },
     lead
   );
 
   const running = await createExecution(
-    { businessId: "EXE-0002", testCaseId: approved.id, testerId: tester.userId },
+    { businessId: "EXE-0002", testCaseIds: [approved.id], testerId: tester.userId },
     lead
   );
   await startExecution(running.id, running.version, tester);
 
   const finished = await createExecution(
-    { businessId: "EXE-0003", testCaseId: approved.id, testerId: tester.userId },
+    { businessId: "EXE-0003", testCaseIds: [approved.id], testerId: tester.userId },
     lead
   );
   const started = await startExecution(finished.id, finished.version, tester);
@@ -211,8 +211,13 @@ async function main() {
     finished.id,
     {
       version: started.version,
-      result: "PASS",
-      actualResult: "The expired card was declined and the basket was left untouched."
+      results: [
+        {
+          testCaseId: approved.id,
+          result: "PASS",
+          actualResult: "The expired card was declined and the basket was left untouched."
+        }
+      ]
     },
     tester
   );

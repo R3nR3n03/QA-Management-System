@@ -9,9 +9,11 @@ import { createExecutionAction } from "./actions";
 const FORM_ID = "plan-execution";
 
 /**
- * Planning is a small decision: which approved case, who runs it, under what ID.
- * Only Approved cases are offered because only they can be executed
- * (`docs/data-model.md:46`) — and the domain re-checks that whichever caller asks.
+ * Planning is a small decision: which approved cases, who runs them, under what ID.
+ * One execution may cover one or more Approved cases selected together
+ * (`docs/business-rules-and-validation.md:27`); results are recorded per case at
+ * finalize. Only Approved cases are offered because only they can be executed
+ * (`docs/data-model.md:47`) — and the domain re-checks that whichever caller asks.
  */
 export function PlanForm({
   cases,
@@ -33,19 +35,23 @@ export function PlanForm({
         <span className="hint">Format EXE-#### — unique across the repository.</span>
       </label>
 
-      <label className={bad("testCaseId")}>
-        <span>Approved test case</span>
-        <select name="testCaseId" required defaultValue="" disabled={pending} {...fieldProps(state, "testCaseId", FORM_ID)}>
-          <option value="" disabled>
-            Choose…
-          </option>
-          {cases.map((testCase) => (
-            <option key={testCase.id} value={testCase.id}>
+      <fieldset className={bad("testCaseIds")} style={{ border: 0, margin: 0, padding: 0 }}>
+        <legend>
+          <span>Approved test cases</span>
+        </legend>
+        {cases.map((testCase) => (
+          <label key={testCase.id} className="row" style={{ padding: "var(--sp-1) 0" }}>
+            <input type="checkbox" name="testCaseIds" value={testCase.id} disabled={pending} />
+            <span>
               {testCase.businessId} · {testCase.title}
-            </option>
-          ))}
-        </select>
-      </label>
+            </span>
+          </label>
+        ))}
+        <span className="hint">
+          Select one or more — the run covers them together, and each gets its own result at
+          finalize.
+        </span>
+      </fieldset>
 
       <label className={bad("testerId")}>
         <span>Assigned tester</span>

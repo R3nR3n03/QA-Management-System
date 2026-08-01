@@ -182,8 +182,16 @@ describe("Seed import", () => {
     expect(testCase?.requirementId).toBe(requirement?.id);
     expect(testCase?.steps).toHaveLength(1);
 
-    const execution = await prisma.testExecution.findUnique({ where: { businessId: "EXE-0001" } });
+    // One workbook row = one execution covering exactly one case: the covered case and
+    // its per-case result land on a single ExecutionTestCase child row.
+    const execution = await prisma.testExecution.findUnique({
+      where: { businessId: "EXE-0001" },
+      include: { cases: true }
+    });
     expect(execution?.state).toBe(ExecutionLifecycleState.FINALIZED);
+    expect(execution?.cases).toHaveLength(1);
+    expect(execution?.cases[0].testCaseId).toBe(testCase?.id);
+    expect(execution?.cases[0].result).toBe(ExecutionOutcome.PASS);
     const defect = await prisma.defect.findUnique({ where: { businessId: "BUG-0001" } });
     expect(defect?.status).toBe(DefectLifecycleState.NEW);
     const links = await prisma.requirementTraceLink.findMany();
@@ -373,67 +381,284 @@ describe("Test design", () => {
 
 let executionId: string;
 let executionVersion: number;
+let caseA: string; // the interactive Approved case
+let caseB: string;
+let caseC: string;
+let draftCaseId: string;
 
 describe("Execution", () => {
+  /** Author + approve one more case so an execution can cover several. */
+  async function approvedCase(businessId: string, title: string): Promise<string> {
+    const draft = await createTestCase(
+      {
+        businessId,
+        productId: interactive.productId,
+        moduleId: interactive.moduleId,
+        featureId: interactive.featureId,
+        requirementId: interactive.requirementId,
+        cycle: "C1",
+        sprint: "S1",
+        release: "R1",
+        environment: "QA",
+        priority: "High",
+        severity: "Major",
+        title,
+        objective: `Verify ${title.toLowerCase()}`,
+        expectedResult: "It works"
+      },
+      engineer
+    );
+    const withSteps = await replaceSteps(
+      draft.id,
+      [{ sequence: 1, action: "Do the thing", expectedResult: "It worked" }],
+      draft.version,
+      engineer
+    );
+    const submitted = await submitTestCase(draft.id, withSteps.version, engineer);
+    await approveTestCase(draft.id, submitted.version, senior);
+    return draft.id;
+  }
+
   beforeAll(async () => {
+    caseA = interactive.draftId;
+    caseB = await approvedCase("TC-PROD002-0002", "Pay with voucher");
+    caseC = await approvedCase("TC-PROD002-0003", "Pay with saved card");
+    // A Draft case for the non-Approved rejection scenario; never submitted.
+    const draft = await createTestCase(
+      {
+        businessId: "TC-PROD002-0004",
+        productId: interactive.productId,
+        moduleId: interactive.moduleId,
+        featureId: interactive.featureId,
+        requirementId: interactive.requirementId,
+        cycle: "C1",
+        sprint: "S1",
+        release: "R1",
+        environment: "QA",
+        priority: "High",
+        severity: "Major",
+        title: "Pay by invoice",
+        objective: "Verify invoice payment",
+        expectedResult: "It works"
+      },
+      engineer
+    );
+    draftCaseId = draft.id;
+
     const execution = await createExecution(
-      { businessId: "EXE-1001", testCaseId: interactive.draftId, testerId: tester.userId },
+      { businessId: "EXE-1001", testCaseIds: [caseA, caseB, caseC], testerId: tester.userId },
       lead
     );
     executionId = execution.id;
     executionVersion = execution.version;
   });
 
-  it("starting an assigned Approved case sets In Progress and startedAt", async () => {
+  it("an execution covering N Approved cases is created Planned with one link row per case", async () => {
+    const created = await prisma.testExecution.findUnique({
+      where: { id: executionId },
+      include: { cases: true }
+    });
+    expect(created?.state).toBe(ExecutionLifecycleState.PLANNED);
+    expect(created?.cases.map((row) => row.testCaseId).sort()).toEqual([caseA, caseB, caseC].sort());
+  });
+
+  it("creating an execution that includes any non-Approved case is 422; nothing is created", async () => {
+    await expectAppError(
+      createExecution(
+        { businessId: "EXE-1002", testCaseIds: [caseB, draftCaseId], testerId: tester.userId },
+        lead
+      ),
+      422,
+      "FORBIDDEN_TRANSITION"
+    );
+    expect(await prisma.testExecution.findUnique({ where: { businessId: "EXE-1002" } })).toBeNull();
+  });
+
+  it("creating an execution with an empty or duplicated case list is 422", async () => {
+    await expectAppError(
+      createExecution({ businessId: "EXE-1002", testCaseIds: [], testerId: tester.userId }, lead),
+      422,
+      "ID_INVALID"
+    );
+    await expectAppError(
+      createExecution({ businessId: "EXE-1002", testCaseIds: [caseB, caseB], testerId: tester.userId }, lead),
+      422,
+      "ID_INVALID"
+    );
+  });
+
+  it("starting an assigned execution over Approved cases sets In Progress and startedAt", async () => {
     const started = await startExecution(executionId, executionVersion, tester);
     expect(started.state).toBe(ExecutionLifecycleState.IN_PROGRESS);
     expect(started.startedAt).not.toBeNull();
     executionVersion = started.version;
   });
 
-  it("finalizing Fail without a same-case defect returns 422", async () => {
+  it("finalizing with a missing, extra, or duplicated case in results[] returns 422 ID_INVALID", async () => {
+    const entry = (testCaseId: string) => ({
+      testCaseId,
+      result: ExecutionOutcome.PASS,
+      actualResult: "Fine"
+    });
+
+    // Missing: only one of the three covered cases — no partial finalize.
+    await expectAppError(
+      finalizeExecution(executionId, { version: executionVersion, results: [entry(caseA)] }, tester),
+      422,
+      "ID_INVALID"
+    );
+    // Extra: a case this execution does not cover.
     await expectAppError(
       finalizeExecution(
         executionId,
-        { version: executionVersion, result: ExecutionOutcome.FAIL, actualResult: "It broke" },
+        { version: executionVersion, results: [entry(caseA), entry(caseB), entry(caseC), entry(draftCaseId)] },
+        tester
+      ),
+      422,
+      "ID_INVALID"
+    );
+    // Duplicated: a covered case appearing twice.
+    await expectAppError(
+      finalizeExecution(
+        executionId,
+        { version: executionVersion, results: [entry(caseA), entry(caseB), entry(caseB)] },
+        tester
+      ),
+      422,
+      "ID_INVALID"
+    );
+  });
+
+  it("finalizing a failing case without a same-case defect returns 422", async () => {
+    await expectAppError(
+      finalizeExecution(
+        executionId,
+        {
+          version: executionVersion,
+          results: [
+            { testCaseId: caseA, result: ExecutionOutcome.FAIL, actualResult: "It broke" },
+            { testCaseId: caseB, result: ExecutionOutcome.PASS, actualResult: "Fine" },
+            { testCaseId: caseC, result: ExecutionOutcome.PASS, actualResult: "Fine" }
+          ]
+        },
         tester
       ),
       422
     );
   });
 
-  it("finalizing Blocked without a block reason returns 422", async () => {
+  it("finalizing a Blocked case without a block reason returns 422", async () => {
     await expectAppError(
       finalizeExecution(
         executionId,
-        { version: executionVersion, result: ExecutionOutcome.BLOCKED, actualResult: "Env down" },
+        {
+          version: executionVersion,
+          results: [
+            { testCaseId: caseA, result: ExecutionOutcome.PASS, actualResult: "Fine" },
+            { testCaseId: caseB, result: ExecutionOutcome.PASS, actualResult: "Fine" },
+            { testCaseId: caseC, result: ExecutionOutcome.BLOCKED, actualResult: "Env down" }
+          ]
+        },
         tester
       ),
       422
     );
+  });
+
+  it("mixed per-case outcomes derive the execution result, write per-case rows and history, and may create several defects", async () => {
+    const finalized = await finalizeExecution(
+      executionId,
+      {
+        version: executionVersion,
+        results: [
+          {
+            testCaseId: caseA,
+            result: ExecutionOutcome.FAIL,
+            actualResult: "Card payment errored",
+            createDefect: { businessId: "BUG-2001", summary: "Card payment errors out", priority: "High", severity: "Major" }
+          },
+          {
+            testCaseId: caseB,
+            result: ExecutionOutcome.FAIL,
+            actualResult: "Voucher rejected",
+            createDefect: { businessId: "BUG-2002", summary: "Valid voucher rejected" }
+          },
+          {
+            testCaseId: caseC,
+            result: ExecutionOutcome.BLOCKED,
+            actualResult: "Could not reach the saved-card service",
+            blockReason: "Saved-card service was down"
+          }
+        ]
+      },
+      tester
+    );
+
+    // Derived: Fail beats Blocked beats Pass.
+    expect(finalized.state).toBe(ExecutionLifecycleState.FINALIZED);
+    expect(finalized.result).toBe(ExecutionOutcome.FAIL);
+    expect(finalized.finalizedAt).not.toBeNull();
+
+    const caseRows = await prisma.executionTestCase.findMany({ where: { executionId } });
+    const byCase = new Map(caseRows.map((row) => [row.testCaseId, row]));
+    expect(byCase.get(caseA)?.result).toBe(ExecutionOutcome.FAIL);
+    expect(byCase.get(caseB)?.result).toBe(ExecutionOutcome.FAIL);
+    expect(byCase.get(caseC)?.result).toBe(ExecutionOutcome.BLOCKED);
+    expect(byCase.get(caseC)?.blockReason).toBe("Saved-card service was down");
+    expect(byCase.get(caseA)?.actualResult).toBe("Card payment errored");
+
+    // One append-only history row per covered case.
+    const history = await executionHistory(executionId);
+    expect(history).toHaveLength(3);
+    expect(history.map((row) => row.testCaseId).sort()).toEqual([caseA, caseB, caseC].sort());
+
+    // One finalize request created two defects, each referencing its own failing case,
+    // and linked both to this execution.
+    const bugOne = await prisma.defect.findUnique({ where: { businessId: "BUG-2001" } });
+    const bugTwo = await prisma.defect.findUnique({ where: { businessId: "BUG-2002" } });
+    expect(bugOne?.testCaseId).toBe(caseA);
+    expect(bugTwo?.testCaseId).toBe(caseB);
+    expect(await prisma.defectExecutionLink.count({ where: { executionId } })).toBe(2);
+
+    executionVersion = finalized.version;
   });
 
   it("a Finalized execution cannot be edited; history is append-only", async () => {
-    const finalized = await finalizeExecution(
-      executionId,
-      { version: executionVersion, result: ExecutionOutcome.PASS, actualResult: "Paid successfully" },
-      tester
-    );
-    expect(finalized.state).toBe(ExecutionLifecycleState.FINALIZED);
-
-    const history = await executionHistory(executionId);
-    expect(history).toHaveLength(1);
-    expect(history[0].result).toBe(ExecutionOutcome.PASS);
-
     await expectAppError(
       finalizeExecution(
         executionId,
-        { version: finalized.version, result: ExecutionOutcome.PASS, actualResult: "Again" },
+        {
+          version: executionVersion,
+          results: [
+            { testCaseId: caseA, result: ExecutionOutcome.PASS, actualResult: "Again" },
+            { testCaseId: caseB, result: ExecutionOutcome.PASS, actualResult: "Again" },
+            { testCaseId: caseC, result: ExecutionOutcome.PASS, actualResult: "Again" }
+          ]
+        },
         tester
       ),
       422,
       "FORBIDDEN_TRANSITION"
     );
+    expect(await executionHistory(executionId)).toHaveLength(3);
+  });
+
+  it("a rerun covers only the blocked case and derives Pass when it passes", async () => {
+    const rerun = await createExecution(
+      { businessId: "EXE-1003", testCaseIds: [caseC], testerId: tester.userId },
+      lead
+    );
+    const started = await startExecution(rerun.id, rerun.version, tester);
+    const finalized = await finalizeExecution(
+      started.id,
+      {
+        version: started.version,
+        results: [{ testCaseId: caseC, result: ExecutionOutcome.PASS, actualResult: "Saved card charged" }]
+      },
+      tester
+    );
+    expect(finalized.result).toBe(ExecutionOutcome.PASS);
+    expect(await executionHistory(rerun.id)).toHaveLength(1);
   });
 });
 
@@ -490,8 +715,10 @@ describe("Reporting", () => {
     const snapshot = await dashboardSnapshot();
     // Non-retired products: imported PROD001 + interactive PROD002; PROD003 is Retired.
     expect(snapshot.products).toBe(2);
-    // Non-retired cases: the imported TC-PROD001-0001 only; the interactive case was just retired.
-    expect(snapshot.testCases).toBe(1);
+    // Non-retired cases: the imported TC-PROD001-0001 plus the Execution block's
+    // TC-PROD002-0002/-0003 (Approved) and TC-PROD002-0004 (Draft); the first
+    // interactive case was just retired.
+    expect(snapshot.testCases).toBe(4);
     // The metric statements required by business-rules-and-validation.md:37.
     expect(snapshot.executionFinalizedByResult.filters).toContain("FINALIZED");
     expect(snapshot.executionFinalizedByResult.numerator).toBeTruthy();
@@ -824,7 +1051,7 @@ describe("Execution reassignment", () => {
     // The imported case is Approved (the interactive one was retired in Reporting).
     const approvedCase = await prisma.testCase.findUnique({ where: { businessId: "TC-PROD001-0001" } });
     const execution = await createExecution(
-      { businessId: "EXE-2001", testCaseId: approvedCase!.id, testerId: tester.userId },
+      { businessId: "EXE-2001", testCaseIds: [approvedCase!.id], testerId: tester.userId },
       lead
     );
     reassignableId = execution.id;
