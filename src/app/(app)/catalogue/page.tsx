@@ -1,6 +1,7 @@
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listFeatures, listModules, listProducts, listRequirements } from "@/domain/catalogue";
+import { PagedList } from "@/ui/paged-list";
 import { requireSession } from "@/ui/session";
 import {
   AddFeatureModal,
@@ -49,12 +50,6 @@ export default async function CataloguePage() {
     </>
   );
 
-  const empty = (
-    <div className="empty">
-      <p>None yet.</p>
-    </div>
-  );
-
   return (
     <>
       <h1>Catalogue</h1>
@@ -63,75 +58,86 @@ export default async function CataloguePage() {
         {requirements.length} requirements
       </p>
 
+      {/* Rows stay server-rendered (they carry server-action edit forms); PagedList
+          slices each section independently and its pager hides until a section
+          passes one page. */}
       {section(
         "Products",
         <AddProductModal />,
-        products.length === 0
-          ? empty
-          : products.map((p) => (
-              <EditableProductRow
-                key={p.id}
-                id={p.id}
-                version={p.version}
-                businessId={p.businessId}
-                name={p.name}
-                versionTag={p.versionTag}
-                status={p.status}
-              >
-                <span className="bid">{p.businessId}</span>
-                <span style={{ flex: 1 }}>{p.name}</span>
-                <span className="muted">v{p.versionTag}</span>
-                <span className="muted">{p.status}</span>
-              </EditableProductRow>
-            ))
+        <PagedList
+          label="products"
+          emptyText="None yet."
+          items={products.map((p) => (
+            <EditableProductRow
+              key={p.id}
+              id={p.id}
+              version={p.version}
+              businessId={p.businessId}
+              name={p.name}
+              versionTag={p.versionTag}
+              status={p.status}
+            >
+              <span className="bid">{p.businessId}</span>
+              <span style={{ flex: 1 }}>{p.name}</span>
+              <span className="muted">v{p.versionTag}</span>
+              <span className="muted">{p.status}</span>
+            </EditableProductRow>
+          ))}
+        />
       )}
 
       {section(
         "Modules",
         <AddModuleModal products={products.map((p) => ({ id: p.id, businessId: p.businessId, label: p.name }))} />,
-        modules.length === 0
-          ? empty
-          : modules.map((m) => (
-              <EditableModuleRow key={m.id} id={m.id} version={m.version} businessId={m.businessId} name={m.name}>
-                <span className="bid">{m.businessId}</span>
-                <span style={{ flex: 1 }}>{m.name}</span>
-                <span className="muted">{productLabel.get(m.productId)}</span>
-              </EditableModuleRow>
-            ))
+        <PagedList
+          label="modules"
+          emptyText="None yet."
+          items={modules.map((m) => (
+            <EditableModuleRow key={m.id} id={m.id} version={m.version} businessId={m.businessId} name={m.name}>
+              <span className="bid">{m.businessId}</span>
+              <span style={{ flex: 1 }}>{m.name}</span>
+              <span className="muted">{productLabel.get(m.productId)}</span>
+            </EditableModuleRow>
+          ))}
+        />
       )}
 
       {section(
         "Features",
         <AddFeatureModal modules={modules.map((m) => ({ id: m.id, businessId: m.businessId, label: m.name }))} />,
-        features.length === 0
-          ? empty
-          : features.map((f) => (
-              <EditableFeatureRow key={f.id} id={f.id} version={f.version} businessId={f.businessId} name={f.name}>
-                <span className="bid">{f.businessId}</span>
-                <span style={{ flex: 1 }}>{f.name}</span>
-                <span className="muted">{moduleLabel.get(f.moduleId)}</span>
-              </EditableFeatureRow>
-            ))
+        <PagedList
+          label="features"
+          emptyText="None yet."
+          items={features.map((f) => (
+            <EditableFeatureRow key={f.id} id={f.id} version={f.version} businessId={f.businessId} name={f.name}>
+              <span className="bid">{f.businessId}</span>
+              <span style={{ flex: 1 }}>{f.name}</span>
+              <span className="muted">{moduleLabel.get(f.moduleId)}</span>
+            </EditableFeatureRow>
+          ))}
+        />
       )}
 
       {section(
         "Requirements",
         <AddRequirementModal features={features.map((f) => ({ id: f.id, businessId: f.businessId, label: f.name }))} />,
-        requirements.length === 0
-          ? empty
-          : requirements.map((r) => (
-              <EditableRequirementRow
-                key={r.id}
-                id={r.id}
-                version={r.version}
-                businessId={r.businessId}
-                statement={r.statement}
-              >
-                <span className="bid">{r.businessId}</span>
-                <span style={{ flex: 1 }}>{r.statement}</span>
-                <span className="muted">{featureLabel.get(r.featureId)}</span>
-              </EditableRequirementRow>
-            ))
+        <PagedList
+          label="requirements"
+          emptyText="None yet."
+          items={requirements.map((r) => (
+            <EditableRequirementRow
+              key={r.id}
+              id={r.id}
+              version={r.version}
+              businessId={r.businessId}
+              statement={r.statement}
+            >
+              <span className="bid">{r.businessId}</span>
+              <span style={{ flex: 1 }}>{r.statement}</span>
+              <span className="muted">{featureLabel.get(r.featureId)}</span>
+            </EditableRequirementRow>
+          ))}
+        />
       )}
     </>
   );

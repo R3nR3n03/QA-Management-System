@@ -2,6 +2,7 @@ import Link from "next/link";
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listImportRuns } from "@/domain/imports";
+import { PagedList } from "@/ui/paged-list";
 import { requireSession } from "@/ui/session";
 import { UploadForm } from "./UploadForm";
 
@@ -29,12 +30,10 @@ export default async function ImportsPage() {
 
       <h2>Runs</h2>
       <div className="card card-flush">
-        {runs.length === 0 ? (
-          <div className="empty">
-            <p>No imports yet.</p>
-          </div>
-        ) : (
-          runs.map((run) => (
+        <PagedList
+          label="import runs"
+          emptyText="No imports yet."
+          items={runs.map((run) => (
             <div key={run.id} className="list-row">
               <div className="row-main">
                 <div className="row-title">{run.sourceFileName}</div>
@@ -56,8 +55,8 @@ export default async function ImportsPage() {
                 Report
               </Link>
             </div>
-          ))
-        )}
+          ))}
+        />
       </div>
     </>
   );

@@ -3,6 +3,7 @@ import { listDefects } from "@/domain/defects";
 import { listRequirements } from "@/domain/catalogue";
 import { listTestCases } from "@/domain/test-cases";
 import { listRtmLinks } from "@/domain/traceability";
+import { PagedList } from "@/ui/paged-list";
 import { requireSession } from "@/ui/session";
 import { LinkForm } from "./LinkForm";
 
@@ -41,24 +42,25 @@ export default async function TraceabilityPage() {
         <>
           <h2>Requirements without trace links</h2>
           <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
-            {unlinked.map((requirement) => (
-              <div key={requirement.id} className="list-row">
-                <span className="bid">{requirement.businessId}</span>
-                <span style={{ color: "var(--ink-2)" }}>{requirement.statement}</span>
-              </div>
-            ))}
+            <PagedList
+              label="requirements without trace links"
+              items={unlinked.map((requirement) => (
+                <div key={requirement.id} className="list-row">
+                  <span className="bid">{requirement.businessId}</span>
+                  <span style={{ color: "var(--ink-2)" }}>{requirement.statement}</span>
+                </div>
+              ))}
+            />
           </div>
         </>
       ) : null}
 
       <h2>Trace links</h2>
       <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
-        {links.length === 0 ? (
-          <div className="empty">
-            <p>No trace links yet.</p>
-          </div>
-        ) : (
-          links.map((link) => {
+        <PagedList
+          label="trace links"
+          emptyText="No trace links yet."
+          items={links.map((link) => {
             const requirement = requirementById.get(link.requirementId);
             const testCase = caseById.get(link.testCaseId);
             const defect = link.defectId ? defectById.get(link.defectId) : null;
@@ -76,8 +78,8 @@ export default async function TraceabilityPage() {
                 <span className="row-main" style={{ color: "var(--ink-2)" }}>{testCase?.title}</span>
               </div>
             );
-          })
-        )}
+          })}
+        />
       </div>
 
       {mayLink ? (

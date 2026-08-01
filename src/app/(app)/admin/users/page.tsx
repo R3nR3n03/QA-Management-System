@@ -1,6 +1,7 @@
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listUsers } from "@/domain/admin";
+import { PagedList } from "@/ui/paged-list";
 import { requireSession } from "@/ui/session";
 import { roleLabel } from "@/ui/navigation";
 import { AddPersonModal } from "./AddPersonForm";
@@ -34,29 +35,34 @@ export default async function UsersPage() {
       </p>
 
       <div className="card card-flush">
-        {users.map((user) => (
-          <div key={user.id} className="list-row">
-            <div className="row-main">
-              <div className="row-title">
-                {user.displayName}
-                {user.id === auth.userId ? <span className="muted"> (you)</span> : null}
+        {/* Rows stay server-rendered (they carry server-action forms); PagedList only
+            slices, and its pager hides until the staff list passes one page. */}
+        <PagedList
+          label="people"
+          items={users.map((user) => (
+            <div key={user.id} className="list-row">
+              <div className="row-main">
+                <div className="row-title">
+                  {user.displayName}
+                  {user.id === auth.userId ? <span className="muted"> (you)</span> : null}
+                </div>
+                <div className="muted">
+                  {user.email} · {roleLabel(user.role)}
+                  {user.active ? "" : " · inactive"}
+                </div>
               </div>
-              <div className="muted">
-                {user.email} · {roleLabel(user.role)}
-                {user.active ? "" : " · inactive"}
-              </div>
+              <RoleForm userId={user.id} version={user.version} role={user.role} />
+              <EditPersonForm
+                userId={user.id}
+                version={user.version}
+                displayName={user.displayName}
+                email={user.email}
+                active={user.active}
+                isSelf={user.id === auth.userId}
+              />
             </div>
-            <RoleForm userId={user.id} version={user.version} role={user.role} />
-            <EditPersonForm
-              userId={user.id}
-              version={user.version}
-              displayName={user.displayName}
-              email={user.email}
-              active={user.active}
-              isSelf={user.id === auth.userId}
-            />
-          </div>
-        ))}
+          ))}
+        />
       </div>
     </>
   );

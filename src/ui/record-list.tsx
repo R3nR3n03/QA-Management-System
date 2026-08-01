@@ -4,12 +4,16 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome } from "@prisma/client";
 import { DefectStatusChip, ExecutionStateChip, OutcomeChip } from "./chips";
+import { Pager } from "./pager";
+import { pageSlice } from "./paging";
 import { FilterToolbar } from "./toolbar";
 
 /**
  * The filterable record lists for executions and defects. Presentation only: which
  * rows exist is the server's answer; what the viewer may do with one is the
- * domain's. The filter matches ID, title/summary, state, and the tester's name.
+ * domain's. The filter matches ID, title/summary, state, and the tester's name; the
+ * shared `Pager` pages whatever the composed filters leave visible, and the page
+ * resets whenever a filter changes.
  */
 
 export type ExecutionRowData = {
@@ -34,6 +38,7 @@ const EXECUTION_STATE_FILTERS: Array<{ value: "ALL" | ExecutionLifecycleState; l
 export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState<"ALL" | ExecutionLifecycleState>("ALL");
+  const [page, setPage] = useState(1);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return rows.filter((row) => {
@@ -59,7 +64,10 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
         {rows.length > 5 ? (
           <FilterToolbar
             value={query}
-            onChange={setQuery}
+            onChange={(next) => {
+              setQuery(next);
+              setPage(1);
+            }}
             placeholder="Filter by ID, case, tester, or state…"
             label="Filter executions"
           />
@@ -71,7 +79,10 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
               type="button"
               className={option.value === stateFilter ? "btn btn-sm" : "btn btn-secondary btn-sm"}
               aria-pressed={option.value === stateFilter}
-              onClick={() => setStateFilter(option.value)}
+              onClick={() => {
+                setStateFilter(option.value);
+                setPage(1);
+              }}
             >
               {option.label}
             </button>
@@ -84,7 +95,7 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
             <p>No execution matches the current filters.</p>
           </div>
         ) : (
-          visible.map((row) => (
+          pageSlice(visible, page).map((row) => (
             <div key={row.id} className="list-row">
               <div className="row-main">
                 <div className="cluster">
@@ -109,6 +120,7 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
             </div>
           ))
         )}
+        <Pager total={visible.length} page={page} onPageChange={setPage} label="executions" />
       </div>
     </>
   );
@@ -126,6 +138,7 @@ export type DefectRowData = {
 
 export function DefectList({ rows }: { rows: DefectRowData[] }) {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return rows;
@@ -149,7 +162,10 @@ export function DefectList({ rows }: { rows: DefectRowData[] }) {
       {rows.length > 5 ? (
         <FilterToolbar
           value={query}
-          onChange={setQuery}
+          onChange={(next) => {
+            setQuery(next);
+            setPage(1);
+          }}
           placeholder="Filter by ID, summary, severity, or status…"
           label="Filter defects"
         />
@@ -160,7 +176,7 @@ export function DefectList({ rows }: { rows: DefectRowData[] }) {
             <p>Nothing matches &ldquo;{query}&rdquo;.</p>
           </div>
         ) : (
-          visible.map((defect) => (
+          pageSlice(visible, page).map((defect) => (
             <div key={defect.id} className="list-row">
               <div className="row-main">
                 <div className="cluster">
@@ -180,6 +196,7 @@ export function DefectList({ rows }: { rows: DefectRowData[] }) {
             </div>
           ))
         )}
+        <Pager total={visible.length} page={page} onPageChange={setPage} label="defects" />
       </div>
     </>
   );

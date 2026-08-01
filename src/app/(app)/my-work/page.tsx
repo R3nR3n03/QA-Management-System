@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ExecutionLifecycleState } from "@prisma/client";
 import { listExecutionsForTester } from "@/domain/executions";
 import { ExecutionStateChip, OutcomeChip } from "@/ui/chips";
+import { PagedList } from "@/ui/paged-list";
 import { requireSession } from "@/ui/session";
 
 /**
@@ -36,33 +37,36 @@ export default async function MyWorkPage() {
             finalized.
           </p>
           <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>
-            {open.map((execution) => (
-              <div key={execution.id} className="list-row">
-                <div className="row-main">
-                  <div className="cluster">
-                    <span className="bid">{execution.businessId}</span>
-                    <ExecutionStateChip state={execution.state} />
-                    {execution.cases.length > 1 ? (
-                      <span className="state">{execution.cases.length} cases</span>
-                    ) : null}
+            <PagedList
+              label="open work queue"
+              items={open.map((execution) => (
+                <div key={execution.id} className="list-row">
+                  <div className="row-main">
+                    <div className="cluster">
+                      <span className="bid">{execution.businessId}</span>
+                      <ExecutionStateChip state={execution.state} />
+                      {execution.cases.length > 1 ? (
+                        <span className="state">{execution.cases.length} cases</span>
+                      ) : null}
+                    </div>
+                    <div className="row-title">{execution.cases[0]?.testCase.title}</div>
+                    <div className="muted">
+                      <span className="bid">{execution.cases[0]?.testCase.businessId}</span>
+                      {execution.cases.length > 1 ? ` +${execution.cases.length - 1} more` : ""}
+                      {execution.cases.length === 1 ? (
+                        <>
+                          {" · "}
+                          {execution.cases[0].testCase.priority || "no priority"} priority
+                        </>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="row-title">{execution.cases[0]?.testCase.title}</div>
-                  <div className="muted">
-                    <span className="bid">{execution.cases[0]?.testCase.businessId}</span>
-                    {execution.cases.length > 1 ? ` +${execution.cases.length - 1} more` : ""}
-                    {execution.cases.length === 1 ? (
-                      <>
-                        {" · "}
-                        {execution.cases[0].testCase.priority || "no priority"} priority
-                      </>
-                    ) : null}
-                  </div>
+                  <Link className="btn" href={`/executions/${execution.id}`}>
+                    {execution.state === ExecutionLifecycleState.PLANNED ? "Start" : "Continue"}
+                  </Link>
                 </div>
-                <Link className="btn" href={`/executions/${execution.id}`}>
-                  {execution.state === ExecutionLifecycleState.PLANNED ? "Start" : "Continue"}
-                </Link>
-              </div>
-            ))}
+              ))}
+            />
           </div>
         </>
       )}

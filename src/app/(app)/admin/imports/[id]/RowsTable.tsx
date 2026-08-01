@@ -2,14 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { Pager } from "@/ui/pager";
+import { pageSlice } from "@/ui/paging";
 import { OUTCOME_TONE } from "./outcome-tone";
 
 /**
  * The row-level import report as a real table: homogeneous columns people scan and
- * compare, so it gets `<table>` semantics, client-side column sort, and a reveal
- * control instead of dumping thousands of rows at once. Presentation only — the rows
- * are already fetched and committed server-side; sorting and revealing change what
- * is on screen, never what exists.
+ * compare, so it gets `<table>` semantics, client-side column sort, and the shared
+ * `Pager` instead of dumping thousands of rows at once (the earlier binary "show
+ * all" reveal is superseded — DESIGN-SYSTEM.md § Components). Presentation only —
+ * the rows are already fetched and committed server-side; sorting and paging change
+ * what is on screen, never what exists. Changing the sort resets to page 1.
  */
 
 export type ImportRowData = {
@@ -21,14 +24,12 @@ export type ImportRowData = {
   details: string | null;
 };
 
-const PAGE = 50;
-
 type SortKey = "source" | "outcome" | "errorCode";
 
 export function RowsTable({ rows }: { rows: ImportRowData[] }) {
   const [sortKey, setSortKey] = useState<SortKey>("source");
   const [ascending, setAscending] = useState(true);
-  const [showAll, setShowAll] = useState(false);
+  const [page, setPage] = useState(1);
 
   const sorted = useMemo(() => {
     const copy = [...rows];
@@ -46,7 +47,7 @@ export function RowsTable({ rows }: { rows: ImportRowData[] }) {
     return copy;
   }, [rows, sortKey, ascending]);
 
-  const visible = showAll ? sorted : sorted.slice(0, PAGE);
+  const visible = pageSlice(sorted, page);
 
   const toggle = (key: SortKey) => {
     if (key === sortKey) setAscending((a) => !a);
@@ -54,6 +55,8 @@ export function RowsTable({ rows }: { rows: ImportRowData[] }) {
       setSortKey(key);
       setAscending(true);
     }
+    // A new order renumbers every page; stale page positions would mislead.
+    setPage(1);
   };
 
   const header = (key: SortKey, label: string) => (
@@ -102,20 +105,7 @@ export function RowsTable({ rows }: { rows: ImportRowData[] }) {
           </tbody>
         </table>
       </div>
-      {sorted.length > PAGE ? (
-        <p className="muted" style={{ padding: "var(--sp-3) var(--sp-4)", margin: 0 }}>
-          Showing {visible.length} of {sorted.length} rows.{" "}
-          {!showAll ? (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowAll(true)}>
-              Show all {sorted.length}
-            </button>
-          ) : (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowAll(false)}>
-              Show first {PAGE}
-            </button>
-          )}
-        </p>
-      ) : null}
+      <Pager total={sorted.length} page={page} onPageChange={setPage} label="import row report" />
     </>
   );
 }

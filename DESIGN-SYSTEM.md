@@ -66,7 +66,8 @@ ever disagree.
 | Record row | `.list-row` | hover wash, soft separator, wraps on narrow screens |
 | List filter | `FilterToolbar` (`src/ui/toolbar.tsx`), `.list-toolbar` | the one filter toolbar; appears only when a list exceeds 5 rows; Escape clears; filtering is presentation — the server decides what exists |
 | Stepper | `Stepper` (`src/ui/stepper.tsx`), `.stepper` | ordered list of lifecycle stages; current step carries `aria-current="step"`, done steps carry sr-only "(complete)" — never color alone |
-| Data table | `.data-table` in a `.table-scroll` | for homogeneous ≥3-column data people scan and compare (import report); record rows with a story stay `.list-row`. Sortable headers are real buttons with `aria-sort`; long tables reveal in pages of 50, client-side only |
+| Data table | `.data-table` in a `.table-scroll` | for homogeneous ≥3-column data people scan and compare (import report); record rows with a story stay `.list-row`. Sortable headers are real buttons with `aria-sort`; long tables page via the shared `Pager` (pages of 50, client-side only — the earlier binary "show all" reveal is superseded), and a sort change resets to page 1 |
+| Pager / PagedList | `Pager` (`src/ui/pager.tsx`), `PagedList` (`src/ui/paged-list.tsx`) | THE canonical list pagination: pages of 50 (`PAGE_SIZE` in `src/ui/paging.ts`), client-side only — which rows exist is always the server's answer. "Showing X–Y of N" + Prev/Next as real keyboard-operable buttons; the pager renders nothing until a list passes one page (the >50 sibling of FilterToolbar's >5 rule). It composes AFTER whatever narrows the list — text filter, lifecycle chips, column sort — and the page resets to 1 whenever those change. `PagedList` slices an array of server-rendered row nodes so lists whose rows carry server-action forms page without becoming client components. Client state, not URL params — same as every list filter |
 | Chips | `.state` + tone classes | word + stripe + wash; survives greyscale; `.state-accent` is the informational tone for non-lifecycle statuses (import outcomes, "Active") — the Pass/Fail/Blocked tones stay reserved for what policy grades |
 | Notice | `.notice`, `.notice-advisory` | failures red; POLICY_NOT_DEFINED and successes calm; `FormNotice` renders both |
 | Inline warning | `.why` | a blocked or irreversible action carries its reason inline, never in a tooltip |
@@ -90,7 +91,8 @@ transition, reassign, finalize) stay inline on the record — they are the recor
 data-entry interruption.
 
 Component modules: `sidebar.tsx`, `case-table.tsx`, `record-list.tsx`, `chips.tsx`, `notice.tsx`,
-`breadcrumbs.tsx`, `toolbar.tsx` (FilterToolbar), `stepper.tsx`, `modal.tsx`, `toast.tsx`,
+`breadcrumbs.tsx`, `toolbar.tsx` (FilterToolbar), `pager.tsx`/`paged-list.tsx`/`paging.ts`
+(list pagination), `stepper.tsx`, `modal.tsx`, `toast.tsx`,
 `form.ts` (field-error accessibility helpers), `action.ts` (FormState contract),
 `navigation.ts` (the ratified screen inventory).
 
