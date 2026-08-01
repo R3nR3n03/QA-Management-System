@@ -1,10 +1,12 @@
 import { ExecutionLifecycleState, QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listControlledValues } from "@/domain/admin";
+import { listOpenDefectsForCases } from "@/domain/defects";
 import { executionDetail, listAssignableTesters } from "@/domain/executions";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { ExecutionStateChip, OutcomeChip, TestCaseStateChip } from "@/ui/chips";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
+import { formatUtcMinute } from "@/ui/format";
 import { requireSession } from "@/ui/session";
 import { Stepper } from "@/ui/stepper";
 import { FinalizeForm } from "./FinalizeForm";
@@ -43,6 +45,13 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
   const assignableTesters =
     mayAct && execution.state === ExecutionLifecycleState.PLANNED ? await listAssignableTesters() : [];
 
+  // Open defects per covered case, offered as link targets when finalizing a failing
+  // case — one read for the whole form, fetched only when the form will render.
+  const openDefects =
+    mayAct && execution.state === ExecutionLifecycleState.IN_PROGRESS
+      ? await listOpenDefectsForCases(execution.cases.map((covered) => covered.testCaseId))
+      : [];
+
   const currentIndex = RAIL.findIndex((step) => step.state === execution.state);
 
   // One execution covers one or more cases (`docs/business-rules-and-validation.md:27`);
@@ -50,6 +59,7 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
   // its derived result.
   const single = execution.cases.length === 1 ? execution.cases[0] : null;
   const caseByTestCaseId = new Map(execution.cases.map((row) => [row.testCaseId, row]));
+  const anchor = (businessId: string) => `case-${businessId}`;
 
   return (
     <>
@@ -64,18 +74,21 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
         {single ? single.testCase.title : `${execution.cases.length} test cases in one run`}
       </h1>
 
-      <p className="muted" style={{ marginBottom: "var(--sp-5)" }}>
-        {execution.cases.map((covered, index) => (
-          <span key={covered.id}>
-            {index > 0 ? " · " : ""}
-            <span className="bid">{covered.testCase.businessId}</span>{" "}
+      {/* Identity line: each covered case anchors to its section below. */}
+      <div className="row" style={{ marginBottom: "var(--sp-5)" }}>
+        {execution.cases.map((covered) => (
+          <span key={covered.id} className="cluster">
+            <a className="bid" href={`#${anchor(covered.testCase.businessId)}`}>
+              {covered.testCase.businessId}
+            </a>
             <TestCaseStateChip state={covered.testCase.lifecycleState} />
           </span>
         ))}
-        {" · assigned to "}
-        {execution.tester.displayName}
-        {isAssignee ? " (you)" : ""}
-      </p>
+        <span className="muted">
+          assigned to {execution.tester.displayName}
+          {isAssignee ? " (you)" : ""}
+        </span>
+      </div>
 
       <Stepper
         steps={RAIL.map((step) => ({ key: step.state, label: step.label }))}
@@ -86,7 +99,7 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
       <div className="detail-cols">
         <div>
           {execution.cases.map((covered) => (
-            <section key={covered.id} style={{ marginBottom: "var(--sp-5)" }}>
+            <section key={covered.id} id={anchor(covered.testCase.businessId)} style={{ marginBottom: "var(--sp-5)" }}>
               <h2>
                 {single ? (
                   "Steps"
@@ -104,14 +117,21 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
               {covered.testCase.steps.length === 0 ? (
                 <p className="muted">This test case has no steps recorded.</p>
               ) : (
-                <ol style={{ paddingLeft: "var(--sp-5)", margin: 0 }}>
-                  {covered.testCase.steps.map((step) => (
-                    <li key={step.id} style={{ marginBottom: "var(--sp-3)" }}>
-                      <div style={{ color: "var(--ink)" }}>{step.action}</div>
-                      <div className="muted">Expected: {step.expectedResult}</div>
-                    </li>
-                  ))}
-                </ol>
+                // Step lists collapse per case: a single-case run keeps its steps open,
+                // the multi-case view starts folded so the page stays scannable.
+                <details open={single !== null}>
+                  <summary className="muted">
+                    {covered.testCase.steps.length} step{covered.testCase.steps.length === 1 ? "" : "s"}
+                  </summary>
+                  <ol style={{ paddingLeft: "var(--sp-5)", margin: 0 }}>
+                    {covered.testCase.steps.map((step) => (
+                      <li key={step.id} style={{ marginBottom: "var(--sp-3)" }}>
+                        <div style={{ color: "var(--ink)" }}>{step.action}</div>
+                        <div className="muted">Expected: {step.expectedResult}</div>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
               )}
             </section>
           ))}
@@ -128,7 +148,7 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
                     </span>
                   ) : null}
                   <OutcomeChip outcome={row.result} />
-                  <span className="muted">{row.occurredAt.toISOString().replace("T", " ").slice(0, 16)} UTC</span>
+                  <span className="muted">{formatUtcMinute(row.occurredAt)}</span>
                 </div>
               ))}
             </>
@@ -166,7 +186,10 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
                   cases={execution.cases.map((covered) => ({
                     testCaseId: covered.testCaseId,
                     businessId: covered.testCase.businessId,
-                    title: covered.testCase.title
+                    title: covered.testCase.title,
+                    openDefects: openDefects
+                      .filter((defect) => defect.testCaseId === covered.testCaseId)
+                      .map((defect) => ({ id: defect.id, businessId: defect.businessId, summary: defect.summary }))
                   }))}
                   priorities={priorities}
                   severities={severities}

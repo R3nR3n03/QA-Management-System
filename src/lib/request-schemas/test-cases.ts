@@ -30,7 +30,9 @@ import { z } from "zod";
  * see the run plan, judgment call J4.
  */
 export const createTestCaseSchema = z.strictObject({
-  businessId: z.string().min(1),
+  // Optional: when absent the server allocates the next free TC-<PRODUCT>-####, numbered
+  // per owning product (docs/api-and-security.md:5). Still non-blank when present.
+  businessId: z.string().min(1).optional(),
   productId: z.string().min(1),
   moduleId: z.string().min(1),
   featureId: z.string().min(1),

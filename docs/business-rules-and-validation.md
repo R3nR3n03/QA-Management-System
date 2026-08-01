@@ -8,7 +8,7 @@ Every rejected request returns HTTP `422` with stable error code, field path, an
 
 | Rule | Error code |
 | --- | --- |
-| Business IDs match their documented prefix and are unique within entity type. | `ID_INVALID` / `ID_DUPLICATE` |
+| Business IDs match their documented prefix and are unique within entity type. When an interactive create request does not supply one, the system allocates the next free ID in the documented format; a supplied ID is validated exactly as before. | `ID_INVALID` / `ID_DUPLICATE` |
 | Every referenced record exists and is active where active status is required. | `REFERENCE_NOT_FOUND` / `REFERENCE_INACTIVE` |
 | Product → Module → Feature → Requirement references form one chain. | `HIERARCHY_MISMATCH` |
 | Only active controlled values are accepted. | `CONTROLLED_VALUE_INVALID` |

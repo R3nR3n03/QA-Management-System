@@ -22,8 +22,15 @@ describe("createExecutionSchema", () => {
     expect(createExecutionSchema.safeParse({ ...valid, testCaseIds: ["test-case-1"] }).success).toBe(true);
   });
 
+  it("permits an omitted businessId — the server allocates one", () => {
+    // docs/api-and-security.md:5 — optional, not forbidden.
+    const { businessId: _businessId, ...withoutId } = valid;
+
+    expect(createExecutionSchema.safeParse(withoutId).success).toBe(true);
+  });
+
   it("rejects a blank businessId", () => {
-    // requireNonBlank at executions.ts:28.
+    // Optional is not blank-tolerant: a supplied ID must still carry a value.
     expect(createExecutionSchema.safeParse({ ...valid, businessId: "" }).success).toBe(false);
   });
 
@@ -271,6 +278,27 @@ describe("finalizeExecutionSchema", () => {
 
     expect(result.success).toBe(true);
     expect(Object.keys(result.data!.results[0].createDefect!).sort()).toEqual(["businessId", "summary"]);
+  });
+
+  it("permits an omitted businessId inside createDefect — the finalize tx allocates it", () => {
+    // docs/api-and-security.md:5 — several ID-less entries in one request draw distinct
+    // BUG-#### numbers from the locked counter. Blank is still rejected.
+    const result = finalizeExecutionSchema.safeParse({
+      version: 3,
+      results: [
+        { ...passEntry, result: ExecutionOutcome.FAIL, createDefect: { summary: "Login fails" } }
+      ]
+    });
+
+    expect(result.success).toBe(true);
+    expect(
+      finalizeExecutionSchema.safeParse({
+        version: 3,
+        results: [
+          { ...passEntry, result: ExecutionOutcome.FAIL, createDefect: { businessId: "", summary: "x" } }
+        ]
+      }).success
+    ).toBe(false);
   });
 
   it("permits a blank priority and severity inside createDefect", () => {

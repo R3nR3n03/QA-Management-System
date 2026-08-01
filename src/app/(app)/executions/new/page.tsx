@@ -19,9 +19,9 @@ export default async function PlanExecutionPage() {
       </p>
       <div className="card">
         {approved.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            There are no approved test cases yet — only an Approved case can be executed.
-          </p>
+          <div className="empty">
+            <p>There are no approved test cases yet — only an Approved case can be executed.</p>
+          </div>
         ) : (
           <PlanForm
             cases={approved.map((c) => ({ id: c.id, businessId: c.businessId, title: c.title }))}

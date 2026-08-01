@@ -40,8 +40,15 @@ describe("createDefectSchema", () => {
     expect(createDefectSchema.safeParse({ ...valid, severity: "" }).success).toBe(true);
   });
 
+  it("permits an omitted businessId — the server allocates one", () => {
+    // docs/api-and-security.md:5 — optional, not forbidden.
+    const { businessId: _businessId, ...withoutId } = valid;
+
+    expect(createDefectSchema.safeParse(withoutId).success).toBe(true);
+  });
+
   it("rejects a blank businessId and summary", () => {
-    // requireNonBlank at defects.ts:22-23.
+    // Optional is not blank-tolerant: a supplied ID must still carry a value.
     expect(createDefectSchema.safeParse({ ...valid, businessId: "" }).success).toBe(false);
     expect(createDefectSchema.safeParse({ ...valid, summary: "" }).success).toBe(false);
   });

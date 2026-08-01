@@ -17,22 +17,33 @@ export type ExecutionRowData = {
   businessId: string;
   state: ExecutionLifecycleState;
   result: ExecutionOutcome | null;
-  caseBusinessId: string;
+  /** Business IDs of every covered case, in coverage order. */
+  caseBusinessIds: string[];
+  /** The first covered case's title. */
   caseTitle: string;
   testerName: string;
 };
 
+const EXECUTION_STATE_FILTERS: Array<{ value: "ALL" | ExecutionLifecycleState; label: string }> = [
+  { value: "ALL", label: "All" },
+  { value: "PLANNED", label: "Planned" },
+  { value: "IN_PROGRESS", label: "In Progress" },
+  { value: "FINALIZED", label: "Finalized" }
+];
+
 export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
   const [query, setQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState<"ALL" | ExecutionLifecycleState>("ALL");
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) =>
-      `${row.businessId} ${row.caseBusinessId} ${row.caseTitle} ${row.testerName} ${row.state} ${row.result ?? ""}`
+    return rows.filter((row) => {
+      if (stateFilter !== "ALL" && row.state !== stateFilter) return false;
+      if (!needle) return true;
+      return `${row.businessId} ${row.caseBusinessIds.join(" ")} ${row.caseTitle} ${row.testerName} ${row.state} ${row.result ?? ""}`
         .toLowerCase()
-        .includes(needle)
-    );
-  }, [rows, query]);
+        .includes(needle);
+    });
+  }, [rows, query, stateFilter]);
 
   if (rows.length === 0) {
     return (
@@ -44,18 +55,33 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
 
   return (
     <>
-      {rows.length > 5 ? (
-        <FilterToolbar
-          value={query}
-          onChange={setQuery}
-          placeholder="Filter by ID, case, tester, or state…"
-          label="Filter executions"
-        />
-      ) : null}
+      <div className="row">
+        {rows.length > 5 ? (
+          <FilterToolbar
+            value={query}
+            onChange={setQuery}
+            placeholder="Filter by ID, case, tester, or state…"
+            label="Filter executions"
+          />
+        ) : null}
+        <div className="cluster" role="group" aria-label="Filter by lifecycle state">
+          {EXECUTION_STATE_FILTERS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={option.value === stateFilter ? "btn btn-sm" : "btn btn-secondary btn-sm"}
+              aria-pressed={option.value === stateFilter}
+              onClick={() => setStateFilter(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="card card-flush">
         {visible.length === 0 ? (
           <div className="empty">
-            <p>Nothing matches &ldquo;{query}&rdquo;.</p>
+            <p>No execution matches the current filters.</p>
           </div>
         ) : (
           visible.map((row) => (
@@ -65,15 +91,19 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
                   <span className="bid">{row.businessId}</span>
                   <ExecutionStateChip state={row.state} />
                   {row.result ? <OutcomeChip outcome={row.result} /> : null}
+                  {row.caseBusinessIds.length > 1 ? (
+                    <span className="state">{row.caseBusinessIds.length} cases</span>
+                  ) : null}
                 </div>
                 <div className="row-title">{row.caseTitle}</div>
                 <div className="muted">
-                  <span className="bid">{row.caseBusinessId}</span>
+                  <span className="bid">{row.caseBusinessIds[0]}</span>
+                  {row.caseBusinessIds.length > 1 ? ` +${row.caseBusinessIds.length - 1} more` : ""}
                   {" · "}
                   {row.testerName}
                 </div>
               </div>
-              <Link href={`/executions/${row.id}`} style={{ fontSize: 14 }}>
+              <Link className="btn btn-secondary btn-sm" href={`/executions/${row.id}`}>
                 View
               </Link>
             </div>

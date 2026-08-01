@@ -5,9 +5,11 @@ import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
+import { allocateBusinessId, highestSuffix } from "@/lib/id-allocator";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
+import { defectIdFormat } from "@/domain/defects";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
@@ -21,12 +23,19 @@ export async function listExecutions() {
  * `ExecutionTestCase` row; per-case results arrive only at finalize.
  */
 export async function createExecution(
-  input: { businessId: string; testCaseIds: string[]; testerId: string },
+  input: { businessId?: string; testCaseIds: string[]; testerId: string },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canExecute], actor.role);
-  requireNonBlank(input.businessId, "businessId", "Execution ID is required.");
-  ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.execution, "businessId", "EXE-####");
+
+  // `businessId` is optional (`docs/business-rules-and-validation.md:11`): supplied IDs
+  // are validated exactly as before; when absent the transaction allocates the next
+  // free EXE-#### below.
+  const suppliedId = input.businessId?.trim();
+  if (input.businessId !== undefined) {
+    requireNonBlank(input.businessId, "businessId", "Execution ID cannot be blank.");
+    ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.execution, "businessId", "EXE-####");
+  }
 
   if (input.testCaseIds.length === 0) {
     throw new AppError(422, "ID_INVALID", "At least one test case is required.", "testCaseIds");
@@ -52,15 +61,29 @@ export async function createExecution(
     throw new AppError(422, "REFERENCE_INACTIVE", "Assigned tester is invalid.", "testerId");
   }
 
-  const existing = await prisma.testExecution.findUnique({ where: { businessId: input.businessId } });
-  if (existing) {
-    throw new AppError(409, "ID_DUPLICATE", "Execution ID already exists.", "businessId");
+  if (suppliedId) {
+    const existing = await prisma.testExecution.findUnique({ where: { businessId: suppliedId } });
+    if (existing) {
+      throw new AppError(409, "ID_DUPLICATE", "Execution ID already exists.", "businessId");
+    }
   }
 
   return prisma.$transaction(async (tx) => {
+    const businessId =
+      suppliedId ??
+      (await allocateBusinessId(tx, "execution", {
+        prefix: "EXE-",
+        isTaken: async (candidate) =>
+          (await tx.testExecution.findUnique({ where: { businessId: candidate }, select: { id: true } })) !== null,
+        currentMax: async () =>
+          highestSuffix(
+            "EXE-",
+            (await tx.testExecution.findMany({ select: { businessId: true } })).map((row) => row.businessId)
+          )
+      }));
     const created = await tx.testExecution.create({
       data: {
-        businessId: input.businessId.trim(),
+        businessId,
         testerId: input.testerId,
         state: ExecutionLifecycleState.PLANNED,
         createdBy: actor.userId,
@@ -175,7 +198,7 @@ type FinalizeCaseResult = {
   blockReason?: string;
   defectId?: string;
   createDefect?: {
-    businessId: string;
+    businessId?: string;
     summary: string;
     priority?: string;
     severity?: string;
@@ -254,24 +277,31 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
     }
 
     if (entry.createDefect) {
-      requireNonBlank(entry.createDefect.businessId, field("createDefect.businessId"), "Defect ID is required.");
       requireNonBlank(entry.createDefect.summary, field("createDefect.summary"), "Defect summary is required.");
-      ensureBusinessIdFormat(entry.createDefect.businessId, BUSINESS_ID_PATTERNS.defect, field("createDefect.businessId"), "BUG-####");
       if (entry.createDefect.priority?.trim()) {
         await ensureActiveControlledValue(CATALOGUE_PRIORITY, entry.createDefect.priority.trim(), field("createDefect.priority"));
       }
       if (entry.createDefect.severity?.trim()) {
         await ensureActiveControlledValue(CATALOGUE_SEVERITY, entry.createDefect.severity.trim(), field("createDefect.severity"));
       }
-      // One request may create several defects; their IDs must be unique against the
-      // database AND against each other.
-      if (requestDefectIds.has(entry.createDefect.businessId)) {
-        throw new AppError(409, "ID_DUPLICATE", "Defect ID already used in this request.", field("createDefect.businessId"));
+      // `businessId` is optional (`docs/business-rules-and-validation.md:11`): an ID-less
+      // entry is allocated in the transaction below — N entries draw N distinct
+      // BUG-#### from the one locked counter. A supplied ID is validated exactly as
+      // before, and the sibling-duplicate check applies only to supplied IDs.
+      const suppliedDefectId = entry.createDefect.businessId?.trim();
+      if (entry.createDefect.businessId !== undefined) {
+        requireNonBlank(entry.createDefect.businessId, field("createDefect.businessId"), "Defect ID cannot be blank.");
+        ensureBusinessIdFormat(entry.createDefect.businessId, BUSINESS_ID_PATTERNS.defect, field("createDefect.businessId"), "BUG-####");
       }
-      requestDefectIds.add(entry.createDefect.businessId);
-      const existingDefect = await prisma.defect.findUnique({ where: { businessId: entry.createDefect.businessId } });
-      if (existingDefect) {
-        throw new AppError(409, "ID_DUPLICATE", "Defect ID already exists.", field("createDefect.businessId"));
+      if (suppliedDefectId) {
+        if (requestDefectIds.has(suppliedDefectId)) {
+          throw new AppError(409, "ID_DUPLICATE", "Defect ID already used in this request.", field("createDefect.businessId"));
+        }
+        requestDefectIds.add(suppliedDefectId);
+        const existingDefect = await prisma.defect.findUnique({ where: { businessId: suppliedDefectId } });
+        if (existingDefect) {
+          throw new AppError(409, "ID_DUPLICATE", "Defect ID already exists.", field("createDefect.businessId"));
+        }
       }
     }
   }
@@ -285,9 +315,12 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
       let linkedDefectId = entry.defectId;
 
       if (entry.createDefect) {
+        const defectBusinessId =
+          entry.createDefect.businessId?.trim() ??
+          (await allocateBusinessId(tx, "defect", defectIdFormat(tx)));
         const createdDefect = await tx.defect.create({
           data: {
-            businessId: entry.createDefect.businessId.trim(),
+            businessId: defectBusinessId,
             testCaseId: entry.testCaseId,
             summary: entry.createDefect.summary.trim(),
             priority: entry.createDefect.priority?.trim() ?? "",

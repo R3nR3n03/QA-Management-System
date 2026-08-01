@@ -2,7 +2,7 @@
 
 ## REST conventions
 
-Base path: `/api/v1`. JSON requests and responses use camelCase. Collection endpoints support server-side pagination, filtering, and sorting only for documented fields. All endpoints require an authenticated session. Mutation requests require an optimistic `version` and return the updated record with its new `version`.
+Base path: `/api/v1`. JSON requests and responses use camelCase. Collection endpoints support server-side pagination, filtering, and sorting only for documented fields. All endpoints require an authenticated session. Mutation requests require an optimistic `version` and return the updated record with its new `version`. `businessId` is optional on `POST /test-cases`, `POST /executions`, `POST /defects`, and on the per-case `createDefect` entries of `POST /executions/{id}/finalize`: when omitted the server allocates the next free ID in the documented format; when supplied it is validated for format and uniqueness exactly as before.
 
 | Resource | Endpoints |
 | --- | --- |

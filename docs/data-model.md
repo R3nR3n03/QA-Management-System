@@ -2,7 +2,7 @@
 
 ## Common record convention
 
-Every persisted entity has a UUID primary key, immutable business ID where applicable, `createdAt`, `createdBy`, `updatedAt`, `updatedBy`, and optimistic `version`. Domain services write audit events separately. Timestamps are UTC ISO-8601. Users are referenced by internal user IDs, never free-text names after import reconciliation.
+Every persisted entity has a UUID primary key, immutable business ID where applicable, `createdAt`, `createdBy`, `updatedAt`, `updatedBy`, and optimistic `version`. Business IDs are allocated by the system when the creating request does not supply one: each entity type sequences its own numbers, and generation skips numbers already occupied (for example by imported records); a supplied ID is validated for format and uniqueness exactly as before. Domain services write audit events separately. Timestamps are UTC ISO-8601. Users are referenced by internal user IDs, never free-text names after import reconciliation.
 
 ## Core catalogue
 
@@ -28,6 +28,8 @@ Product status is imported as source data and must be a configured catalogue val
 | RTM link | none | requirementId, testCaseId, optional defectId | unique `(requirementId, testCaseId, defectId)` |
 
 Cycle, sprint, release, and environment are required text attributes in v1; this knowledge base defines no separate master entities for them. They are preserved from the workbook when present.
+
+In a generated test-case ID the `<PRODUCT>` tag is the owning product's business ID, and generated test-case numbers are sequenced per product (`TC-PROD001-0001`, `TC-PROD001-0002`, …). Generated execution and defect IDs sequence across their whole entity type. The four-digit number space is a documented limit; allocation past `9999` is refused.
 
 ## Identity, configuration, and audit
 

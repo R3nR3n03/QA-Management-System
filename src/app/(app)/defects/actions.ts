@@ -22,7 +22,7 @@ export async function createDefectAction(_prev: FormState, formData: FormData): 
   const result = await runAction((actor) =>
     createDefect(
       {
-        businessId: field("businessId"),
+        // No businessId: the domain allocates the next free BUG-#### in the create tx.
         testCaseId: field("testCaseId"),
         summary: field("summary"),
         priority: field("priority") || undefined,

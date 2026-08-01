@@ -1,10 +1,11 @@
-import { DefectLifecycleState, QamsRole } from "@prisma/client";
+import { DefectLifecycleState, QamsRole, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
+import { allocateBusinessId, highestSuffix, type AllocatorFormat } from "@/lib/id-allocator";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
@@ -40,14 +41,49 @@ export async function defectDetail(id: string) {
   });
 }
 
+/**
+ * Open (not Closed) defects for a set of test cases — offered as link targets when a
+ * failing case is finalized, so a tester picks a defect instead of pasting an id.
+ */
+export async function listOpenDefectsForCases(testCaseIds: string[]) {
+  if (testCaseIds.length === 0) return [];
+  return prisma.defect.findMany({
+    where: { testCaseId: { in: testCaseIds }, status: { not: DefectLifecycleState.CLOSED } },
+    select: { id: true, businessId: true, summary: true, testCaseId: true },
+    orderBy: { businessId: "asc" }
+  });
+}
+
+/**
+ * Allocator wiring for `BUG-####` (`docs/data-model.md:5`) — one sequence across the
+ * entity type. Shared with `finalizeExecution`'s inline defect creation so a finalize
+ * transaction and this create draw from the same counter.
+ */
+export function defectIdFormat(tx: Prisma.TransactionClient): AllocatorFormat {
+  return {
+    prefix: "BUG-",
+    isTaken: async (candidate) =>
+      (await tx.defect.findUnique({ where: { businessId: candidate }, select: { id: true } })) !== null,
+    currentMax: async () =>
+      highestSuffix("BUG-", (await tx.defect.findMany({ select: { businessId: true } })).map((row) => row.businessId))
+  };
+}
+
 export async function createDefect(
-  input: { businessId: string; testCaseId: string; summary: string; priority?: string; severity?: string },
+  input: { businessId?: string; testCaseId: string; summary: string; priority?: string; severity?: string },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canExecute], actor.role);
-  requireNonBlank(input.businessId, "businessId", "Defect ID is required.");
   requireNonBlank(input.summary, "summary", "Summary is required.");
-  ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.defect, "businessId", "BUG-####");
+
+  // `businessId` is optional (`docs/business-rules-and-validation.md:11`): supplied IDs
+  // are validated exactly as before; when absent the transaction allocates the next
+  // free BUG-#### below.
+  const suppliedId = input.businessId?.trim();
+  if (input.businessId !== undefined) {
+    requireNonBlank(input.businessId, "businessId", "Defect ID cannot be blank.");
+    ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.defect, "businessId", "BUG-####");
+  }
 
   const testCase = await prisma.testCase.findUnique({ where: { id: input.testCaseId } });
   if (!testCase) throw new AppError(404, "REFERENCE_NOT_FOUND", "Test case not found.", "testCaseId");
@@ -55,15 +91,18 @@ export async function createDefect(
   if (input.priority?.trim()) await ensureActiveControlledValue(CATALOGUE_PRIORITY, input.priority.trim(), "priority");
   if (input.severity?.trim()) await ensureActiveControlledValue(CATALOGUE_SEVERITY, input.severity.trim(), "severity");
 
-  const existing = await prisma.defect.findUnique({ where: { businessId: input.businessId } });
-  if (existing) {
-    throw new AppError(409, "ID_DUPLICATE", "Defect ID already exists.", "businessId");
+  if (suppliedId) {
+    const existing = await prisma.defect.findUnique({ where: { businessId: suppliedId } });
+    if (existing) {
+      throw new AppError(409, "ID_DUPLICATE", "Defect ID already exists.", "businessId");
+    }
   }
 
   return prisma.$transaction(async (tx) => {
+    const businessId = suppliedId ?? (await allocateBusinessId(tx, "defect", defectIdFormat(tx)));
     const created = await tx.defect.create({
       data: {
-        businessId: input.businessId.trim(),
+        businessId,
         testCaseId: input.testCaseId,
         summary: input.summary.trim(),
         priority: input.priority?.trim() ?? "",

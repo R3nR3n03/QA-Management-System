@@ -12,7 +12,9 @@ import { z } from "zod";
  * because server actions call it without passing through this schema.
  */
 export const createExecutionSchema = z.strictObject({
-  businessId: z.string().min(1), // requireNonBlank — executions.ts:28
+  // Optional: when absent the server allocates the next free EXE-#### (docs/api-and-security.md:5).
+  // Still non-blank when present — a blank supplied ID 422s in the domain too.
+  businessId: z.string().min(1).optional(),
   testCaseIds: z
     .array(z.string()) // no blank guard per id; an unresolved id 404s — executions.ts:42-44
     .min(1) // non-empty — executions.ts:31-33
@@ -72,7 +74,9 @@ export const finalizeExecutionSchema = z.strictObject({
         defectId: z.string().optional(), // no blank guard; mismatched id 422s — executions.ts:303-308
         createDefect: z
           .strictObject({
-            businessId: z.string().min(1), // requireNonBlank — executions.ts:257
+            // Optional: an ID-less entry gets the next free BUG-#### allocated in the
+            // finalize transaction; several ID-less entries get distinct numbers.
+            businessId: z.string().min(1).optional(),
             summary: z.string().min(1), // requireNonBlank — executions.ts:258
             priority: z.string().optional(), // blank tolerated, persisted as "" — executions.ts:260,293
             severity: z.string().optional() // blank tolerated, persisted as "" — executions.ts:263,294

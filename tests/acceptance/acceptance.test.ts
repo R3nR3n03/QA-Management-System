@@ -1106,3 +1106,126 @@ describe("Execution reassignment", () => {
     expect(unchanged?.testerId).toBe(engineer.userId);
   });
 });
+
+describe("Generated business IDs", () => {
+  // docs/testing-and-acceptance.md § Identity: ID-less creates get the next generated
+  // ID; generation skips occupied numbers; supplied IDs keep today's behavior.
+  // Sequences at this point in the story: executions EXE-0001/-1001/-1003/-2001 (max
+  // 2001), defects BUG-0001/-1001/-2001/-2002 (max 2002), test cases TC-PROD001-0001
+  // and TC-PROD002-0001..0004 (per-product maxima 1 and 4).
+
+  const testCaseInput = (chain: {
+    productId: string;
+    moduleId: string;
+    featureId: string;
+    requirementId: string;
+  }, title: string) => ({
+    ...chain,
+    cycle: "C1",
+    sprint: "S1",
+    release: "R1",
+    environment: "QA",
+    priority: "High",
+    severity: "Major",
+    title,
+    objective: `Verify ${title.toLowerCase()}`,
+    expectedResult: "It works"
+  });
+
+  it("an ID-less execution create gets the next EXE-#### past everything persisted", async () => {
+    const created = await createExecution({ testCaseIds: [caseB], testerId: tester.userId }, lead);
+    expect(created.businessId).toBe("EXE-2002");
+  });
+
+  it("generation skips a number occupied by a supplied ID; the supplied path is unchanged", async () => {
+    const supplied = await createExecution(
+      { businessId: "EXE-2003", testCaseIds: [caseB], testerId: tester.userId },
+      lead
+    );
+    expect(supplied.businessId).toBe("EXE-2003");
+
+    // The counter would hand out 2003 next — it is taken, so allocation probes to 2004.
+    const generated = await createExecution({ testCaseIds: [caseB], testerId: tester.userId }, lead);
+    expect(generated.businessId).toBe("EXE-2004");
+
+    // A supplied duplicate still conflicts exactly as before.
+    await expectAppError(
+      createExecution({ businessId: "EXE-2003", testCaseIds: [caseB], testerId: tester.userId }, lead),
+      409,
+      "ID_DUPLICATE"
+    );
+  });
+
+  it("ID-less test-case creates sequence per owning product", async () => {
+    const prod002 = {
+      productId: interactive.productId,
+      moduleId: interactive.moduleId,
+      featureId: interactive.featureId,
+      requirementId: interactive.requirementId
+    };
+    const one = await createTestCase(testCaseInput(prod002, "Generated case one"), engineer);
+    expect(one.businessId).toBe("TC-PROD002-0005");
+
+    // The imported PROD001 chain sequences independently of PROD002.
+    const [product, moduleRow, feature, requirement] = await Promise.all([
+      prisma.product.findUnique({ where: { businessId: "PROD001" } }),
+      prisma.module.findUnique({ where: { businessId: "MOD001" } }),
+      prisma.feature.findUnique({ where: { businessId: "FEAT001" } }),
+      prisma.requirement.findUnique({ where: { businessId: "REQ001" } })
+    ]);
+    const other = await createTestCase(
+      testCaseInput(
+        { productId: product!.id, moduleId: moduleRow!.id, featureId: feature!.id, requirementId: requirement!.id },
+        "Generated case for the imported product"
+      ),
+      engineer
+    );
+    expect(other.businessId).toBe("TC-PROD001-0002");
+
+    const two = await createTestCase(testCaseInput(prod002, "Generated case two"), engineer);
+    expect(two.businessId).toBe("TC-PROD002-0006");
+  });
+
+  it("an ID-less defect create gets the next BUG-####", async () => {
+    const defect = await createDefect(
+      { testCaseId: caseB, summary: "Raised without an ID" },
+      tester
+    );
+    expect(defect.businessId).toBe("BUG-2003");
+  });
+
+  it("one finalize with two ID-less createDefect entries draws two distinct BUG numbers", async () => {
+    const execution = await createExecution({ testCaseIds: [caseB, caseC], testerId: tester.userId }, lead);
+    const started = await startExecution(execution.id, execution.version, tester);
+    const finalized = await finalizeExecution(
+      started.id,
+      {
+        version: started.version,
+        results: [
+          {
+            testCaseId: caseB,
+            result: ExecutionOutcome.FAIL,
+            actualResult: "Broke one way",
+            createDefect: { summary: "Generated defect one" }
+          },
+          {
+            testCaseId: caseC,
+            result: ExecutionOutcome.FAIL,
+            actualResult: "Broke another way",
+            createDefect: { summary: "Generated defect two" }
+          }
+        ]
+      },
+      tester
+    );
+    expect(finalized.result).toBe(ExecutionOutcome.FAIL);
+
+    const first = await prisma.defect.findFirst({ where: { summary: "Generated defect one" } });
+    const second = await prisma.defect.findFirst({ where: { summary: "Generated defect two" } });
+    expect(first?.businessId).toBe("BUG-2004");
+    expect(second?.businessId).toBe("BUG-2005");
+    expect(first?.testCaseId).toBe(caseB);
+    expect(second?.testCaseId).toBe(caseC);
+    expect(await prisma.defectExecutionLink.count({ where: { executionId: execution.id } })).toBe(2);
+  });
+});

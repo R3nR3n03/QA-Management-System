@@ -35,7 +35,8 @@ export async function createTestCaseAction(_prev: FormState, formData: FormData)
   const result = await runAction((actor) =>
     createTestCase(
       {
-        businessId: field("businessId"),
+        // No businessId: the domain allocates the next free TC-<PRODUCT>-#### for the
+        // chosen product inside the create transaction.
         productId: field("productId"),
         moduleId: field("moduleId"),
         featureId: field("featureId"),

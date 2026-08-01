@@ -13,6 +13,9 @@
 | Test design | Author attempts own approval | `403`; no transition. |
 | Test design | Senior QA Engineer approves another author’s valid review | State becomes Approved; audit event exists. |
 | Test design | Edit an Approved case | Rejected; revision workflow required. |
+| Identity | Create a test case, execution, or defect without `businessId` | `201`; the record carries the next generated ID in its documented format, test cases numbered per owning product. |
+| Identity | Generation reaches a number occupied by an imported record | The occupied number is skipped; no duplicate is created and import IDs stay preserved. |
+| Identity | Create with a supplied `businessId` that already exists | `409 ID_DUPLICATE`, unchanged. |
 | Execution | Create an execution covering N Approved cases | `201`; one execution with one link row per case. |
 | Execution | Create an execution including any non-Approved case | `422 FORBIDDEN_TRANSITION`; nothing is created. |
 | Execution | Start an assigned execution over Approved cases | State becomes In Progress and `startedAt` is set. |

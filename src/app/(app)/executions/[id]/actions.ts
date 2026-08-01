@@ -59,15 +59,15 @@ export async function finalizeExecutionAction(
     const outcome = String(formData.get(`result:${testCaseId}`) ?? "") as ExecutionOutcome;
     const blockReason = String(formData.get(`blockReason:${testCaseId}`) ?? "");
     const defectId = String(formData.get(`defectId:${testCaseId}`) ?? "").trim();
-    const defectBusinessId = String(formData.get(`defectBusinessId:${testCaseId}`) ?? "").trim();
     const defectSummary = String(formData.get(`defectSummary:${testCaseId}`) ?? "").trim();
     const defectPriority = String(formData.get(`defectPriority:${testCaseId}`) ?? "").trim();
     const defectSeverity = String(formData.get(`defectSeverity:${testCaseId}`) ?? "").trim();
 
+    // A filled summary is what asks for a new defect — its BUG-#### is allocated by
+    // the finalize transaction, so no ID travels from the form.
     const createDefect =
-      outcome === ExecutionOutcome.FAIL && defectBusinessId
+      outcome === ExecutionOutcome.FAIL && defectSummary
         ? {
-            businessId: defectBusinessId,
             summary: defectSummary,
             priority: defectPriority || undefined,
             severity: defectSeverity || undefined

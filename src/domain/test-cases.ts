@@ -5,6 +5,7 @@ import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence, ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
+import { allocateBusinessId, highestSuffix } from "@/lib/id-allocator";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
@@ -12,7 +13,8 @@ import { appendAudit } from "@/lib/audit";
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
 export type CreateTestCaseInput = {
-  businessId: string;
+  /** Optional: when absent the create transaction allocates the next free TC-<PRODUCT>-####. */
+  businessId?: string;
   productId: string;
   moduleId: string;
   featureId: string;
@@ -85,7 +87,7 @@ async function validateHierarchy(productId: string, moduleId: string, featureId:
  * stray key added here later is a type error.
  */
 export function buildTestCaseCreateData(
-  input: CreateTestCaseInput,
+  input: CreateTestCaseInput & { businessId: string },
   actor: Pick<Actor, "userId">
 ): Prisma.TestCaseUncheckedCreateInput {
   return {
@@ -113,11 +115,18 @@ export function buildTestCaseCreateData(
 
 export async function createTestCase(input: CreateTestCaseInput, actor: Actor) {
   ensureRole([...RoleSets.canAuthor], actor.role);
-  requireNonBlank(input.businessId, "businessId", "Test case ID is required.");
   requireNonBlank(input.title, "title", "Title is required.");
   requireNonBlank(input.objective, "objective", "Objective is required.");
   requireNonBlank(input.expectedResult, "expectedResult", "Expected result is required.");
-  ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.testCase, "businessId", "TC-<PRODUCT>-####");
+
+  // `businessId` is optional (`docs/business-rules-and-validation.md:11`): supplied IDs
+  // are validated exactly as before; when absent the transaction allocates the next
+  // free TC-<PRODUCT>-#### below, numbered per owning product (`docs/data-model.md`).
+  const suppliedId = input.businessId?.trim();
+  if (input.businessId !== undefined) {
+    requireNonBlank(input.businessId, "businessId", "Test case ID cannot be blank.");
+    ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.testCase, "businessId", "TC-<PRODUCT>-####");
+  }
 
   await validateHierarchy(input.productId, input.moduleId, input.featureId, input.requirementId);
 
@@ -139,14 +148,43 @@ export async function createTestCase(input: CreateTestCaseInput, actor: Actor) {
     }
   }
 
-  const existing = await prisma.testCase.findUnique({ where: { businessId: input.businessId } });
-  if (existing) {
-    throw new AppError(409, "ID_DUPLICATE", "Test case ID already exists.", "businessId");
+  if (suppliedId) {
+    const existing = await prisma.testCase.findUnique({ where: { businessId: suppliedId } });
+    if (existing) {
+      throw new AppError(409, "ID_DUPLICATE", "Test case ID already exists.", "businessId");
+    }
+  }
+
+  // The generated tag is the owning product's business ID (`docs/data-model.md:22`).
+  // validateHierarchy already proved the product exists (the module chains to it).
+  const product = suppliedId
+    ? null
+    : await prisma.product.findUnique({ where: { id: input.productId }, select: { businessId: true } });
+  if (!suppliedId && !product) {
+    throw new AppError(404, "REFERENCE_NOT_FOUND", "Product was not found.", "productId");
   }
 
   return prisma.$transaction(async (tx) => {
+    const prefix = `TC-${product?.businessId}-`;
+    const businessId =
+      suppliedId ??
+      (await allocateBusinessId(tx, `testCase:${product?.businessId}`, {
+        prefix,
+        isTaken: async (candidate) =>
+          (await tx.testCase.findUnique({ where: { businessId: candidate }, select: { id: true } })) !== null,
+        currentMax: async () =>
+          highestSuffix(
+            prefix,
+            (
+              await tx.testCase.findMany({
+                where: { businessId: { startsWith: prefix } },
+                select: { businessId: true }
+              })
+            ).map((row) => row.businessId)
+          )
+      }));
     const created = await tx.testCase.create({
-      data: buildTestCaseCreateData(input, actor)
+      data: buildTestCaseCreateData({ ...input, businessId }, actor)
     });
 
     await appendAudit(tx, {

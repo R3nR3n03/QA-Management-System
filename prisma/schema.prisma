@@ -347,6 +347,16 @@ model ImportRowReport {
   importRun ImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
 }
 
+/// Counter row per business-ID sequence (`docs/data-model.md:5`): `execution`,
+/// `defect`, and `testCase:<productBusinessId>` (test cases number per product).
+/// `next` is the next number to try; allocation locks the row (UPDATE ... RETURNING)
+/// and probes past occupied numbers, so imported IDs sitting ahead of the counter are
+/// skipped, never duplicated. Seeded lazily on first use — no backfill migration.
+model IdSequence {
+  key  String @id
+  next Int
+}
+
 model AuditEvent {
   id              String   @id @default(uuid())
   occurredAt      DateTime @default(now())

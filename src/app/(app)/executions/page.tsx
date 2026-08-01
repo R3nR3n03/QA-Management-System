@@ -29,13 +29,10 @@ export default async function ExecutionsPage() {
           businessId: execution.businessId,
           state: execution.state,
           result: execution.result,
-          // A run covers one or more cases; a single case keeps its title, several
-          // show the count and the full ID list.
-          caseBusinessId: execution.cases.map((covered) => covered.testCase.businessId).join(", "),
-          caseTitle:
-            execution.cases.length === 1
-              ? execution.cases[0].testCase.title
-              : `${execution.cases.length} test cases`,
+          // A run covers one or more cases; the list shows the first case's title and
+          // renders a "N cases" chip plus "+n more" for the rest.
+          caseBusinessIds: execution.cases.map((covered) => covered.testCase.businessId),
+          caseTitle: execution.cases[0]?.testCase.title ?? "",
           testerName: execution.tester.displayName
         }))}
       />
