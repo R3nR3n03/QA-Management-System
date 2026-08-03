@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { CheckCircle2, X } from "lucide-react";
 
 /**
@@ -64,6 +64,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     },
     [arm]
   );
+
+  // Every other path out of a toast (dismiss, pause) clears its own timer; unmounting
+  // with toasts still on screen was the one that did not, leaving timers armed to fire
+  // `setToasts` into a torn-down tree. The provider sits at the layout root so this is
+  // rare in the app and routine in tests — either way the timers are ours to clear.
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const timer of pending.values()) clearTimeout(timer);
+      pending.clear();
+    };
+  }, []);
 
   return (
     <ToastContext.Provider value={push}>
