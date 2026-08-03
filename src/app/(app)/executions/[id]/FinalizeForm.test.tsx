@@ -56,10 +56,15 @@ const hidden = (container: HTMLElement, name: string) =>
 
 const finalizeButton = () => screen.getByRole("button", { name: /Finalize this run/ });
 
+/** The outcome is a radio group, so a result is chosen by clicking its option. */
+const OUTCOME_OPTION: Record<string, string> = { PASS: "Pass", FAIL: "Fail", BLOCKED: "Blocked" };
+const outcomeRadio = (result: string) =>
+  screen.getByRole("radio", { name: OUTCOME_OPTION[result] }) as HTMLInputElement;
+
 /** Record one case through the dialog, the way a tester does. */
 function recordCase(businessId: string, result: string, actual: string) {
   fireEvent.click(screen.getByRole("button", { name: new RegExp(businessId) }));
-  fireEvent.change(screen.getByLabelText("Result"), { target: { value: result } });
+  fireEvent.click(outcomeRadio(result));
   fireEvent.change(screen.getByLabelText(/What actually happened/), { target: { value: actual } });
 }
 
@@ -153,7 +158,7 @@ describe("FinalizeForm", () => {
     fireEvent.change(screen.getByLabelText(/New defect summary/), {
       target: { value: "Lockout never lifts" }
     });
-    fireEvent.change(screen.getByLabelText("Result"), { target: { value: "PASS" } });
+    fireEvent.click(outcomeRadio("PASS"));
     fireEvent.click(screen.getByRole("button", { name: "Save result" }));
 
     // `business-rules-and-validation.md:30` — a Pass must not create a defect.
@@ -169,7 +174,8 @@ describe("FinalizeForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save result" }));
 
     fireEvent.click(screen.getByRole("button", { name: /TC-LOGIN-0001/ }));
-    expect((screen.getByLabelText("Result") as HTMLSelectElement).value).toBe("PASS");
+    expect(outcomeRadio("PASS").checked).toBe(true);
+    expect(outcomeRadio("FAIL").checked).toBe(false);
     expect((screen.getByLabelText(/What actually happened/) as HTMLTextAreaElement).value).toBe(
       "Signed in cleanly."
     );

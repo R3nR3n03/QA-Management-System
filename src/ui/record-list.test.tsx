@@ -114,6 +114,56 @@ describe("ExecutionList", () => {
     expect(href("Finalized")).toBe("/executions?q=login&state=FINALIZED");
   });
 
+  it("names the last thing that happened, and which cases the run's result came from", () => {
+    render(
+      <ExecutionList
+        rows={[
+          {
+            id: "execution-9",
+            businessId: "EXE-0009",
+            state: "FINALIZED",
+            result: "FAIL",
+            caseBusinessIds: ["TC-FIX-0001", "TC-FIX-0002", "TC-FIX-0003"],
+            caseTitle: "Checkout with a valid card",
+            testerName: "Fixture Tester",
+            caseResults: ["PASS", "FAIL", "PASS"],
+            plannedAt: new Date("2026-01-05T09:00:00.000Z"),
+            startedAt: new Date("2026-01-06T10:30:00.000Z"),
+            finalizedAt: new Date("2026-01-07T14:45:00.000Z")
+          }
+        ]}
+        total={1}
+        page={1}
+        pathname="/executions"
+        params={{}}
+      />
+    );
+
+    // The run's chip is only the derived worst outcome, so a 2-pass/1-fail run and a
+    // 3-fail run wear the same red Fail. The row has to say which of the two it is.
+    expect(screen.getByText(/\+2 more \(2 passed, 1 failed\)/)).toBeTruthy();
+    // The newest of the three stamps, and the verb that says which one it is.
+    expect(screen.getByText(/· Finalized$/)).toBeTruthy();
+    expect(screen.getByText("2026-01-07 14:45 UTC")).toBeTruthy();
+  });
+
+  it("falls back to the stage a run has actually reached", () => {
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(1, { state: "PLANNED" })}
+        total={1}
+        page={1}
+        pathname="/executions"
+        params={{}}
+      />
+    );
+
+    // Never started, so there is no start to report — the row says when it was planned
+    // rather than leaving a blank where a timestamp would go.
+    expect(screen.getByText(/· Planned$/)).toBeTruthy();
+    expect(screen.getByText("2026-01-05 09:00 UTC")).toBeTruthy();
+  });
+
   it("separates an empty list from an empty filter result", () => {
     const { unmount } = render(
       <ExecutionList rows={[]} total={0} page={1} pathname="/executions" params={{}} />

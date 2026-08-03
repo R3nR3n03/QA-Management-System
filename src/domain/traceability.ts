@@ -185,6 +185,51 @@ function statedMetric<T>(
   return { ...statement, denominatorCount: total, asOfUtc, counts };
 }
 
+/** How many weeks of finalization history the trend reports. */
+const TREND_WEEKS = 12;
+
+/**
+ * Finalized executions per ISO week, oldest first, with EMPTY WEEKS PRESENT as zero.
+ *
+ * Filling the gaps is the point. `GROUP BY` returns only weeks that have rows, and a
+ * chart drawn straight from that silently closes the gaps — a fortnight with no testing
+ * renders as an unbroken run of activity. Generating the buckets and merging the counts
+ * in means a quiet week looks quiet.
+ *
+ * This is a COUNT over time, not a rate: `business-rules-and-validation.md:39` defines no
+ * percentage or target, so nothing here is divided or graded.
+ */
+async function finalizedExecutionsByWeek(weeks: number) {
+  /*
+   * Postgres owns the week boundaries end to end: `generate_series` produces the buckets,
+   * a LEFT JOIN fills them, and `to_char` returns the key as TEXT.
+   *
+   * That last part is not fussiness. `date_trunc('week', …)` yields `timestamp without
+   * time zone`, and drivers disagree about whether to read that as UTC or as server-local
+   * — the same bucket came back as 2026-08-02 through node-postgres and 2026-08-03
+   * through Prisma on a UTC+8 machine. Generating the buckets in JavaScript and matching
+   * them against parsed Dates therefore worked only by accident of which driver was in
+   * play; in the other timezone every bucket silently misses and the whole trend reads
+   * zero. A text key cannot be misparsed, and `now() AT TIME ZONE 'UTC'` keeps the
+   * comparison in the same timestamp space Prisma stores.
+   */
+  return prisma.$queryRaw<Array<{ weekStartUtc: string; count: number }>>`
+    SELECT to_char(w.week_start, 'YYYY-MM-DD') AS "weekStartUtc",
+           count(e.id)::int AS count
+    FROM generate_series(
+           date_trunc('week', (now() AT TIME ZONE 'UTC')) - make_interval(weeks => ${weeks - 1}),
+           date_trunc('week', (now() AT TIME ZONE 'UTC')),
+           interval '1 week'
+         ) AS w(week_start)
+    LEFT JOIN "TestExecution" e
+      ON e."state" = 'FINALIZED'
+     AND e."finalizedAt" IS NOT NULL
+     AND date_trunc('week', e."finalizedAt") = w.week_start
+    GROUP BY w.week_start
+    ORDER BY w.week_start
+  `;
+}
+
 export async function dashboardSnapshot() {
   const asOfUtc = new Date().toISOString();
   const [products, testCases, executions, defects, finalizedTotal, openDefectTotal] = await Promise.all([
@@ -199,10 +244,82 @@ export async function dashboardSnapshot() {
     prisma.defect.count({ where: { status: { not: "CLOSED" } } })
   ]);
 
+  // The added breakdowns. Every one is a COUNT: `business-rules-and-validation.md:39`
+  // defines no percentage, threshold or ageing target, so none is derived here — a
+  // pass rate or a coverage percentage would be inventing policy, not reporting.
+  const [
+    caseStates,
+    executionStates,
+    defectStates,
+    requirementsLinked,
+    requirementsUnlinked,
+    executionTotal,
+    defectTotal,
+    weeklyFinalized
+  ] = await Promise.all([
+    // Retired excluded, matching the Test cases KPI above and `:38`.
+    prisma.testCase.groupBy({
+      by: ["lifecycleState"],
+      _count: true,
+      where: { lifecycleState: { not: "RETIRED" } }
+    }),
+    prisma.testExecution.groupBy({ by: ["state"], _count: true }),
+    prisma.defect.groupBy({ by: ["status"], _count: true }),
+    prisma.requirement.count({ where: { rtmLinks: { some: {} } } }),
+    prisma.requirement.count({ where: { rtmLinks: { none: {} } } }),
+    prisma.testExecution.count(),
+    prisma.defect.count(),
+    finalizedExecutionsByWeek(TREND_WEEKS)
+  ]);
+
   return {
     asOfUtc,
     products,
     testCases,
+    testCasesByLifecycleState: statedMetric(caseStates, testCases, asOfUtc, {
+      filters: "test case lifecycleState != RETIRED, per the dashboard exclusion rule",
+      numerator: "non-retired test cases in the row's lifecycle state",
+      denominator: "all non-retired test cases"
+    }),
+    executionsByState: statedMetric(executionStates, executionTotal, asOfUtc, {
+      filters: "none; every execution regardless of covered-case lifecycle state",
+      numerator: "executions in the row's lifecycle state",
+      denominator: "all executions"
+    }),
+    defectsByStatus: statedMetric(defectStates, defectTotal, asOfUtc, {
+      filters: "none; every defect including Closed",
+      numerator: "defects in the row's status",
+      denominator: "all defects"
+    }),
+    /**
+     * Linked vs unlinked REQUIREMENT COUNTS, never a coverage percentage.
+     * `business-rules-and-validation.md:36` is explicit that the system "does not infer
+     * that an unlinked requirement is covered" — so this reports how many carry a trace
+     * link and how many do not, and draws no conclusion from the ratio.
+     */
+    requirementTraceLinkage: statedMetric(
+      [
+        { linkage: "Has at least one trace link", _count: requirementsLinked },
+        { linkage: "No trace link recorded", _count: requirementsUnlinked }
+      ],
+      requirementsLinked + requirementsUnlinked,
+      asOfUtc,
+      {
+        filters: "none; every requirement",
+        numerator: "requirements in the row's linkage state",
+        denominator: "all requirements"
+      }
+    ),
+    finalizedExecutionsByWeek: statedMetric(
+      weeklyFinalized,
+      weeklyFinalized.reduce((sum, week) => sum + week.count, 0),
+      asOfUtc,
+      {
+        filters: `execution state = FINALIZED, finalized within the last ${TREND_WEEKS} ISO weeks (UTC)`,
+        numerator: "executions finalized during the row's week",
+        denominator: `all executions finalized in the last ${TREND_WEEKS} weeks`
+      }
+    ),
     executionFinalizedByResult: statedMetric(executions, finalizedTotal, asOfUtc, {
       filters: "execution state = FINALIZED; no product, release, or environment filter",
       numerator: "finalized executions with the row's result",

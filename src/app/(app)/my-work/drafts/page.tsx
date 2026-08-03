@@ -2,7 +2,8 @@ import Link from "next/link";
 import { TestCaseLifecycleState } from "@prisma/client";
 import { listTestCases } from "@/domain/test-cases";
 import { CaseTable } from "@/ui/case-table";
-import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
+import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
+import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,10 @@ export default async function MyDraftsPage({
   const params = await searchParams;
   const auth = await requireSession();
   const page = readPage(params);
+  const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const { rows, total } = await listTestCases({
     page,
+    pageSize,
     query: readParam(params, "q"),
     authorUserId: auth.userId,
     states: [TestCaseLifecycleState.DRAFT, TestCaseLifecycleState.IN_REVIEW]
@@ -46,6 +49,7 @@ export default async function MyDraftsPage({
         rows={rows}
         total={total}
         page={page}
+        pageSize={pageSize}
         pathname="/my-work/drafts"
         params={params}
         emptyText="You have no drafts in flight."

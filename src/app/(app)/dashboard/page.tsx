@@ -1,8 +1,19 @@
 import Link from "next/link";
-import { ExecutionOutcome, QamsRole } from "@prisma/client";
+import {
+  DefectLifecycleState,
+  ExecutionLifecycleState,
+  ExecutionOutcome,
+  QamsRole,
+  TestCaseLifecycleState
+} from "@prisma/client";
 import { dashboardSnapshot } from "@/domain/traceability";
 import { requireSession } from "@/ui/session";
-import { OutcomeChip } from "@/ui/chips";
+import {
+  DefectStatusChip,
+  ExecutionStateChip,
+  OutcomeChip,
+  TestCaseStateChip
+} from "@/ui/chips";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +60,46 @@ function BarRows({
   );
 }
 
+/**
+ * Finalized executions per week, as columns — the one chart here whose job is
+ * change-over-time rather than magnitude across categories.
+ *
+ * One series, so no legend: the heading names it. Empty weeks are rendered as empty
+ * slots rather than skipped, because a chart that closes its gaps turns a fortnight of
+ * no testing into an unbroken run of activity. Only the first and last week are labeled
+ * on the axis — a number under every column is noise — and the full figures are in the
+ * screen-reader listing beneath, which doubles as the table view.
+ *
+ * A count, never a rate. `business-rules-and-validation.md:39` defines no target, so
+ * there is no line to draw across this and nothing here is graded.
+ */
+function WeekColumns({ weeks }: { weeks: Array<{ weekStartUtc: string; count: number }> }) {
+  const max = Math.max(...weeks.map((week) => week.count), 1);
+  const shortDate = (iso: string) => iso.slice(5).replace("-", "/");
+
+  return (
+    <div className="week-chart">
+      <div className="week-cols">
+        {weeks.map((week) => (
+          <div key={week.weekStartUtc} className="week-col">
+            <div
+              className="week-bar"
+              // Native hover: the figure without shipping a client component for it.
+              title={`Week of ${week.weekStartUtc} (UTC): ${week.count} finalized`}
+              style={{ height: `${(week.count / max) * 100}%` }}
+              data-zero={week.count === 0 ? "" : undefined}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="week-axis">
+        <span>{shortDate(weeks[0]?.weekStartUtc ?? "")}</span>
+        <span>{shortDate(weeks[weeks.length - 1]?.weekStartUtc ?? "")}</span>
+      </div>
+    </div>
+  );
+}
+
 function MetricStatement({
   metric
 }: {
@@ -70,6 +121,11 @@ export default async function DashboardPage() {
 
   const executions = snapshot.executionFinalizedByResult;
   const defects = snapshot.openDefectsBySeverity;
+  const caseStates = snapshot.testCasesByLifecycleState;
+  const executionStates = snapshot.executionsByState;
+  const defectStates = snapshot.defectsByStatus;
+  const linkage = snapshot.requirementTraceLinkage;
+  const trend = snapshot.finalizedExecutionsByWeek;
 
   return (
     <>
@@ -170,6 +226,132 @@ export default async function DashboardPage() {
               rows={defects.counts.map((row) => ({
                 key: row.severity || "unset",
                 head: <span style={{ fontWeight: 620, fontSize: 13.5 }}>{row.severity || "Not set"}</span>,
+                count: row._count,
+                fill: "var(--accent)"
+              }))}
+            />
+          </>
+        )}
+      </div>
+
+      <h2 style={{ marginTop: "var(--sp-6)" }}>Finalized executions per week</h2>
+      <MetricStatement metric={trend} />
+      <div className="card" style={{ marginBottom: "var(--sp-6)" }}>
+        {trend.denominatorCount === 0 ? (
+          <div className="empty">
+            <p>Nothing finalized in the last 12 weeks.</p>
+          </div>
+        ) : (
+          <>
+            <p className="sr-only">
+              Finalized executions per week:{" "}
+              {trend.counts.map((week) => `week of ${week.weekStartUtc}, ${week.count}`).join("; ")}.
+            </p>
+            <WeekColumns weeks={trend.counts} />
+          </>
+        )}
+      </div>
+
+      <h2>Test cases by lifecycle state</h2>
+      <MetricStatement metric={caseStates} />
+      <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>
+        {caseStates.counts.length === 0 ? (
+          <div className="empty">
+            <p>No test cases yet.</p>
+          </div>
+        ) : (
+          <>
+            <p className="sr-only">
+              Test cases by lifecycle state:{" "}
+              {caseStates.counts.map((row) => `${row.lifecycleState} ${row._count}`).join(", ")}.
+            </p>
+            <BarRows
+              rows={caseStates.counts.map((row) => ({
+                key: row.lifecycleState,
+                head: <TestCaseStateChip state={row.lifecycleState as TestCaseLifecycleState} />,
+                count: row._count,
+                fill: "var(--accent)"
+              }))}
+            />
+          </>
+        )}
+      </div>
+
+      <h2>Executions by lifecycle state</h2>
+      <MetricStatement metric={executionStates} />
+      <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>
+        {executionStates.counts.length === 0 ? (
+          <div className="empty">
+            <p>No executions planned yet.</p>
+          </div>
+        ) : (
+          <>
+            <p className="sr-only">
+              Executions by lifecycle state:{" "}
+              {executionStates.counts.map((row) => `${row.state} ${row._count}`).join(", ")}.
+            </p>
+            <BarRows
+              rows={executionStates.counts.map((row) => ({
+                key: row.state,
+                head: <ExecutionStateChip state={row.state as ExecutionLifecycleState} />,
+                count: row._count,
+                fill: "var(--accent)"
+              }))}
+            />
+          </>
+        )}
+      </div>
+
+      <h2>Defects by status</h2>
+      <MetricStatement metric={defectStates} />
+      <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>
+        {defectStates.counts.length === 0 ? (
+          <div className="empty">
+            <p>No defects recorded.</p>
+          </div>
+        ) : (
+          <>
+            <p className="sr-only">
+              Defects by status:{" "}
+              {defectStates.counts.map((row) => `${row.status} ${row._count}`).join(", ")}.
+            </p>
+            <BarRows
+              rows={defectStates.counts.map((row) => ({
+                key: row.status,
+                head: <DefectStatusChip status={row.status as DefectLifecycleState} />,
+                count: row._count,
+                fill: "var(--accent)"
+              }))}
+            />
+          </>
+        )}
+      </div>
+
+      <h2>Requirements by trace linkage</h2>
+      <MetricStatement metric={linkage} />
+      <div className="card card-flush">
+        {linkage.denominatorCount === 0 ? (
+          <div className="empty">
+            <p>No requirements recorded yet.</p>
+            <Link className="btn btn-ghost" href="/traceability">
+              Go to traceability
+            </Link>
+          </div>
+        ) : (
+          <>
+            <p className="why" style={{ margin: "var(--sp-3) var(--sp-4)" }}>
+              <strong>These are counts, not coverage.</strong> An unlinked requirement is a
+              requirement with no recorded link — the system does not infer from that whether it is
+              tested (<code>business-rules-and-validation.md:36</code>).
+            </p>
+            <p className="sr-only">
+              Requirements by trace linkage:{" "}
+              {linkage.counts.map((row) => `${row.linkage} ${row._count}`).join(", ")}.
+            </p>
+            <BarRows
+              rows={linkage.counts.map((row) => ({
+                key: row.linkage,
+                head: <span style={{ fontWeight: 620, fontSize: 13.5 }}>{row.linkage}</span>,
                 count: row._count,
                 fill: "var(--accent)"
               }))}

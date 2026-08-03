@@ -15,6 +15,35 @@ export type SheetSpec = {
   readonly optionalFields: readonly string[];
 };
 
+/**
+ * Every sheet the workbook must contain for its structure to be accepted, in source
+ * order (`docs/excel-source-map.md` § "Sheet-to-domain mapping"). A missing one is a
+ * malformed file, refused before any write.
+ *
+ * Wider than `SHEET_SPECS` on purpose: `Home` is navigation labels and `Dashboard` is a
+ * derived view whose formula results are explicitly never imported, so neither has a
+ * parse spec — but both must be PRESENT, because their absence means the file is not
+ * the workbook this system reads.
+ *
+ * Lives here, in the pure module, rather than beside the importer, so that the sample
+ * workbook generator can build against the same list without reaching through Prisma.
+ */
+export const EXPECTED_SHEETS = [
+  "Home",
+  "Product Master",
+  "Module Master",
+  "Feature Master",
+  "Requirement Master",
+  "Test Repository",
+  "Test Steps",
+  "Test Execution",
+  "Execution History",
+  "Bug Tracker",
+  "RTM",
+  "Dashboard",
+  "Settings"
+] as const;
+
 export const SHEET_SPECS = {
   settings: {
     sheet: "Settings",

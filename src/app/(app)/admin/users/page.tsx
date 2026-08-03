@@ -1,7 +1,8 @@
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listUsers } from "@/domain/admin";
-import { readPage, type ListSearchParams } from "@/ui/list-params";
+import { readPage, readPageSize, type ListSearchParams } from "@/ui/list-params";
+import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { Pager } from "@/ui/pager";
 import { requireSession } from "@/ui/session";
 import { roleLabel } from "@/ui/navigation";
@@ -28,7 +29,8 @@ export default async function UsersPage({
   // (the domain services behind it refuse them regardless).
   if (auth.role !== QamsRole.QA_LEAD) notFound();
   const page = readPage(params);
-  const { rows: users, total } = await listUsers(auth.role, { page });
+  const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
+  const { rows: users, total } = await listUsers(auth.role, { page, pageSize });
 
   return (
     <>
@@ -67,7 +69,9 @@ export default async function UsersPage({
               />
             </div>
         ))}
-        <Pager total={total} page={page} pathname="/admin/users" params={params} label="people" />
+        <Pager total={total} page={page} pathname="/admin/users" params={params} pageSize={pageSize}
+              sizeOptions={PAGE_SIZE_OPTIONS}
+              label="people" />
       </div>
     </>
   );

@@ -1,4 +1,5 @@
-import { ExecutionLifecycleState, QamsRole } from "@prisma/client";
+import { ExecutionLifecycleState, ExecutionOutcome, QamsRole } from "@prisma/client";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { listControlledValues } from "@/domain/admin";
 import { listOpenDefectsForCases } from "@/domain/defects";
@@ -18,6 +19,17 @@ const RAIL: { state: ExecutionLifecycleState; label: string }[] = [
   { state: ExecutionLifecycleState.IN_PROGRESS, label: "In Progress" },
   { state: ExecutionLifecycleState.FINALIZED, label: "Finalized" }
 ];
+
+/** The moment each stage was reached, or nothing when it has not been. */
+function railHint(
+  state: ExecutionLifecycleState,
+  execution: { createdAt: Date; startedAt: Date | null; finalizedAt: Date | null }
+): string | undefined {
+  if (state === ExecutionLifecycleState.PLANNED) return formatUtcMinute(execution.createdAt);
+  if (state === ExecutionLifecycleState.IN_PROGRESS)
+    return execution.startedAt ? formatUtcMinute(execution.startedAt) : undefined;
+  return execution.finalizedAt ? formatUtcMinute(execution.finalizedAt) : undefined;
+}
 
 export default async function ExecutionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -61,6 +73,21 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
   const caseByTestCaseId = new Map(execution.cases.map((row) => [row.testCaseId, row]));
   const anchor = (businessId: string) => `case-${businessId}`;
 
+  // Three screens already tell the reader that a rerun is a new execution covering only
+  // the failed or blocked case(s) — and none of them offered a way to start one, so the
+  // reader had to re-find those cases by hand on the planning screen. This carries them
+  // across as a preselection; `/executions/new` still decides what may actually be
+  // planned (only Approved cases are offered, and `createExecution` re-checks that).
+  const rerunCaseIds =
+    execution.state === ExecutionLifecycleState.FINALIZED
+      ? execution.cases
+          .filter(
+            (covered) =>
+              covered.result === ExecutionOutcome.FAIL || covered.result === ExecutionOutcome.BLOCKED
+          )
+          .map((covered) => covered.testCaseId)
+      : [];
+
   return (
     <>
       <Breadcrumbs trail={[{ href: "/executions", label: "Executions" }]} here={execution.businessId} />
@@ -91,7 +118,11 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
       </div>
 
       <Stepper
-        steps={RAIL.map((step) => ({ key: step.state, label: step.label }))}
+        steps={RAIL.map((step) => ({
+          key: step.state,
+          label: step.label,
+          hint: railHint(step.state, execution)
+        }))}
         currentIndex={currentIndex}
         label="Execution lifecycle"
       />
@@ -157,45 +188,10 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
 
         <aside>
           <div className="card">
-            {!mayAct ? (
-              <>
-                <h3>Assigned to someone else</h3>
-                <p className="why">
-                  <strong>{execution.tester.displayName} is running this one.</strong> As a QA
-                  Tester you can act on the executions assigned to you. Ask a QA Engineer or above
-                  if it needs reassigning.
-                </p>
-              </>
-            ) : execution.state === ExecutionLifecycleState.PLANNED ? (
-              <>
-                <h3>Ready to start</h3>
-                <StartForm executionId={execution.id} version={execution.version} />
-                <ReassignForm
-                  executionId={execution.id}
-                  version={execution.version}
-                  currentTesterId={execution.testerId}
-                  testers={assignableTesters}
-                />
-              </>
-            ) : execution.state === ExecutionLifecycleState.IN_PROGRESS ? (
-              <>
-                <h3>Finalize</h3>
-                <FinalizeForm
-                  executionId={execution.id}
-                  version={execution.version}
-                  cases={execution.cases.map((covered) => ({
-                    testCaseId: covered.testCaseId,
-                    businessId: covered.testCase.businessId,
-                    title: covered.testCase.title,
-                    openDefects: openDefects
-                      .filter((defect) => defect.testCaseId === covered.testCaseId)
-                      .map((defect) => ({ id: defect.id, businessId: defect.businessId, summary: defect.summary }))
-                  }))}
-                  priorities={priorities}
-                  severities={severities}
-                />
-              </>
-            ) : (
+            {/* Finalized first, before the assignment gate: a closed run is assigned to
+                nobody's action, so telling a QA Tester that someone else "is running this
+                one" would be wrong about a run that is already over. */}
+            {execution.state === ExecutionLifecycleState.FINALIZED ? (
               <>
                 <h3>Finalized</h3>
                 {execution.cases.map((covered) => (
@@ -216,10 +212,54 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
                     ) : null}
                   </div>
                 ))}
-                <p className="muted" style={{ margin: 0 }}>
-                  This run is closed and cannot be edited. A rerun creates a new execution covering
-                  only the failed or blocked case(s).
+                <p className="muted">
+                  This run is closed and cannot be edited. A rerun creates a new execution
+                  covering only the failed or blocked case(s).
                 </p>
+                {rerunCaseIds.length > 0 ? (
+                  <Link className="btn" href={`/executions/new?cases=${rerunCaseIds.join(",")}`}>
+                    Plan a rerun of {rerunCaseIds.length} case
+                    {rerunCaseIds.length === 1 ? "" : "s"}
+                  </Link>
+                ) : null}
+              </>
+            ) : !mayAct ? (
+              <>
+                <h3>Assigned to someone else</h3>
+                <p className="why">
+                  <strong>{execution.tester.displayName} is running this one.</strong> As a QA
+                  Tester you can act on the executions assigned to you. Ask a QA Engineer or above
+                  if it needs reassigning.
+                </p>
+              </>
+            ) : execution.state === ExecutionLifecycleState.PLANNED ? (
+              <>
+                <h3>Ready to start</h3>
+                <StartForm executionId={execution.id} version={execution.version} />
+                <ReassignForm
+                  executionId={execution.id}
+                  version={execution.version}
+                  currentTesterId={execution.testerId}
+                  testers={assignableTesters}
+                />
+              </>
+            ) : (
+              <>
+                <h3>Finalize</h3>
+                <FinalizeForm
+                  executionId={execution.id}
+                  version={execution.version}
+                  cases={execution.cases.map((covered) => ({
+                    testCaseId: covered.testCaseId,
+                    businessId: covered.testCase.businessId,
+                    title: covered.testCase.title,
+                    openDefects: openDefects
+                      .filter((defect) => defect.testCaseId === covered.testCaseId)
+                      .map((defect) => ({ id: defect.id, businessId: defect.businessId, summary: defect.summary }))
+                  }))}
+                  priorities={priorities}
+                  severities={severities}
+                />
               </>
             )}
           </div>

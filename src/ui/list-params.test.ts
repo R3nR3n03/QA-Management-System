@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hrefWith, readPage, readParam } from "./list-params";
+import { hrefWith, readPage, readPageSize, readParam } from "./list-params";
 
 /**
  * The query string is the state now, so these are the rules the whole list idiom rests
@@ -35,6 +35,27 @@ describe("readPage", () => {
 
   it("floors a fractional page", () => {
     expect(readPage({ page: "2.9" })).toBe(2);
+  });
+});
+
+describe("readPageSize", () => {
+  const ALLOWED = [25, 50, 100] as const;
+
+  it("honours a size the control actually offers", () => {
+    expect(readPageSize({ size: "100" }, ALLOWED, 50)).toBe(100);
+    expect(readPageSize({ size: "25" }, ALLOWED, 50)).toBe(25);
+  });
+
+  it("falls back rather than honouring a size the UI cannot express", () => {
+    // A hand-edited `?size=5000` must not widen the page; the URL is not a control.
+    for (const raw of ["5000", "1", "0", "-25", "50.5", "abc", ""]) {
+      expect(readPageSize({ size: raw }, ALLOWED, 50)).toBe(50);
+    }
+    expect(readPageSize(undefined, ALLOWED, 50)).toBe(50);
+  });
+
+  it("reads a per-list key on multi-list screens", () => {
+    expect(readPageSize({ productsSize: "25" }, ALLOWED, 50, "productsSize")).toBe(25);
   });
 });
 
