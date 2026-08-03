@@ -1,4 +1,4 @@
-import { ExecutionLifecycleState, ExecutionOutcome, QamsRole, TestCaseLifecycleState } from "@prisma/client";
+import { ExecutionLifecycleState, ExecutionOutcome, Prisma, QamsRole, TestCaseLifecycleState } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
@@ -10,11 +10,67 @@ import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
 import { defectIdFormat } from "@/domain/defects";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
-export async function listExecutions() {
-  return prisma.testExecution.findMany({ orderBy: { createdAt: "desc" } });
+export type ExecutionListOptions = PageRequest & {
+  /** Needle matched against run ID, tester name, covered case ID/title, state and result. */
+  query?: string;
+  /** Restrict to these lifecycle states. */
+  states?: ExecutionLifecycleState[];
+  testerId?: string;
+};
+
+/**
+ * The `where` behind every filtered execution read. This is what the executions screen
+ * used to do in the browser over every run in the system — including reaching through
+ * to the covered cases, which is a `some` here rather than a join the client had to be
+ * shipped in full.
+ */
+function executionWhere(options: ExecutionListOptions): Prisma.TestExecutionWhereInput {
+  const needle = options.query?.trim() ?? "";
+  const all: Prisma.TestExecutionWhereInput[] = [];
+
+  if (options.states && options.states.length > 0) all.push({ state: { in: options.states } });
+  if (options.testerId) all.push({ testerId: options.testerId });
+
+  if (needle !== "") {
+    const lower = needle.toLowerCase();
+    const states = Object.values(ExecutionLifecycleState).filter((s) => s.toLowerCase().includes(lower));
+    const outcomes = Object.values(ExecutionOutcome).filter((o) => o.toLowerCase().includes(lower));
+    all.push({
+      OR: [
+        { businessId: { contains: needle, mode: "insensitive" } },
+        { tester: { displayName: { contains: needle, mode: "insensitive" } } },
+        {
+          cases: {
+            some: {
+              testCase: {
+                OR: [
+                  { businessId: { contains: needle, mode: "insensitive" } },
+                  { title: { contains: needle, mode: "insensitive" } }
+                ]
+              }
+            }
+          }
+        },
+        ...(states.length > 0 ? [{ state: { in: states } }] : []),
+        ...(outcomes.length > 0 ? [{ result: { in: outcomes } }] : [])
+      ]
+    });
+  }
+
+  return all.length === 0 ? {} : { AND: all };
+}
+
+export async function listExecutions(options: ExecutionListOptions = {}) {
+  const where = executionWhere(options);
+  return runPaged(
+    options,
+    (window) => prisma.testExecution.findMany({ where, orderBy: { createdAt: "desc" }, ...window }),
+    () => prisma.testExecution.count({ where })
+  );
 }
 
 /**
@@ -429,15 +485,23 @@ const CASES_INCLUDE = {
   include: { testCase: { select: TEST_CASE_SELECT } }
 } as const;
 
-/** The executions record screen: every run with its covered cases and tester context. */
-export async function listExecutionsWithCase() {
-  return prisma.testExecution.findMany({
-    include: {
-      cases: CASES_INCLUDE,
-      tester: { select: TESTER_SELECT }
-    },
-    orderBy: { createdAt: "desc" }
-  });
+/** The executions record screen: one page of runs with covered cases and tester context. */
+export async function listExecutionsWithCase(options: ExecutionListOptions = {}) {
+  const where = executionWhere(options);
+  return runPaged(
+    options,
+    (window) =>
+      prisma.testExecution.findMany({
+        where,
+        include: {
+          cases: CASES_INCLUDE,
+          tester: { select: TESTER_SELECT }
+        },
+        orderBy: { createdAt: "desc" },
+        ...window
+      }),
+    () => prisma.testExecution.count({ where })
+  );
 }
 
 /**
@@ -461,25 +525,39 @@ export async function openAssignedExecutionCount(testerId: string) {
   });
 }
 
-/** A tester's work queue: everything assigned to them, unfinished work first. */
-export async function listExecutionsForTester(testerId: string) {
-  const rows = await prisma.testExecution.findMany({
-    where: { testerId },
-    include: { cases: CASES_INCLUDE },
-    orderBy: { createdAt: "desc" }
-  });
-
-  // Sort in memory rather than in SQL: the documented lifecycle order
-  // (Planned -> In Progress -> Finalized) is not the enum's storage order, and the
-  // knowledge base defines no sort policy for collections (audit section 5.4 - the
-  // "documented fields" for sorting are never enumerated). Kept out of the query so
-  // it is visibly a presentation choice, not an invented rule.
-  const order: Record<ExecutionLifecycleState, number> = {
-    IN_PROGRESS: 0,
-    PLANNED: 1,
-    FINALIZED: 2
-  };
-  return rows.sort((a, b) => order[a.state] - order[b.state]);
+/**
+ * A tester's work queue, one page at a time.
+ *
+ * ## Why the in-memory sort had to go
+ *
+ * This used to fetch every run assigned to the tester and `sort()` them into
+ * In Progress -> Planned -> Finalized. That cannot survive paging: sorting a page sorts
+ * only the rows already chosen, so row 51 would be ordered against the wrong set.
+ *
+ * The ordering is now SQL, and it still is not the enum's storage order being relied on
+ * by accident. The screen asks for the two groups separately — the open queue
+ * (`states: [PLANNED, IN_PROGRESS]`) and finalized runs — so within the open queue the
+ * only choice left is In Progress before Planned, which `state: "desc"` gives against
+ * the declared enum order (PLANNED, IN_PROGRESS, FINALIZED). Still a presentation
+ * choice, per audit section 5.4: the knowledge base enumerates no sort policy for
+ * collections, so this is the screen's decision, not a rule.
+ */
+export async function listExecutionsForTester(
+  testerId: string,
+  options: ExecutionListOptions = {}
+) {
+  const where = executionWhere({ ...options, testerId });
+  return runPaged(
+    options,
+    (window) =>
+      prisma.testExecution.findMany({
+        where,
+        include: { cases: CASES_INCLUDE },
+        orderBy: [{ state: "desc" }, { createdAt: "desc" }],
+        ...window
+      }),
+    () => prisma.testExecution.count({ where })
+  );
 }
 
 export async function executionDetail(executionId: string) {

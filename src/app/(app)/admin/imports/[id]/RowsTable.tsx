@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { Pager } from "@/ui/pager";
+import { LocalPager } from "@/ui/local-pager";
 import { pageSlice } from "@/ui/paging";
 import { OUTCOME_TONE } from "./outcome-tone";
 
@@ -105,7 +105,7 @@ export function RowsTable({ rows }: { rows: ImportRowData[] }) {
           </tbody>
         </table>
       </div>
-      <Pager total={sorted.length} page={page} onPageChange={setPage} label="import row report" />
+      <LocalPager total={sorted.length} page={page} onPageChange={setPage} label="import row report" />
     </>
   );
 }

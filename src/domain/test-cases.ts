@@ -9,6 +9,7 @@ import { allocateBusinessId, highestSuffix } from "@/lib/id-allocator";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
@@ -31,11 +32,59 @@ export type CreateTestCaseInput = {
   revisesTestCaseId?: string;
 };
 
-export async function listTestCases() {
-  return prisma.testCase.findMany({
-    include: { steps: { orderBy: { sequence: "asc" } } },
-    orderBy: { businessId: "asc" }
-  });
+export type TestCaseListOptions = PageRequest & {
+  /** Needle matched against business ID, title, and the raw lifecycle state name. */
+  query?: string;
+  /** Restrict to these lifecycle states — the review queue and the drafts screen. */
+  states?: TestCaseLifecycleState[];
+  /** Restrict to one author: "my drafts". */
+  authorUserId?: string;
+};
+
+/**
+ * The `where` for every filtered test-case read, so the review queue, the drafts screen
+ * and the search box compose instead of each re-filtering a full table in JavaScript.
+ *
+ * The needle is matched against the RAW lifecycle state (`IN_REVIEW`), which is what the
+ * previous in-browser filter concatenated and matched — preserved deliberately so
+ * existing muscle memory keeps working.
+ */
+function testCaseWhere(options: TestCaseListOptions): Prisma.TestCaseWhereInput {
+  const needle = options.query?.trim() ?? "";
+  const all: Prisma.TestCaseWhereInput[] = [];
+
+  if (options.states && options.states.length > 0) all.push({ lifecycleState: { in: options.states } });
+  if (options.authorUserId) all.push({ authorUserId: options.authorUserId });
+
+  if (needle !== "") {
+    const matchingStates = Object.values(TestCaseLifecycleState).filter((state) =>
+      state.toLowerCase().includes(needle.toLowerCase())
+    );
+    all.push({
+      OR: [
+        { businessId: { contains: needle, mode: "insensitive" } },
+        { title: { contains: needle, mode: "insensitive" } },
+        ...(matchingStates.length > 0 ? [{ lifecycleState: { in: matchingStates } }] : [])
+      ]
+    });
+  }
+
+  return all.length === 0 ? {} : { AND: all };
+}
+
+export async function listTestCases(options: TestCaseListOptions = {}) {
+  const where = testCaseWhere(options);
+  return runPaged(
+    options,
+    (window) =>
+      prisma.testCase.findMany({
+        where,
+        include: { steps: { orderBy: { sequence: "asc" } } },
+        orderBy: { businessId: "asc" },
+        ...window
+      }),
+    () => prisma.testCase.count({ where })
+  );
 }
 
 /** Cases waiting for a reviewer — powers the Review badge in the navigation. */

@@ -11,6 +11,7 @@ import {
 import { prisma } from "@/lib/db";
 import { AppError, type ErrorCode } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 import { BUSINESS_ID_PATTERNS } from "@/lib/business-ids";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence } from "@/lib/validation";
@@ -1125,11 +1126,15 @@ async function importRtmLinks(ctx: ImportContext, data: ParsedSheet) {
   });
 }
 
-export async function listImportRuns(actorRole: QamsRole) {
+export async function listImportRuns(actorRole: QamsRole, options: PageRequest = {}) {
   // Imports are a QA-Lead capability (`roles-workflows.md:16`); the list powers the
   // admin screen and deliberately omits row reports — those load per run.
   ensureRole([...RoleSets.canAdmin], actorRole);
-  return prisma.importRun.findMany({ orderBy: { startedAt: "desc" } });
+  return runPaged(
+    options,
+    (window) => prisma.importRun.findMany({ orderBy: { startedAt: "desc" }, ...window }),
+    () => prisma.importRun.count()
+  );
 }
 
 export async function getImportRun(id: string) {

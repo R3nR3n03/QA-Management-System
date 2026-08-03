@@ -9,11 +9,49 @@ import { allocateBusinessId, highestSuffix, type AllocatorFormat } from "@/lib/i
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
-export async function listDefects() {
-  return prisma.defect.findMany({ orderBy: { createdAt: "desc" } });
+export type DefectListOptions = PageRequest & {
+  /** Needle matched against defect ID, summary, priority, severity, status and case ID. */
+  query?: string;
+  statuses?: DefectLifecycleState[];
+};
+
+/** The `where` behind every filtered defect read — previously a `.filter()` in the browser. */
+function defectWhere(options: DefectListOptions): Prisma.DefectWhereInput {
+  const needle = options.query?.trim() ?? "";
+  const all: Prisma.DefectWhereInput[] = [];
+
+  if (options.statuses && options.statuses.length > 0) all.push({ status: { in: options.statuses } });
+
+  if (needle !== "") {
+    const matchingStatuses = Object.values(DefectLifecycleState).filter((status) =>
+      status.toLowerCase().includes(needle.toLowerCase())
+    );
+    all.push({
+      OR: [
+        { businessId: { contains: needle, mode: "insensitive" } },
+        { summary: { contains: needle, mode: "insensitive" } },
+        { priority: { contains: needle, mode: "insensitive" } },
+        { severity: { contains: needle, mode: "insensitive" } },
+        { testCase: { businessId: { contains: needle, mode: "insensitive" } } },
+        ...(matchingStatuses.length > 0 ? [{ status: { in: matchingStatuses } }] : [])
+      ]
+    });
+  }
+
+  return all.length === 0 ? {} : { AND: all };
+}
+
+export async function listDefects(options: DefectListOptions = {}) {
+  const where = defectWhere(options);
+  return runPaged(
+    options,
+    (window) => prisma.defect.findMany({ where, orderBy: { createdAt: "desc" }, ...window }),
+    () => prisma.defect.count({ where })
+  );
 }
 
 export async function getDefect(id: string) {
@@ -27,11 +65,19 @@ export async function getDefect(id: string) {
 // can widen what a defect row already shows.
 const DEFECT_CASE_SELECT = { id: true, businessId: true, title: true } as const;
 
-export async function listDefectsWithCase() {
-  return prisma.defect.findMany({
-    include: { testCase: { select: DEFECT_CASE_SELECT } },
-    orderBy: { createdAt: "desc" }
-  });
+export async function listDefectsWithCase(options: DefectListOptions = {}) {
+  const where = defectWhere(options);
+  return runPaged(
+    options,
+    (window) =>
+      prisma.defect.findMany({
+        where,
+        include: { testCase: { select: DEFECT_CASE_SELECT } },
+        orderBy: { createdAt: "desc" },
+        ...window
+      }),
+    () => prisma.defect.count({ where })
+  );
 }
 
 export async function defectDetail(id: string) {

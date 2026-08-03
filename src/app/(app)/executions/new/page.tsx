@@ -8,8 +8,12 @@ export const dynamic = "force-dynamic";
 
 export default async function PlanExecutionPage() {
   await requireSession();
-  const [cases, testers] = await Promise.all([listTestCases(), listAssignableTesters()]);
-  const approved = cases.filter((c) => c.lifecycleState === TestCaseLifecycleState.APPROVED);
+  // Unpaged on purpose: the picker needs every approved candidate. "Approved" is a
+  // `where` now rather than a filter over every test case in the system.
+  const [{ rows: approved }, testers] = await Promise.all([
+    listTestCases({ states: [TestCaseLifecycleState.APPROVED] }),
+    listAssignableTesters()
+  ]);
 
   return (
     <>

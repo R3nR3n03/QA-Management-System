@@ -1,86 +1,96 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
+
+// `next/link` renders an anchor; `scroll` is a Link-only prop and must not reach the DOM.
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    scroll: _scroll,
+    ...rest
+  }: {
+    href: string;
+    children: ReactNode;
+    scroll?: boolean;
+  }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  )
+}));
+
 import { Pager } from "./pager";
 
 /**
- * The pager control itself: visibility threshold, bounds, exact range labels (en
- * dash and all), and clamping of an out-of-range `page` prop. The pure math behind
- * it is covered in `paging.test.ts`; these tests cover what reaches the DOM.
+ * The pager is links now, not callbacks: what it renders IS the navigation, so these
+ * assert hrefs. The disabled ends are deliberately not links — an anchor with nowhere
+ * to go is a trap for keyboard and screen-reader users. The pure math behind the range
+ * labels stays covered in `paging.test.ts`.
  */
 
 afterEach(cleanup);
 
+const link = (name: string) => screen.getByRole("link", { name });
+
 describe("Pager", () => {
-  it("renders nothing until the list exceeds one page", () => {
-    const { container } = render(<Pager total={50} page={1} onPageChange={() => {}} />);
-
-    expect(container.firstChild).toBeNull();
-    expect(screen.queryByRole("navigation")).toBeNull();
+  it("renders nothing while the list fits one page", () => {
+    const { container } = render(<Pager total={50} page={1} pathname="/test-cases" params={{}} />);
+    expect(container.innerHTML).toBe("");
   });
 
-  it("appears past one page as a labelled nav, defaulting to \"list\"", () => {
-    render(<Pager total={51} page={1} onPageChange={() => {}} />);
+  it("reports the range and links forward, dropping `page=1` rather than writing it", () => {
+    render(<Pager total={132} page={1} pathname="/test-cases" params={{}} />);
 
-    expect(screen.getByRole("navigation", { name: "Pages of the list" })).toBeTruthy();
-  });
-
-  it("names the label it is given", () => {
-    render(<Pager total={51} page={1} onPageChange={() => {}} label="widgets" />);
-
-    expect(screen.getByRole("navigation", { name: "Pages of the widgets" })).toBeTruthy();
-  });
-
-  it("shows the exact range label at the first, middle, and last page", () => {
-    const { rerender } = render(<Pager total={132} page={1} onPageChange={() => {}} />);
     expect(screen.getByText("Showing 1–50 of 132")).toBeTruthy();
+    expect(link("Next").getAttribute("href")).toBe("/test-cases?page=2");
+    // Page 1 has nowhere back to go, so Previous is not a link at all.
+    expect(screen.queryByRole("link", { name: "Previous" })).toBeNull();
+    expect(screen.getByText("Previous").getAttribute("aria-disabled")).toBe("true");
+  });
 
-    rerender(<Pager total={132} page={2} onPageChange={() => {}} />);
+  it("links both ways in the middle, and back to a bare path from page 2", () => {
+    render(<Pager total={132} page={2} pathname="/test-cases" params={{ page: "2" }} />);
+
     expect(screen.getByText("Showing 51–100 of 132")).toBeTruthy();
+    expect(link("Previous").getAttribute("href")).toBe("/test-cases");
+    expect(link("Next").getAttribute("href")).toBe("/test-cases?page=3");
+  });
 
-    rerender(<Pager total={132} page={3} onPageChange={() => {}} />);
+  it("has no Next on the last page", () => {
+    render(<Pager total={132} page={3} pathname="/test-cases" params={{ page: "3" }} />);
+
     expect(screen.getByText("Showing 101–132 of 132")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Next" })).toBeNull();
+    expect(link("Previous").getAttribute("href")).toBe("/test-cases?page=2");
   });
 
-  it("disables Previous at the first page and Next at the last, as real buttons", () => {
-    const { rerender } = render(<Pager total={132} page={1} onPageChange={() => {}} />);
-    expect((screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(false);
+  it("clamps an overshooting page for display instead of inventing pages", () => {
+    render(<Pager total={132} page={900} pathname="/test-cases" params={{ page: "900" }} />);
 
-    rerender(<Pager total={132} page={3} onPageChange={() => {}} />);
-    expect((screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("reports the neighbouring page through onPageChange", () => {
-    const onPageChange = vi.fn();
-    render(<Pager total={132} page={2} onPageChange={onPageChange} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(onPageChange).toHaveBeenLastCalledWith(3);
-
-    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
-    expect(onPageChange).toHaveBeenLastCalledWith(1);
-  });
-
-  it("clamps an out-of-range page prop instead of rendering nonsense", () => {
-    const onPageChange = vi.fn();
-    const { rerender } = render(<Pager total={132} page={99} onPageChange={onPageChange} />);
-
-    // Treated as the last page: label, bounds, and the Previous target all agree.
     expect(screen.getByText("Showing 101–132 of 132")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
-    expect(onPageChange).toHaveBeenLastCalledWith(2);
-
-    rerender(<Pager total={132} page={0} onPageChange={onPageChange} />);
-    expect(screen.getByText("Showing 1–50 of 132")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("link", { name: "Next" })).toBeNull();
   });
 
-  it("honours a custom pageSize for both threshold and label", () => {
-    render(<Pager total={10} page={1} onPageChange={() => {}} pageSize={3} />);
+  it("carries the other parameters along, so a filtered list stays filtered", () => {
+    render(<Pager total={132} page={1} pathname="/defects" params={{ q: "login" }} />);
+    expect(link("Next").getAttribute("href")).toBe("/defects?q=login&page=2");
+  });
 
-    expect(screen.getByText("Showing 1–3 of 10")).toBeTruthy();
+  it("uses its own page key so sibling lists page independently", () => {
+    render(
+      <Pager
+        total={132}
+        page={1}
+        pathname="/catalogue"
+        params={{ products: "4" }}
+        pageKey="modules"
+        label="modules"
+      />
+    );
+
+    expect(screen.getByRole("navigation", { name: "Pages of the modules" })).toBeTruthy();
+    expect(link("Next").getAttribute("href")).toBe("/catalogue?products=4&modules=2");
   });
 });

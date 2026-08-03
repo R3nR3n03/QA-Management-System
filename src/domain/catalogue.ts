@@ -6,6 +6,7 @@ import { ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib
 import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { appendAudit } from "@/lib/audit";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
@@ -34,8 +35,42 @@ function runInTransaction<T>(
   return tx ? fn(tx) : prisma.$transaction(fn);
 }
 
-export async function listProducts() {
-  return prisma.product.findMany({ orderBy: { businessId: "asc" } });
+/**
+ * The catalogue lists take paging but no filter: the screen offers no search box, and
+ * inventing one would be UI policy nobody asked for. `PageRequest` alone is enough to
+ * stop the screen rendering every row of all four tables at once.
+ */
+export async function listProducts(options: PageRequest = {}) {
+  return runPaged(
+    options,
+    (window) => prisma.product.findMany({ orderBy: { businessId: "asc" }, ...window }),
+    () => prisma.product.count()
+  );
+}
+
+/** Just enough of a parent to label a child row and fill an "Add" dropdown. */
+const OPTION_SELECT = { id: true, businessId: true, name: true } as const;
+
+/**
+ * The parent options the catalogue screen needs whatever page it is on: a child row on
+ * page 3 still has to name its parent, and the Add dialogs still have to offer every
+ * possible parent. Deliberately NOT paged — but three columns per row rather than the
+ * whole record, so the light thing is fetched in full and the heavy thing (the editable
+ * rows, each carrying a server-action form) is what gets paged.
+ */
+export async function listCatalogueOptions() {
+  const [products, modules, features] = await Promise.all([
+    prisma.product.findMany({ select: OPTION_SELECT, orderBy: { businessId: "asc" } }),
+    prisma.module.findMany({
+      select: { ...OPTION_SELECT, productId: true },
+      orderBy: { businessId: "asc" }
+    }),
+    prisma.feature.findMany({
+      select: { ...OPTION_SELECT, moduleId: true },
+      orderBy: { businessId: "asc" }
+    })
+  ]);
+  return { products, modules, features };
 }
 
 // The single-record getters exist so route handlers never touch the ORM directly
@@ -133,8 +168,12 @@ export async function getModule(id: string) {
   return row;
 }
 
-export async function listModules() {
-  return prisma.module.findMany({ orderBy: { businessId: "asc" } });
+export async function listModules(options: PageRequest = {}) {
+  return runPaged(
+    options,
+    (window) => prisma.module.findMany({ orderBy: { businessId: "asc" }, ...window }),
+    () => prisma.module.count()
+  );
 }
 
 export async function createModule(
@@ -206,8 +245,12 @@ export async function getFeature(id: string) {
   return row;
 }
 
-export async function listFeatures() {
-  return prisma.feature.findMany({ orderBy: { businessId: "asc" } });
+export async function listFeatures(options: PageRequest = {}) {
+  return runPaged(
+    options,
+    (window) => prisma.feature.findMany({ orderBy: { businessId: "asc" }, ...window }),
+    () => prisma.feature.count()
+  );
 }
 
 export async function createFeature(
@@ -279,8 +322,12 @@ export async function getRequirement(id: string) {
   return row;
 }
 
-export async function listRequirements() {
-  return prisma.requirement.findMany({ orderBy: { businessId: "asc" } });
+export async function listRequirements(options: PageRequest = {}) {
+  return runPaged(
+    options,
+    (window) => prisma.requirement.findMany({ orderBy: { businessId: "asc" }, ...window }),
+    () => prisma.requirement.count()
+  );
 }
 
 export async function createRequirement(

@@ -2,6 +2,7 @@ import { QamsRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 import type { ControlledCatalogue } from "@/lib/controlled-value-catalogues";
 import { hashPassword, MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { ensureRole, RoleSets } from "@/lib/rbac";
@@ -178,14 +179,20 @@ export async function createUser(
   });
 }
 
-export async function listUsers(actorRole: QamsRole) {
+export async function listUsers(actorRole: QamsRole, options: PageRequest = {}) {
   // People management is a QA-Lead capability (`roles-workflows.md:16`), and the
   // projection keeps passwordHash out by construction.
   ensureRole([...RoleSets.canAdmin], actorRole);
-  return prisma.user.findMany({
-    select: { ...USER_RESPONSE_SELECT },
-    orderBy: { displayName: "asc" }
-  });
+  return runPaged(
+    options,
+    (window) =>
+      prisma.user.findMany({
+        select: { ...USER_RESPONSE_SELECT },
+        orderBy: { displayName: "asc" },
+        ...window
+      }),
+    () => prisma.user.count()
+  );
 }
 
 export async function getUserRole(id: string, actorRole: QamsRole) {

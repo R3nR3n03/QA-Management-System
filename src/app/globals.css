@@ -303,6 +303,13 @@ a {
 .btn-danger:hover:not(:disabled) {
   box-shadow: var(--elev-2);
 }
+/* The pager's dead ends. They render as <span>, not <a> or <button>: an anchor with
+   nowhere to go is a keyboard and screen-reader trap, so the disabled LOOK is all that
+   is borrowed from .btn:disabled. */
+.btn.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .btn:disabled {
   background: var(--surface-2);
   color: var(--ink-3);
@@ -592,6 +599,12 @@ a {
 .list-toolbar:focus-within {
   border-color: var(--accent-2);
   box-shadow: 0 0 0 3px var(--accent-wash);
+}
+/* A filter is a server round trip now. While one is in flight the magnifier dims, so a
+   slow query reads as "working" rather than "ignored my keystroke". Deliberately quiet:
+   a spinner on every debounce would be worse than the wait. */
+.list-toolbar[data-busy] svg {
+  opacity: 0.45;
 }
 .list-toolbar svg {
   color: var(--ink-3);

@@ -2,18 +2,25 @@ import Link from "next/link";
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listImportRuns } from "@/domain/imports";
-import { PagedList } from "@/ui/paged-list";
+import { readPage, type ListSearchParams } from "@/ui/list-params";
+import { Pager } from "@/ui/pager";
 import { requireSession } from "@/ui/session";
 import { UploadForm } from "./UploadForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function ImportsPage() {
+export default async function ImportsPage({
+  searchParams
+}: {
+  searchParams: Promise<ListSearchParams>;
+}) {
+  const params = await searchParams;
   const auth = await requireSession();
   // Lead-only screen: absent rather than present-and-rejecting for other roles
   // (the domain services behind it refuse them regardless).
   if (auth.role !== QamsRole.QA_LEAD) notFound();
-  const runs = await listImportRuns(auth.role);
+  const page = readPage(params);
+  const { rows: runs, total } = await listImportRuns(auth.role, { page });
 
   return (
     <>
@@ -30,10 +37,12 @@ export default async function ImportsPage() {
 
       <h2>Runs</h2>
       <div className="card card-flush">
-        <PagedList
-          label="import runs"
-          emptyText="No imports yet."
-          items={runs.map((run) => (
+        {runs.length === 0 ? (
+          <div className="empty">
+            <p>No imports yet.</p>
+          </div>
+        ) : (
+          runs.map((run) => (
             <div key={run.id} className="list-row">
               <div className="row-main">
                 <div className="row-title">{run.sourceFileName}</div>
@@ -55,8 +64,9 @@ export default async function ImportsPage() {
                 Report
               </Link>
             </div>
-          ))}
-        />
+          ))
+        )}
+        <Pager total={total} page={page} pathname="/admin/imports" params={params} label="import runs" />
       </div>
     </>
   );

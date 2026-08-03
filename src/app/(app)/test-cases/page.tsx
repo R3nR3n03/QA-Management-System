@@ -2,14 +2,23 @@ import Link from "next/link";
 import { QamsRole } from "@prisma/client";
 import { listTestCases } from "@/domain/test-cases";
 import { CaseTable } from "@/ui/case-table";
+import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
 import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
 
 /** Every role may view test cases (`roles-workflows.md:9`); authoring starts here. */
-export default async function TestCasesPage() {
+export default async function TestCasesPage({
+  searchParams
+}: {
+  searchParams: Promise<ListSearchParams>;
+}) {
+  const params = await searchParams;
   const auth = await requireSession();
-  const rows = await listTestCases();
+  const page = readPage(params);
+  const query = readParam(params, "q");
+  // One page of rows plus the matching count — never the whole table.
+  const { rows, total } = await listTestCases({ page, query });
   const mayAuthor = auth.role !== QamsRole.QA_TESTER;
 
   return (
@@ -23,10 +32,18 @@ export default async function TestCasesPage() {
         ) : null}
       </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
-        {rows.length} test case{rows.length === 1 ? "" : "s"}. Approved content is immutable — a
-        material change is a new Draft revision.
+        {total} test case{total === 1 ? "" : "s"}
+        {query ? ` matching “${query}”` : ""}. Approved content is immutable — a material change is
+        a new Draft revision.
       </p>
-      <CaseTable rows={rows} emptyText="No test cases yet. Import the workbook or create a draft." />
+      <CaseTable
+        rows={rows}
+        total={total}
+        page={page}
+        pathname="/test-cases"
+        params={params}
+        emptyText="No test cases yet. Import the workbook or create a draft."
+      />
     </>
   );
 }
