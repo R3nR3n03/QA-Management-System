@@ -489,6 +489,60 @@ a {
   padding: 0;
 }
 
+/* ---------- case result picker ---------- */
+
+/* The covered cases of an execution being finalized, each one a click target that
+   opens its result dialog. A real <button>, not a row with a click handler: focus,
+   Enter/Space and the announced role come free, and `aria-haspopup="dialog"` on it
+   says what the click is going to do before it happens. */
+.case-picker {
+  list-style: none;
+  margin: 0 0 var(--sp-4);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.case-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-3);
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease);
+}
+.case-pick:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--accent-2);
+}
+.case-pick:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+/* The case owning the field the server rejected — the dialog reopens on it, and this
+   keeps it marked once the dialog is dismissed. */
+.case-pick-bad {
+  border-color: var(--fail);
+  background: var(--fail-wash);
+}
+.case-pick-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink-3);
+}
+.case-pick-mark-done {
+  color: var(--pass);
+}
+
 /* Visually hidden but present for assistive tech. */
 .sr-only {
   position: absolute;
