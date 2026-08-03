@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { FormNotice } from "@/ui/notice";
+import { useToast } from "@/ui/toast";
 import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { updateExecutionAction, type FormState } from "./actions";
 
@@ -13,6 +14,11 @@ const FORM_ID = "reassign-execution";
  * Reassignment is Planned-only — once a run starts, its tester is part of the record.
  * The state rule, the active-tester rule and the role gate live in `updateExecution`;
  * this form only offers the currently active people.
+ *
+ * Success shows as a toast (the `wasPending` idiom from AddPersonForm): the form has
+ * no visible state change of its own — the select simply keeps the new assignee — so
+ * without it a successful reassign looks like nothing happened. Failures stay inline
+ * in the FormNotice, where they can name the field; toasts are success-only.
  */
 export function ReassignForm({
   executionId,
@@ -26,6 +32,15 @@ export function ReassignForm({
   testers: TesterOption[];
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(updateExecutionAction, null);
+  const toast = useToast();
+  const wasPending = useRef(false);
+
+  useEffect(() => {
+    if (wasPending.current && !pending && state === null) {
+      toast("Execution reassigned.");
+    }
+    wasPending.current = pending;
+  }, [pending, state, toast]);
 
   return (
     <form action={formAction} style={{ marginTop: "var(--sp-4)" }}>

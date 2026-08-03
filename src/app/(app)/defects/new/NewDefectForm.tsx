@@ -29,11 +29,6 @@ export function NewDefectForm({
     <form action={formAction}>
       <FormNotice state={state} id={noticeId(FORM_ID)} />
 
-      <label className={bad("businessId")}>
-        <span>Defect ID</span>
-        <input name="businessId" placeholder="BUG-0001" required disabled={pending} {...fieldProps(state, "businessId", FORM_ID)} />
-      </label>
-
       <label className={bad("testCaseId")}>
         <span>Test case</span>
         <select name="testCaseId" required defaultValue="" disabled={pending} {...fieldProps(state, "testCaseId", FORM_ID)}>

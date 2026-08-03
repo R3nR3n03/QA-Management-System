@@ -11,6 +11,7 @@ import {
 import { prisma } from "@/lib/db";
 import { AppError, type ErrorCode } from "@/lib/errors";
 import { appendAudit } from "@/lib/audit";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 import { BUSINESS_ID_PATTERNS } from "@/lib/business-ids";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence } from "@/lib/validation";
@@ -722,7 +723,10 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
     const [tcList, userList, exeList] = await Promise.all([
       tx.testCase.findMany(),
       tx.user.findMany(),
-      tx.testExecution.findMany()
+      // The covered case moved to the ExecutionTestCase child rows; the sheet format is
+      // unchanged (one row = one execution = one TC ID per `docs/excel-source-map.md`),
+      // so every imported execution has exactly one child row to reconcile against.
+      tx.testExecution.findMany({ include: { cases: true } })
     ]);
     const tcByBiz = new Map(tcList.map((t) => [t.businessId, t]));
     const exeByBiz = new Map(exeList.map((e) => [e.businessId, e]));
@@ -782,7 +786,8 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
       const current = exeByBiz.get(businessId);
       if (current) {
         const same =
-          current.testCaseId === testCase.id &&
+          current.cases.length === 1 &&
+          current.cases[0].testCaseId === testCase.id &&
           current.testerId === tester.id &&
           current.state === state &&
           (current.result ?? null) === result;
@@ -793,7 +798,7 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
               sourceRow: row.sourceRow,
               executionId: current.id,
               executionBusinessId: businessId,
-              testCaseId: current.testCaseId,
+              testCaseId: testCase.id,
               bug: v["Bug"]
             });
           }
@@ -803,16 +808,26 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
         continue;
       }
 
+      // One workbook row = one execution covering exactly one case, so the per-case
+      // result mirrors the execution-level one on the single child row. The sheet has
+      // no actual-result column; it stays null per the source map.
       const created = await tx.testExecution.create({
         data: {
           businessId,
-          testCaseId: testCase.id,
           testerId: tester.id,
           state,
           result,
           finalizedAt: result === null ? null : importedAt,
           createdBy: ctx.actorId,
-          updatedBy: ctx.actorId
+          updatedBy: ctx.actorId,
+          cases: {
+            create: {
+              testCaseId: testCase.id,
+              result,
+              createdBy: ctx.actorId,
+              updatedBy: ctx.actorId
+            }
+          }
         }
       });
       await auditImport(tx, ctx, "EXECUTION_IMPORTED", "Execution", created.id, created);
@@ -837,7 +852,7 @@ async function importExecutionHistory(ctx: ImportContext, data: ParsedSheet) {
     const report: ReportRow[] = [];
     const rows = completeRows(spec, data, report);
     const [exeList, tcList, historyList] = await Promise.all([
-      tx.testExecution.findMany(),
+      tx.testExecution.findMany({ include: { cases: true } }),
       tx.testCase.findMany(),
       tx.executionHistory.findMany()
     ]);
@@ -863,8 +878,10 @@ async function importExecutionHistory(ctx: ImportContext, data: ParsedSheet) {
         report.push(rejectedRow(spec.sheet, row.sourceRow, "REFERENCE_NOT_FOUND", `Test case "${v["TC ID"]}" was not found.`));
         continue;
       }
-      if (execution.testCaseId !== testCase.id) {
-        report.push(rejectedRow(spec.sheet, row.sourceRow, "HIERARCHY_MISMATCH", `Execution "${v["Execution ID"]}" does not belong to test case "${v["TC ID"]}".`));
+      // A history row must reference a case belonging to its execution
+      // (`docs/data-model.md:47`).
+      if (!execution.cases.some((coveredCase) => coveredCase.testCaseId === testCase.id)) {
+        report.push(rejectedRow(spec.sheet, row.sourceRow, "HIERARCHY_MISMATCH", `Execution "${v["Execution ID"]}" does not cover test case "${v["TC ID"]}".`));
         continue;
       }
       const token = normalizeExecutionResult(v["Result"]);
@@ -1109,11 +1126,15 @@ async function importRtmLinks(ctx: ImportContext, data: ParsedSheet) {
   });
 }
 
-export async function listImportRuns(actorRole: QamsRole) {
+export async function listImportRuns(actorRole: QamsRole, options: PageRequest = {}) {
   // Imports are a QA-Lead capability (`roles-workflows.md:16`); the list powers the
   // admin screen and deliberately omits row reports — those load per run.
   ensureRole([...RoleSets.canAdmin], actorRole);
-  return prisma.importRun.findMany({ orderBy: { startedAt: "desc" } });
+  return runPaged(
+    options,
+    (window) => prisma.importRun.findMany({ orderBy: { startedAt: "desc" }, ...window }),
+    () => prisma.importRun.count()
+  );
 }
 
 export async function getImportRun(id: string) {

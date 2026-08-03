@@ -14,7 +14,9 @@ import { z } from "zod";
 
 /** POST /api/v1/defects -> `createDefect`. */
 export const createDefectSchema = z.strictObject({
-  businessId: z.string().min(1), // requireNonBlank — defects.ts:22
+  // Optional: when absent the server allocates the next free BUG-#### (docs/api-and-security.md:5).
+  // Still non-blank when present — a blank supplied ID 422s in the domain too.
+  businessId: z.string().min(1).optional(),
   testCaseId: z.string(), // no blank guard; unresolved id 404s — defects.ts:26-27
   summary: z.string().min(1), // requireNonBlank — defects.ts:23
   priority: z.string().optional(), // blank tolerated, persisted as "" — defects.ts:29,43

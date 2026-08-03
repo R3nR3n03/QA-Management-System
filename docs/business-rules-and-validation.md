@@ -8,7 +8,7 @@ Every rejected request returns HTTP `422` with stable error code, field path, an
 
 | Rule | Error code |
 | --- | --- |
-| Business IDs match their documented prefix and are unique within entity type. | `ID_INVALID` / `ID_DUPLICATE` |
+| Business IDs match their documented prefix and are unique within entity type. When an interactive create request does not supply one, the system allocates the next free ID in the documented format; a supplied ID is validated exactly as before. | `ID_INVALID` / `ID_DUPLICATE` |
 | Every referenced record exists and is active where active status is required. | `REFERENCE_NOT_FOUND` / `REFERENCE_INACTIVE` |
 | Product → Module → Feature → Requirement references form one chain. | `HIERARCHY_MISMATCH` |
 | Only active controlled values are accepted. | `CONTROLLED_VALUE_INVALID` |
@@ -24,9 +24,10 @@ Every rejected request returns HTTP `422` with stable error code, field path, an
 
 ## Execution and defect rules
 
-- An execution is created Planned for exactly one Approved test case and exactly one assigned tester.
-- Start records `startedAt`; finalization records `finalizedAt`, `result`, and non-blank `actualResult`, then appends immutable history.
-- A `Fail` requires either a newly created defect or a supplied existing defect that references the same test case. A `Blocked` requires a non-blank block reason. A `Pass` must not create a new defect in the same finalization request.
+- An execution is created Planned for one or more Approved test cases and exactly one assigned tester.
+- Start records `startedAt`. Finalization records `finalizedAt` and, for every case the execution covers, a result and non-blank `actualResult` — there is no partial finalize — then appends immutable history per case.
+- Per-case rules at finalization: a `Fail` requires a defect referencing that specific test case (an existing defect or one created in the same request); a `Blocked` requires a non-blank block reason for that case; a `Pass` must not create a defect for that case.
+- The execution-level result is derived from the per-case results: `Fail` if any case failed, else `Blocked` if any case is blocked, else `Pass`.
 - A defect requires test case, non-blank summary, status, priority, and severity. New defects may omit investigation owner and resolution summary; Triaged defects require priority and severity.
 - Resolution requires non-blank resolution summary. Closure requires a non-blank retest evidence reference or closure rationale.
 

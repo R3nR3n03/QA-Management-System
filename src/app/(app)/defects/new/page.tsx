@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 
 export default async function NewDefectPage() {
   await requireSession();
-  const [cases, controlled] = await Promise.all([listTestCases(), listControlledValues()]);
+  // Unpaged on purpose: this is the form's case picker, which needs every candidate to
+  // choose from, not a page of them.
+  const [{ rows: cases }, controlled] = await Promise.all([listTestCases(), listControlledValues()]);
   const active = (catalogue: string) =>
     controlled.filter((v) => v.catalogue === catalogue && v.active).map((v) => v.value);
 

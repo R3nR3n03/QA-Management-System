@@ -44,6 +44,8 @@ Provide read-only, evidence-based assistance for the QAMS. The Markdown knowledg
 
 - Roles and transitions: `../../roles-workflows.md`
 - Required fields, invariants, errors, import, and metrics: `../../business-rules-and-validation.md`
+- Execution coverage, per-case results, and the derived execution result: `../../business-rules-and-validation.md` and `../../data-model.md`
+- Business ID formats and system allocation: `../../business-rules-and-validation.md` and `../../data-model.md`
 - User procedures: `../../sops.md`
 - Entities and relationships: `../../data-model.md`
 - Workbook mapping: `../../excel-source-map.md`

@@ -37,10 +37,10 @@ Approved content is immutable. A material change requires a new Draft revision l
 
 | From | To | Authorized role | Required condition |
 | --- | --- | --- | --- |
-| Planned | In Progress | Assigned Tester, QA Engineer, Senior QA Engineer, QA Lead | Referenced case is Approved; tester is assigned |
-| In Progress | Finalized | Assigned Tester, QA Engineer, Senior QA Engineer, QA Lead | Result, actual result, and finalization timestamp supplied; failed result meets defect rule |
+| Planned | In Progress | Assigned Tester, QA Engineer, Senior QA Engineer, QA Lead | Every referenced case is Approved; tester is assigned |
+| In Progress | Finalized | Assigned Tester, QA Engineer, Senior QA Engineer, QA Lead | Every covered case has a result and actual result — no partial finalize; finalization timestamp supplied; each failed case meets the per-case defect rule and each blocked case has a block reason |
 
-An execution may have result `Pass`, `Fail`, or `Blocked` only at Finalized. A finalized execution cannot return to In Progress. Rerun work creates a new execution linked to the same approved test case.
+An execution covers one or more Approved test cases selected together at planning. Each covered case may have result `Pass`, `Fail`, or `Blocked` only at Finalized; the execution-level result is derived from the per-case results (`Fail` if any case failed, else `Blocked` if any case is blocked, else `Pass`). A finalized execution cannot return to In Progress. A rerun creates a new execution covering only the failed/blocked case(s) of the original.
 
 While an execution is Planned, any role that may plan executions may reassign it to a different active tester; the reassignment is audited. Once an execution leaves Planned, its tester is part of the record and cannot be changed.
 

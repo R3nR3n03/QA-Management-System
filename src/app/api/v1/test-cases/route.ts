@@ -5,7 +5,10 @@ import { withRoute } from "@/lib/route";
 
 export async function GET(request: Request) {
   return withRoute(request, async () => {
-    const rows = await listTestCases();
+    // Unpaged, so the response stays the bare array this endpoint has always returned.
+    // The service now supports `{ page }`; wiring it up here needs the paginated
+    // response envelope, which `docs/` does not establish — see `src/lib/pagination.ts`.
+    const { rows } = await listTestCases();
     return Response.json(rows);
   });
 }

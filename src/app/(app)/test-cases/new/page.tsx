@@ -20,7 +20,15 @@ export default async function NewTestCasePage({
   await requireSession();
   const { revises } = await searchParams;
 
-  const [products, modules, features, requirements, controlled] = await Promise.all([
+  // Unpaged on purpose: these are the form's hierarchy pickers, which need every
+  // candidate to choose from.
+  const [
+    { rows: products },
+    { rows: modules },
+    { rows: features },
+    { rows: requirements },
+    controlled
+  ] = await Promise.all([
     listProducts(),
     listModules(),
     listFeatures(),

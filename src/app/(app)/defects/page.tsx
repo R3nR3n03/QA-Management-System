@@ -1,13 +1,21 @@
 import Link from "next/link";
 import { listDefectsWithCase } from "@/domain/defects";
+import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
 import { DefectList } from "@/ui/record-list";
 import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
 
-export default async function DefectsPage() {
+export default async function DefectsPage({
+  searchParams
+}: {
+  searchParams: Promise<ListSearchParams>;
+}) {
+  const params = await searchParams;
   await requireSession();
-  const rows = await listDefectsWithCase();
+  const page = readPage(params);
+  const query = readParam(params, "q");
+  const { rows, total } = await listDefectsWithCase({ page, query });
 
   return (
     <>
@@ -18,8 +26,9 @@ export default async function DefectsPage() {
         </Link>
       </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
-        {rows.length} defect{rows.length === 1 ? "" : "s"}. No state is ever skipped, and nothing is
-        deleted — closure always records its evidence or rationale.
+        {total} defect{total === 1 ? "" : "s"}
+        {query ? ` matching “${query}”` : ""}. No state is ever skipped, and nothing is deleted —
+        closure always records its evidence or rationale.
       </p>
 
       <DefectList
@@ -32,6 +41,10 @@ export default async function DefectsPage() {
           severity: defect.severity,
           caseBusinessId: defect.testCase.businessId
         }))}
+        total={total}
+        page={page}
+        pathname="/defects"
+        params={params}
       />
     </>
   );

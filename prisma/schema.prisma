@@ -106,6 +106,14 @@ model Module {
   product  Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
   features Feature[]
   testCases TestCase[]
+
+  /// PostgreSQL does NOT index a foreign key automatically — only primary keys and
+  /// unique constraints get one. Every `@@index` in this schema is therefore either a
+  /// foreign key that is joined or filtered on, or a column a query actually sorts or
+  /// filters by; the query is named in each case. Columns already covered by the
+  /// LEADING column of a unique index (e.g. `TestStep.testCaseId` via
+  /// `@@unique([testCaseId, sequence])`) are deliberately NOT repeated here.
+  @@index([productId])
 }
 
 model Feature {
@@ -122,6 +130,10 @@ model Feature {
   module       Module        @relation(fields: [moduleId], references: [id], onDelete: Restrict)
   requirements Requirement[]
   testCases    TestCase[]
+
+  /// Joined by the per-product release-readiness read, which reaches test cases
+  /// through `feature.module.productId` (`src/domain/traceability.ts`).
+  @@index([moduleId])
 }
 
 model Requirement {
@@ -138,6 +150,8 @@ model Requirement {
   feature  Feature   @relation(fields: [featureId], references: [id], onDelete: Restrict)
   testCases TestCase[]
   rtmLinks  RequirementTraceLink[]
+
+  @@index([featureId])
 }
 
 model TestCase {
@@ -174,10 +188,22 @@ model TestCase {
   revisesTestCase   TestCase?  @relation("TestCaseRevision", fields: [revisesTestCaseId], references: [id], onDelete: SetNull)
   revisions         TestCase[] @relation("TestCaseRevision")
   steps            TestStep[]
-  executions       TestExecution[]
+  executionCases   ExecutionTestCase[]
   executionHistory ExecutionHistory[]
   defects          Defect[]
   rtmLinks         RequirementTraceLink[]
+
+  /// The review queue counts by state (`countTestCasesInReview`) and the dashboard
+  /// excludes Retired cases — both scan the whole table without this.
+  @@index([lifecycleState])
+  /// The four hierarchy foreign keys. Every one is validated on create/update and
+  /// joined by the traceability and release-readiness reads.
+  @@index([productId])
+  @@index([moduleId])
+  @@index([featureId])
+  @@index([requirementId])
+  /// Self-relation for supersede/revision chains.
+  @@index([revisesTestCaseId])
 }
 
 model TestStep {
@@ -200,12 +226,12 @@ model TestStep {
 model TestExecution {
   id               String                  @id @default(uuid())
   businessId       String                  @unique
-  testCaseId       String
   testerId         String
   state            ExecutionLifecycleState @default(PLANNED)
+  /// Derived at finalize from the per-case results on `cases`:
+  /// FAIL if any case failed, else BLOCKED if any case is blocked, else PASS
+  /// (`docs/business-rules-and-validation.md:30`).
   result           ExecutionOutcome?
-  actualResult     String?
-  blockReason      String?
   startedAt        DateTime?
   finalizedAt      DateTime?
   version          Int                     @default(1)
@@ -214,10 +240,42 @@ model TestExecution {
   updatedAt        DateTime                @updatedAt
   updatedBy        String
 
-  testCase   TestCase           @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
   tester     User               @relation("ExecutionTester", fields: [testerId], references: [id], onDelete: Restrict)
+  cases      ExecutionTestCase[]
   history    ExecutionHistory[]
   defects    DefectExecutionLink[]
+
+  /// My work: the tester's open queue (`where testerId, state != FINALIZED`) and their
+  /// full run list. Leading `testerId` serves the testerId-only query too.
+  @@index([testerId, state])
+  /// Dashboard: `count`/`groupBy` over finalized runs.
+  @@index([state])
+  /// The execution list sorts newest-first.
+  @@index([createdAt])
+}
+
+/// One covered test case of an execution (`docs/data-model.md:25`). The per-case
+/// result, actual result and block reason live here; the execution keeps only its
+/// derived result. Selected together at planning, written exactly once at finalize.
+model ExecutionTestCase {
+  id           String            @id @default(uuid())
+  executionId  String
+  testCaseId   String
+  result       ExecutionOutcome?
+  actualResult String?
+  blockReason  String?
+  createdAt    DateTime          @default(now())
+  createdBy    String
+  updatedAt    DateTime          @updatedAt
+  updatedBy    String
+
+  execution TestExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  testCase  TestCase      @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+
+  @@unique([executionId, testCaseId])
+  /// `executionId` is already the leading column of the unique index above; the
+  /// TRAILING one is not reachable by it, and coverage reads filter by test case.
+  @@index([testCaseId])
 }
 
 model ExecutionHistory {
@@ -231,6 +289,11 @@ model ExecutionHistory {
 
   execution TestExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
   testCase  TestCase      @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+
+  /// The execution detail page reads one run's history in `occurredAt` order.
+  @@index([executionId, occurredAt])
+  /// Release readiness counts finalized history rows per test case.
+  @@index([testCaseId])
 }
 
 model Defect {
@@ -254,6 +317,14 @@ model Defect {
   testCase  TestCase                 @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
   executions DefectExecutionLink[]
   rtmLinks  RequirementTraceLink[]
+
+  /// `listOpenDefectsForCases` — the finalize form's defect picker — filters exactly
+  /// this pair (`testCaseId IN (…) AND status <> CLOSED`).
+  @@index([testCaseId, status])
+  /// Dashboard: open-defect count and the severity `groupBy`.
+  @@index([status])
+  /// The defect list sorts newest-first.
+  @@index([createdAt])
 }
 
 model DefectExecutionLink {
@@ -266,6 +337,9 @@ model DefectExecutionLink {
   execution TestExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
 
   @@id([defectId, executionId])
+  /// `defectId` leads the composite primary key; `executionId` needs its own index
+  /// so the cascade from a deleted execution does not scan this table.
+  @@index([executionId])
 }
 
 model RequirementTraceLink {
@@ -294,6 +368,13 @@ model RequirementTraceLink {
   /// not revert it, but **anyone regenerating this index from scratch must reapply that
   /// migration**, or the NULL case silently stops being unique again.
   @@unique([requirementId, testCaseId, defectId])
+  /// `requirementId` leads the unique index above; these two do not, and the RTM
+  /// screen pivots on both. Adding them does not touch that index, so the
+  /// `NULLS NOT DISTINCT` migration described above is unaffected.
+  @@index([testCaseId])
+  @@index([defectId])
+  /// The RTM list sorts newest-first.
+  @@index([createdAt])
 }
 
 model ImportRun {
@@ -324,6 +405,19 @@ model ImportRowReport {
   createdBy    String
 
   importRun ImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+
+  /// One import writes a row per source row; the run's report reads them all back.
+  @@index([importRunId])
+}
+
+/// Counter row per business-ID sequence (`docs/data-model.md:5`): `execution`,
+/// `defect`, and `testCase:<productBusinessId>` (test cases number per product).
+/// `next` is the next number to try; allocation locks the row (UPDATE ... RETURNING)
+/// and probes past occupied numbers, so imported IDs sitting ahead of the counter are
+/// skipped, never duplicated. Seeded lazily on first use — no backfill migration.
+model IdSequence {
+  key  String @id
+  next Int
 }
 
 model AuditEvent {
@@ -335,4 +429,12 @@ model AuditEvent {
   entityId        String
   requestId       String
   beforeAfterJson Json
+
+  /// Append-only and never pruned, so this is the table that grows fastest and the one
+  /// where a missing index hurts most later. Nothing in `src/` reads it back yet — the
+  /// access paths indexed here are the ones an audit question actually takes: the
+  /// history of one record, a time window, and everything one actor did.
+  @@index([entityType, entityId])
+  @@index([occurredAt])
+  @@index([actorId])
 }

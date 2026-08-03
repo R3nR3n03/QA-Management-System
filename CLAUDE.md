@@ -13,7 +13,7 @@ npm run dev              # Start Next.js dev server
 npm run build            # Production build
 npm run lint             # next lint
 npm run typecheck        # tsc --noEmit
-npm run test             # vitest run (tests match src/**/*.test.ts)
+npm run test             # vitest run (tests match src/**/*.test.{ts,tsx})
 npx vitest run src/lib/validation.test.ts   # Run a single test file
 npx vitest run -t "name"                    # Run tests matching a name
 

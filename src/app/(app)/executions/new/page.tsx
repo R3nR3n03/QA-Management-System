@@ -8,8 +8,12 @@ export const dynamic = "force-dynamic";
 
 export default async function PlanExecutionPage() {
   await requireSession();
-  const [cases, testers] = await Promise.all([listTestCases(), listAssignableTesters()]);
-  const approved = cases.filter((c) => c.lifecycleState === TestCaseLifecycleState.APPROVED);
+  // Unpaged on purpose: the picker needs every approved candidate. "Approved" is a
+  // `where` now rather than a filter over every test case in the system.
+  const [{ rows: approved }, testers] = await Promise.all([
+    listTestCases({ states: [TestCaseLifecycleState.APPROVED] }),
+    listAssignableTesters()
+  ]);
 
   return (
     <>
@@ -19,9 +23,9 @@ export default async function PlanExecutionPage() {
       </p>
       <div className="card">
         {approved.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            There are no approved test cases yet — only an Approved case can be executed.
-          </p>
+          <div className="empty">
+            <p>There are no approved test cases yet — only an Approved case can be executed.</p>
+          </div>
         ) : (
           <PlanForm
             cases={approved.map((c) => ({ id: c.id, businessId: c.businessId, title: c.title }))}

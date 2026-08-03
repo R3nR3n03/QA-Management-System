@@ -4,7 +4,9 @@ import { buildTestCaseCreateData, type CreateTestCaseInput } from "./test-cases"
 
 const actor = { userId: "user-author" };
 
-function validInput(overrides: Partial<CreateTestCaseInput> = {}): CreateTestCaseInput {
+// `businessId` is required here: buildTestCaseCreateData runs after createTestCase has
+// resolved a supplied or generated ID, so its input always carries one.
+function validInput(overrides: Partial<CreateTestCaseInput> = {}): CreateTestCaseInput & { businessId: string } {
   return {
     businessId: "TC-CRM-0001",
     productId: "product-1",
@@ -68,7 +70,7 @@ describe("buildTestCaseCreateData", () => {
       updatedBy: "someone-else",
       createdAt: new Date(0),
       updatedAt: new Date(0)
-    } as unknown as CreateTestCaseInput;
+    } as unknown as CreateTestCaseInput & { businessId: string };
 
     const result = buildTestCaseCreateData(hostile, actor);
 
@@ -93,7 +95,7 @@ describe("buildTestCaseCreateData", () => {
       authorUserId: "someone-else",
       createdBy: "someone-else",
       updatedBy: "someone-else"
-    } as unknown as CreateTestCaseInput;
+    } as unknown as CreateTestCaseInput & { businessId: string };
 
     const result = buildTestCaseCreateData(hostile, actor);
 

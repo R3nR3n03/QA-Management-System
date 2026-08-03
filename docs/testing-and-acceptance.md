@@ -13,9 +13,16 @@
 | Test design | Author attempts own approval | `403`; no transition. |
 | Test design | Senior QA Engineer approves another author’s valid review | State becomes Approved; audit event exists. |
 | Test design | Edit an Approved case | Rejected; revision workflow required. |
-| Execution | Start an assigned Approved case | State becomes In Progress and `startedAt` is set. |
-| Execution | Finalize Fail without same-case defect | `422` with documented rule failure. |
-| Execution | Finalize Blocked without block reason | `422` with documented rule failure. |
+| Identity | Create a test case, execution, or defect without `businessId` | `201`; the record carries the next generated ID in its documented format, test cases numbered per owning product. |
+| Identity | Generation reaches a number occupied by an imported record | The occupied number is skipped; no duplicate is created and import IDs stay preserved. |
+| Identity | Create with a supplied `businessId` that already exists | `409 ID_DUPLICATE`, unchanged. |
+| Execution | Create an execution covering N Approved cases | `201`; one execution with one link row per case. |
+| Execution | Create an execution including any non-Approved case | `422 FORBIDDEN_TRANSITION`; nothing is created. |
+| Execution | Start an assigned execution over Approved cases | State becomes In Progress and `startedAt` is set. |
+| Execution | Finalize with a missing, extra, or duplicated case in `results[]` | `422 ID_INVALID`; every covered case must appear exactly once. |
+| Execution | Finalize a failing case without a same-case defect | `422` with documented rule failure. |
+| Execution | Finalize a Blocked case without a block reason | `422` with documented rule failure. |
+| Execution | Finalize with mixed per-case outcomes | Execution result derives Fail > Blocked > Pass; one history row per case. |
 | Execution | Edit a Finalized execution | Rejected; history remains append-only. |
 | Defects | Skip New/Triaged to Closed | Rejected; transition table enforced. |
 | Traceability | Link hierarchy-mismatched requirement/test case | `422 HIERARCHY_MISMATCH`. |

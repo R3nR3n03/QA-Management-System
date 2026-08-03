@@ -1,15 +1,21 @@
-"use client";
-
 import Link from "next/link";
-import { useMemo, useState } from "react";
 import type { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome } from "@prisma/client";
 import { DefectStatusChip, ExecutionStateChip, OutcomeChip } from "./chips";
-import { FilterToolbar } from "./toolbar";
+import { hrefWith, readParam, type ListSearchParams } from "./list-params";
+import { Pager } from "./pager";
+import { UrlFilterToolbar } from "./toolbar";
 
 /**
- * The filterable record lists for executions and defects. Presentation only: which
- * rows exist is the server's answer; what the viewer may do with one is the
- * domain's. The filter matches ID, title/summary, state, and the tester's name.
+ * The filterable record lists for executions and defects.
+ *
+ * Server components: `rows` is the page the database returned and `total` is its
+ * `COUNT`, so the filter needle, the state chip and the page number all live in the
+ * query string rather than in `useState`. That is what lets the server fetch only the
+ * rows on screen — and it keeps `./chips`, which reads its labels off the Prisma enums,
+ * out of the browser bundle.
+ *
+ * Presentation only: which rows exist is the server's answer; what the viewer may do
+ * with one is the domain's.
  */
 
 export type ExecutionRowData = {
@@ -17,24 +23,44 @@ export type ExecutionRowData = {
   businessId: string;
   state: ExecutionLifecycleState;
   result: ExecutionOutcome | null;
-  caseBusinessId: string;
+  /** Business IDs of every covered case, in coverage order. */
+  caseBusinessIds: string[];
+  /** The first covered case's title. */
   caseTitle: string;
   testerName: string;
 };
 
-export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
-  const [query, setQuery] = useState("");
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) =>
-      `${row.businessId} ${row.caseBusinessId} ${row.caseTitle} ${row.testerName} ${row.state} ${row.result ?? ""}`
-        .toLowerCase()
-        .includes(needle)
-    );
-  }, [rows, query]);
+const EXECUTION_STATE_FILTERS: Array<{ value: string; label: string }> = [
+  { value: "ALL", label: "All" },
+  { value: "PLANNED", label: "Planned" },
+  { value: "IN_PROGRESS", label: "In Progress" },
+  { value: "FINALIZED", label: "Finalized" }
+];
 
-  if (rows.length === 0) {
+export function ExecutionList({
+  rows,
+  total,
+  page,
+  pathname,
+  params,
+  queryKey = "q",
+  pageKey = "page",
+  stateKey = "state"
+}: {
+  rows: ExecutionRowData[];
+  total: number;
+  page: number;
+  pathname: string;
+  params: ListSearchParams | undefined;
+  queryKey?: string;
+  pageKey?: string;
+  stateKey?: string;
+}) {
+  const query = readParam(params, queryKey);
+  const activeState = readParam(params, stateKey) || "ALL";
+  const filtered = query !== "" || activeState !== "ALL";
+
+  if (total === 0 && !filtered) {
     return (
       <div className="card empty">
         <p>No executions yet. Plan one against an approved test case.</p>
@@ -44,41 +70,75 @@ export function ExecutionList({ rows }: { rows: ExecutionRowData[] }) {
 
   return (
     <>
-      {rows.length > 5 ? (
-        <FilterToolbar
-          value={query}
-          onChange={setQuery}
-          placeholder="Filter by ID, case, tester, or state…"
-          label="Filter executions"
-        />
-      ) : null}
+      <div className="row">
+        {/* An active filter keeps the controls on screen however few rows match, or
+            there would be no way left to clear it. */}
+        {query !== "" || total > 5 ? (
+          <UrlFilterToolbar
+            placeholder="Filter by ID, case, tester, or state…"
+            label="Filter executions"
+            paramKey={queryKey}
+            pageKey={pageKey}
+          />
+        ) : null}
+        <div className="cluster" role="group" aria-label="Filter by lifecycle state">
+          {EXECUTION_STATE_FILTERS.map((option) => (
+            <Link
+              key={option.value}
+              className={option.value === activeState ? "btn btn-sm" : "btn btn-secondary btn-sm"}
+              // Changing the state filter returns to page 1: staying on page 4 of a
+              // now-shorter list would land on nothing.
+              href={hrefWith(pathname, params, {
+                [stateKey]: option.value === "ALL" ? null : option.value,
+                [pageKey]: null
+              })}
+              aria-current={option.value === activeState ? "true" : undefined}
+              scroll={false}
+            >
+              {option.label}
+            </Link>
+          ))}
+        </div>
+      </div>
       <div className="card card-flush">
-        {visible.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="empty">
-            <p>Nothing matches &ldquo;{query}&rdquo;.</p>
+            <p>No execution matches the current filters.</p>
           </div>
         ) : (
-          visible.map((row) => (
+          rows.map((row) => (
             <div key={row.id} className="list-row">
               <div className="row-main">
                 <div className="cluster">
                   <span className="bid">{row.businessId}</span>
                   <ExecutionStateChip state={row.state} />
                   {row.result ? <OutcomeChip outcome={row.result} /> : null}
+                  {row.caseBusinessIds.length > 1 ? (
+                    <span className="state">{row.caseBusinessIds.length} cases</span>
+                  ) : null}
                 </div>
                 <div className="row-title">{row.caseTitle}</div>
                 <div className="muted">
-                  <span className="bid">{row.caseBusinessId}</span>
+                  <span className="bid">{row.caseBusinessIds[0]}</span>
+                  {row.caseBusinessIds.length > 1 ? ` +${row.caseBusinessIds.length - 1} more` : ""}
                   {" · "}
                   {row.testerName}
                 </div>
               </div>
-              <Link href={`/executions/${row.id}`} style={{ fontSize: 14 }}>
+              <Link className="btn btn-secondary btn-sm" href={`/executions/${row.id}`}>
                 View
               </Link>
             </div>
           ))
         )}
+        <Pager
+          total={total}
+          page={page}
+          pathname={pathname}
+          params={params}
+          pageKey={pageKey}
+          label="executions"
+        />
       </div>
     </>
   );
@@ -94,19 +154,26 @@ export type DefectRowData = {
   caseBusinessId: string;
 };
 
-export function DefectList({ rows }: { rows: DefectRowData[] }) {
-  const [query, setQuery] = useState("");
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) =>
-      `${row.businessId} ${row.caseBusinessId} ${row.summary} ${row.status} ${row.severity} ${row.priority}`
-        .toLowerCase()
-        .includes(needle)
-    );
-  }, [rows, query]);
+export function DefectList({
+  rows,
+  total,
+  page,
+  pathname,
+  params,
+  queryKey = "q",
+  pageKey = "page"
+}: {
+  rows: DefectRowData[];
+  total: number;
+  page: number;
+  pathname: string;
+  params: ListSearchParams | undefined;
+  queryKey?: string;
+  pageKey?: string;
+}) {
+  const query = readParam(params, queryKey);
 
-  if (rows.length === 0) {
+  if (total === 0 && query === "") {
     return (
       <div className="card empty">
         <p>No defects recorded.</p>
@@ -116,21 +183,21 @@ export function DefectList({ rows }: { rows: DefectRowData[] }) {
 
   return (
     <>
-      {rows.length > 5 ? (
-        <FilterToolbar
-          value={query}
-          onChange={setQuery}
+      {query !== "" || total > 5 ? (
+        <UrlFilterToolbar
           placeholder="Filter by ID, summary, severity, or status…"
           label="Filter defects"
+          paramKey={queryKey}
+          pageKey={pageKey}
         />
       ) : null}
       <div className="card card-flush">
-        {visible.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="empty">
             <p>Nothing matches &ldquo;{query}&rdquo;.</p>
           </div>
         ) : (
-          visible.map((defect) => (
+          rows.map((defect) => (
             <div key={defect.id} className="list-row">
               <div className="row-main">
                 <div className="cluster">
@@ -150,6 +217,14 @@ export function DefectList({ rows }: { rows: DefectRowData[] }) {
             </div>
           ))
         )}
+        <Pager
+          total={total}
+          page={page}
+          pathname={pathname}
+          params={params}
+          pageKey={pageKey}
+          label="defects"
+        />
       </div>
     </>
   );

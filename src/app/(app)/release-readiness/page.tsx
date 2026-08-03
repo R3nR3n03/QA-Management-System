@@ -28,7 +28,8 @@ export default async function ReleaseReadinessPage({
   // (the domain services behind it refuse them regardless).
   if (auth.role !== QamsRole.QA_LEAD) notFound();
   const { productId = "", release = "", environment = "" } = await searchParams;
-  const products = await listProducts();
+  // Unpaged on purpose: this fills the report's product <select>, which needs every option.
+  const { rows: products } = await listProducts();
 
   let snapshot: Awaited<ReturnType<typeof releaseReadinessSnapshot>> | null = null;
   let failure: { title: string; detail: string } | null = null;

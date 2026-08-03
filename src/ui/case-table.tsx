@@ -1,16 +1,25 @@
-"use client";
-
 import Link from "next/link";
-import { useMemo, useState } from "react";
 import type { TestCaseLifecycleState } from "@prisma/client";
 import { TestCaseStateChip } from "./chips";
-import { FilterToolbar } from "./toolbar";
+import { readParam, type ListSearchParams } from "./list-params";
+import { Pager } from "./pager";
+import { UrlFilterToolbar } from "./toolbar";
 
 /**
  * The one way a list of test cases renders, so `/test-cases`, `/my-work/drafts` and
- * `/review` stay visually identical — now with a client-side filter over ID, title
- * and state. Filtering is presentation: which rows EXIST is still the server's
- * answer, and what a viewer may do with a row is the domain's.
+ * `/review` stay visually identical.
+ *
+ * ## Server component
+ *
+ * It used to be `"use client"`, holding every row the server had and slicing locally.
+ * Now `rows` is exactly the page the database returned and `total` is its `COUNT`, so
+ * this renders on the server: the filter needle and page number arrive in the URL, not
+ * in `useState`. Two things fall out of that beyond the payload saving — a filtered page
+ * is a shareable link, and `./chips` (which reads its labels off the Prisma enums) no
+ * longer drags `@prisma/client` into the browser bundle.
+ *
+ * Filtering and paging remain presentation: which rows EXIST is still the server's
+ * answer, and what a viewer may do with one is the domain's.
  */
 export type CaseRow = {
   id: string;
@@ -21,18 +30,33 @@ export type CaseRow = {
   severity: string;
 };
 
-export function CaseTable({ rows, emptyText }: { rows: CaseRow[]; emptyText: string }) {
-  const [query, setQuery] = useState("");
+export function CaseTable({
+  rows,
+  total,
+  page,
+  pathname,
+  params,
+  emptyText,
+  queryKey = "q",
+  pageKey = "page"
+}: {
+  /** One page of rows, already fetched with `skip`/`take`. */
+  rows: CaseRow[];
+  /** Matching row count before paging — the server's `COUNT`, not `rows.length`. */
+  total: number;
+  page: number;
+  pathname: string;
+  params: ListSearchParams | undefined;
+  emptyText: string;
+  queryKey?: string;
+  pageKey?: string;
+}) {
+  const query = readParam(params, queryKey);
+  // The toolbar must survive a filter that matches few rows, or there is no way left to
+  // clear it — so an ACTIVE filter keeps it on screen regardless of the count.
+  const showFilter = query !== "" || total > 5;
 
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) =>
-      `${row.businessId} ${row.title} ${row.lifecycleState}`.toLowerCase().includes(needle)
-    );
-  }, [rows, query]);
-
-  if (rows.length === 0) {
+  if (total === 0 && query === "") {
     return (
       <div className="card empty">
         <p>{emptyText}</p>
@@ -42,22 +66,22 @@ export function CaseTable({ rows, emptyText }: { rows: CaseRow[]; emptyText: str
 
   return (
     <>
-      {rows.length > 5 ? (
-        <FilterToolbar
-          value={query}
-          onChange={setQuery}
+      {showFilter ? (
+        <UrlFilterToolbar
           placeholder="Filter by ID, title, or state…"
           label="Filter test cases"
+          paramKey={queryKey}
+          pageKey={pageKey}
         />
       ) : null}
 
       <div className="card card-flush">
-        {visible.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="empty">
             <p>Nothing matches &ldquo;{query}&rdquo;.</p>
           </div>
         ) : (
-          visible.map((row) => (
+          rows.map((row) => (
             <div key={row.id} className="list-row">
               <div className="row-main">
                 <div className="cluster">
@@ -75,6 +99,14 @@ export function CaseTable({ rows, emptyText }: { rows: CaseRow[]; emptyText: str
             </div>
           ))
         )}
+        <Pager
+          total={total}
+          page={page}
+          pathname={pathname}
+          params={params}
+          pageKey={pageKey}
+          label="test cases"
+        />
       </div>
     </>
   );

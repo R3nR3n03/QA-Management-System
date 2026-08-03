@@ -9,8 +9,10 @@ export async function createExecutionAction(_prev: FormState, formData: FormData
   const result = await runAction((actor) =>
     createExecution(
       {
-        businessId: String(formData.get("businessId") ?? ""),
-        testCaseId: String(formData.get("testCaseId") ?? ""),
+        // No businessId: the domain allocates the next free EXE-#### in the create
+        // transaction (`docs/business-rules-and-validation.md:11`).
+        // One checkbox per approved case; the domain enforces non-empty/no-duplicates.
+        testCaseIds: formData.getAll("testCaseIds").map((value) => String(value)),
         testerId: String(formData.get("testerId") ?? "")
       },
       actor

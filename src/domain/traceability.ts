@@ -4,9 +4,78 @@ import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { requireNonBlank } from "@/lib/validation";
 import { appendAudit } from "@/lib/audit";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 
-export async function listRtmLinks() {
-  return prisma.requirementTraceLink.findMany({ orderBy: { createdAt: "desc" } });
+export async function listRtmLinks(options: PageRequest = {}) {
+  return runPaged(
+    options,
+    (window) =>
+      prisma.requirementTraceLink.findMany({ orderBy: { createdAt: "desc" }, ...window }),
+    () => prisma.requirementTraceLink.count()
+  );
+}
+
+/**
+ * Trace links with the three records they point at, for the RTM screen.
+ *
+ * The screen used to load every requirement, every test case and every defect purely to
+ * build id→businessId maps for the link rows. Joining here means one page of links
+ * carries its own labels, and those three full-table reads disappear.
+ */
+export async function listRtmLinksWithRefs(options: PageRequest = {}) {
+  return runPaged(
+    options,
+    (window) =>
+      prisma.requirementTraceLink.findMany({
+        include: {
+          requirement: { select: { id: true, businessId: true } },
+          testCase: { select: { id: true, businessId: true, title: true } },
+          defect: { select: { id: true, businessId: true } }
+        },
+        orderBy: { createdAt: "desc" },
+        ...window
+      }),
+    () => prisma.requirementTraceLink.count()
+  );
+}
+
+/**
+ * Requirements carrying no trace link at all — the gap list that is the point of an RTM.
+ *
+ * `none: {}` is the whole computation, so this no longer means reading every requirement
+ * and every link to subtract one set from the other in JavaScript. The count is the
+ * server's, so the "N requirements without any link" line stays true beyond page 1.
+ */
+export async function listRequirementsWithoutTraceLinks(options: PageRequest = {}) {
+  const where = { rtmLinks: { none: {} } };
+  return runPaged(
+    options,
+    (window) => prisma.requirement.findMany({ where, orderBy: { businessId: "asc" }, ...window }),
+    () => prisma.requirement.count({ where })
+  );
+}
+
+/**
+ * The three pickers on the "New trace link" form. Unpaged by necessity — a picker has to
+ * offer every candidate — but projected to the columns the form actually renders rather
+ * than whole records with their audit columns and step lists.
+ */
+export async function listTraceLinkOptions() {
+  const [requirements, testCases, defects] = await Promise.all([
+    prisma.requirement.findMany({
+      select: { id: true, businessId: true, statement: true },
+      orderBy: { businessId: "asc" }
+    }),
+    prisma.testCase.findMany({
+      select: { id: true, businessId: true, title: true, requirementId: true },
+      orderBy: { businessId: "asc" }
+    }),
+    prisma.defect.findMany({
+      select: { id: true, businessId: true, summary: true, testCaseId: true },
+      orderBy: { businessId: "asc" }
+    })
+  ]);
+  return { requirements, testCases, defects };
 }
 
 export async function createRtmLink(input: {
@@ -171,12 +240,15 @@ export async function releaseReadinessSnapshot(
   const testCaseIds = scopedTestCases.map((tc) => tc.id);
 
   const asOfUtc = new Date().toISOString();
+  // Scope is a set of test cases, and an execution may cover cases inside and outside
+  // it — so the execution metrics count per-case results (`ExecutionTestCase` rows of
+  // finalized executions), not whole executions (`docs/data-model.md:25`).
   const [executionFinalizedByResult, openDefectsBySeverity, requirements, finalizedTotal, openDefectTotal] =
     await Promise.all([
-      prisma.testExecution.groupBy({
+      prisma.executionTestCase.groupBy({
         by: ["result"],
         _count: true,
-        where: { testCaseId: { in: testCaseIds }, state: "FINALIZED" }
+        where: { testCaseId: { in: testCaseIds }, execution: { state: "FINALIZED" } }
       }),
       prisma.defect.groupBy({
         by: ["severity"],
@@ -187,7 +259,9 @@ export async function releaseReadinessSnapshot(
         where: { feature: { module: { productId: input.productId } } },
         include: { rtmLinks: true }
       }),
-      prisma.testExecution.count({ where: { testCaseId: { in: testCaseIds }, state: "FINALIZED" } }),
+      prisma.executionTestCase.count({
+        where: { testCaseId: { in: testCaseIds }, execution: { state: "FINALIZED" } }
+      }),
       prisma.defect.count({ where: { testCaseId: { in: testCaseIds }, status: { not: "CLOSED" } } })
     ]);
 
@@ -204,8 +278,8 @@ export async function releaseReadinessSnapshot(
     approvedTestCaseCount: testCaseIds.length,
     executionFinalizedByResult: statedMetric(executionFinalizedByResult, finalizedTotal, asOfUtc, {
       filters: `execution state = FINALIZED; ${scopeFilters}`,
-      numerator: "finalized executions with the row's result, within scope",
-      denominator: "all finalized executions within scope"
+      numerator: "covered test cases of finalized executions with the row's per-case result, within scope",
+      denominator: "all covered test cases of finalized executions within scope"
     }),
     openDefectsBySeverity: statedMetric(openDefectsBySeverity, openDefectTotal, asOfUtc, {
       filters: `defect status != CLOSED; ${scopeFilters}`,

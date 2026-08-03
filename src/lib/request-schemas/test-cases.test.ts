@@ -67,7 +67,16 @@ describe("createTestCaseSchema", () => {
     expect(schemaIssueField(result.error!.issues[0])).toBe("title");
   });
 
+  it("permits an omitted businessId — the server allocates one", () => {
+    // docs/api-and-security.md:5 — optional, not forbidden: the acceptance suite's
+    // literal-ID posts stay valid, ID-less creates get the next generated ID.
+    const { businessId: _businessId, ...withoutId } = validBody;
+
+    expect(createTestCaseSchema.safeParse(withoutId).success).toBe(true);
+  });
+
   it("rejects a blank businessId but permits a blank cycle", () => {
+    // Optional is not blank-tolerant: a supplied ID must still carry a value.
     expect(createTestCaseSchema.safeParse({ ...validBody, businessId: "" }).success).toBe(false);
     // createTestCase deliberately permits these blank on create; submitTestCase enforces
     // non-blank before review, so tightening them here would invent policy.

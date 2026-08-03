@@ -49,15 +49,6 @@ export function NewCaseForm({
       <FormNotice state={state} id={noticeId(FORM_ID)} />
 
       <fieldset className="form-section">
-        <legend>Identity</legend>
-        <label className={bad("businessId")}>
-          <span>Test case ID</span>
-          <input name="businessId" placeholder="TC-PROD001-0001" required disabled={pending} {...fieldProps(state, "businessId", FORM_ID)} />
-          <span className="hint">Format TC-&lt;product tag&gt;-#### — unique across the repository.</span>
-        </label>
-      </fieldset>
-
-      <fieldset className="form-section">
         <legend>Where it belongs</legend>
       <div className="form-grid-2">
         <label className={bad("productId")}>
@@ -217,8 +208,8 @@ export function NewCaseForm({
       </fieldset>
 
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
-        The case is created in Draft. Add steps on the next screen — it needs at least one before it
-        can be submitted for review.
+        The case is created in Draft with the next TC number for its product assigned automatically.
+        Add steps on the next screen — it needs at least one before it can be submitted for review.
       </p>
 
       <button className="btn" type="submit" disabled={pending}>

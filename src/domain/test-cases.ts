@@ -5,14 +5,17 @@ import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence, ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
+import { allocateBusinessId, highestSuffix } from "@/lib/id-allocator";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
+import { runPaged, type PageRequest } from "@/lib/pagination";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
 export type CreateTestCaseInput = {
-  businessId: string;
+  /** Optional: when absent the create transaction allocates the next free TC-<PRODUCT>-####. */
+  businessId?: string;
   productId: string;
   moduleId: string;
   featureId: string;
@@ -29,11 +32,59 @@ export type CreateTestCaseInput = {
   revisesTestCaseId?: string;
 };
 
-export async function listTestCases() {
-  return prisma.testCase.findMany({
-    include: { steps: { orderBy: { sequence: "asc" } } },
-    orderBy: { businessId: "asc" }
-  });
+export type TestCaseListOptions = PageRequest & {
+  /** Needle matched against business ID, title, and the raw lifecycle state name. */
+  query?: string;
+  /** Restrict to these lifecycle states — the review queue and the drafts screen. */
+  states?: TestCaseLifecycleState[];
+  /** Restrict to one author: "my drafts". */
+  authorUserId?: string;
+};
+
+/**
+ * The `where` for every filtered test-case read, so the review queue, the drafts screen
+ * and the search box compose instead of each re-filtering a full table in JavaScript.
+ *
+ * The needle is matched against the RAW lifecycle state (`IN_REVIEW`), which is what the
+ * previous in-browser filter concatenated and matched — preserved deliberately so
+ * existing muscle memory keeps working.
+ */
+function testCaseWhere(options: TestCaseListOptions): Prisma.TestCaseWhereInput {
+  const needle = options.query?.trim() ?? "";
+  const all: Prisma.TestCaseWhereInput[] = [];
+
+  if (options.states && options.states.length > 0) all.push({ lifecycleState: { in: options.states } });
+  if (options.authorUserId) all.push({ authorUserId: options.authorUserId });
+
+  if (needle !== "") {
+    const matchingStates = Object.values(TestCaseLifecycleState).filter((state) =>
+      state.toLowerCase().includes(needle.toLowerCase())
+    );
+    all.push({
+      OR: [
+        { businessId: { contains: needle, mode: "insensitive" } },
+        { title: { contains: needle, mode: "insensitive" } },
+        ...(matchingStates.length > 0 ? [{ lifecycleState: { in: matchingStates } }] : [])
+      ]
+    });
+  }
+
+  return all.length === 0 ? {} : { AND: all };
+}
+
+export async function listTestCases(options: TestCaseListOptions = {}) {
+  const where = testCaseWhere(options);
+  return runPaged(
+    options,
+    (window) =>
+      prisma.testCase.findMany({
+        where,
+        include: { steps: { orderBy: { sequence: "asc" } } },
+        orderBy: { businessId: "asc" },
+        ...window
+      }),
+    () => prisma.testCase.count({ where })
+  );
 }
 
 /** Cases waiting for a reviewer — powers the Review badge in the navigation. */
@@ -85,7 +136,7 @@ async function validateHierarchy(productId: string, moduleId: string, featureId:
  * stray key added here later is a type error.
  */
 export function buildTestCaseCreateData(
-  input: CreateTestCaseInput,
+  input: CreateTestCaseInput & { businessId: string },
   actor: Pick<Actor, "userId">
 ): Prisma.TestCaseUncheckedCreateInput {
   return {
@@ -113,11 +164,18 @@ export function buildTestCaseCreateData(
 
 export async function createTestCase(input: CreateTestCaseInput, actor: Actor) {
   ensureRole([...RoleSets.canAuthor], actor.role);
-  requireNonBlank(input.businessId, "businessId", "Test case ID is required.");
   requireNonBlank(input.title, "title", "Title is required.");
   requireNonBlank(input.objective, "objective", "Objective is required.");
   requireNonBlank(input.expectedResult, "expectedResult", "Expected result is required.");
-  ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.testCase, "businessId", "TC-<PRODUCT>-####");
+
+  // `businessId` is optional (`docs/business-rules-and-validation.md:11`): supplied IDs
+  // are validated exactly as before; when absent the transaction allocates the next
+  // free TC-<PRODUCT>-#### below, numbered per owning product (`docs/data-model.md`).
+  const suppliedId = input.businessId?.trim();
+  if (input.businessId !== undefined) {
+    requireNonBlank(input.businessId, "businessId", "Test case ID cannot be blank.");
+    ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.testCase, "businessId", "TC-<PRODUCT>-####");
+  }
 
   await validateHierarchy(input.productId, input.moduleId, input.featureId, input.requirementId);
 
@@ -139,14 +197,43 @@ export async function createTestCase(input: CreateTestCaseInput, actor: Actor) {
     }
   }
 
-  const existing = await prisma.testCase.findUnique({ where: { businessId: input.businessId } });
-  if (existing) {
-    throw new AppError(409, "ID_DUPLICATE", "Test case ID already exists.", "businessId");
+  if (suppliedId) {
+    const existing = await prisma.testCase.findUnique({ where: { businessId: suppliedId } });
+    if (existing) {
+      throw new AppError(409, "ID_DUPLICATE", "Test case ID already exists.", "businessId");
+    }
+  }
+
+  // The generated tag is the owning product's business ID (`docs/data-model.md:22`).
+  // validateHierarchy already proved the product exists (the module chains to it).
+  const product = suppliedId
+    ? null
+    : await prisma.product.findUnique({ where: { id: input.productId }, select: { businessId: true } });
+  if (!suppliedId && !product) {
+    throw new AppError(404, "REFERENCE_NOT_FOUND", "Product was not found.", "productId");
   }
 
   return prisma.$transaction(async (tx) => {
+    const prefix = `TC-${product?.businessId}-`;
+    const businessId =
+      suppliedId ??
+      (await allocateBusinessId(tx, `testCase:${product?.businessId}`, {
+        prefix,
+        isTaken: async (candidate) =>
+          (await tx.testCase.findUnique({ where: { businessId: candidate }, select: { id: true } })) !== null,
+        currentMax: async () =>
+          highestSuffix(
+            prefix,
+            (
+              await tx.testCase.findMany({
+                where: { businessId: { startsWith: prefix } },
+                select: { businessId: true }
+              })
+            ).map((row) => row.businessId)
+          )
+      }));
     const created = await tx.testCase.create({
-      data: buildTestCaseCreateData(input, actor)
+      data: buildTestCaseCreateData({ ...input, businessId }, actor)
     });
 
     await appendAudit(tx, {
