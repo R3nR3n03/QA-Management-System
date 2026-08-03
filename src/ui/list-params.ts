@@ -37,6 +37,26 @@ export function readPage(params: ListSearchParams | undefined, key = "page"): nu
 }
 
 /**
+ * The rows-per-page a viewer asked for, or the default.
+ *
+ * Only a value the UI actually offers is honoured. A hand-edited `?size=5000` falls back
+ * to the default rather than being clamped up to `MAX_PAGE_SIZE`, so the query string
+ * cannot widen a page beyond what the control can express — the server's clamp stays the
+ * real ceiling, this is the near gate.
+ */
+export function readPageSize(
+  params: ListSearchParams | undefined,
+  allowed: readonly number[],
+  fallback: number,
+  key = "size"
+): number {
+  const raw = readParam(params, key);
+  if (raw === "") return fallback;
+  const parsed = Number(raw);
+  return allowed.includes(parsed) ? parsed : fallback;
+}
+
+/**
  * `pathname` with `changes` applied over the current parameters. A `null` or `""` value
  * removes its key, so a cleared filter leaves a clean URL instead of `?q=`.
  *

@@ -31,11 +31,18 @@ export function makeCaseRows(count: number): CaseRow[] {
   });
 }
 
+/* Fixed instants, never `new Date()`: a row's rendered stamp is asserted by exact
+   string, so the fixture must not drift with the clock the suite happens to run on. */
+const PLANNED_AT = new Date("2026-01-05T09:00:00.000Z");
+const STARTED_AT = new Date("2026-01-06T10:30:00.000Z");
+const FINALIZED_AT = new Date("2026-01-07T14:45:00.000Z");
+
 export function makeExecutionRows(
   count: number,
   options: { state?: ExecutionLifecycleState; idOffset?: number } = {}
 ): ExecutionRowData[] {
   const { state = "PLANNED", idOffset = 0 } = options;
+  const started = state === "IN_PROGRESS" || state === "FINALIZED";
   return Array.from({ length: count }, (_, index) => {
     const n = idOffset + index + 1;
     return {
@@ -45,7 +52,11 @@ export function makeExecutionRows(
       result: state === "FINALIZED" ? ("PASS" as const) : null,
       caseBusinessIds: [`TC-FIX-${pad(n)}`],
       caseTitle: `Execution title ${n}`,
-      testerName: "Fixture Tester"
+      testerName: "Fixture Tester",
+      caseResults: [state === "FINALIZED" ? ("PASS" as const) : null],
+      plannedAt: PLANNED_AT,
+      startedAt: started ? STARTED_AT : null,
+      finalizedAt: state === "FINALIZED" ? FINALIZED_AT : null
     };
   });
 }

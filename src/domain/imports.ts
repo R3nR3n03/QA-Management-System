@@ -27,26 +27,11 @@ import {
   parseHistoryDate,
   valuesEqual,
   type ExecutionResultToken,
+  EXPECTED_SHEETS,
   type ExtractedRow,
   type HeaderInfo,
   type SheetSpec
 } from "@/domain/import-parsing";
-
-const EXPECTED_SHEETS = [
-  "Home",
-  "Product Master",
-  "Module Master",
-  "Feature Master",
-  "Requirement Master",
-  "Test Repository",
-  "Test Steps",
-  "Test Execution",
-  "Execution History",
-  "Bug Tracker",
-  "RTM",
-  "Dashboard",
-  "Settings"
-];
 
 type Tx = Prisma.TransactionClient;
 

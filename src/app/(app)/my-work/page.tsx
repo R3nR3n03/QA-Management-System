@@ -2,7 +2,8 @@ import Link from "next/link";
 import { ExecutionLifecycleState } from "@prisma/client";
 import { listExecutionsForTester } from "@/domain/executions";
 import { ExecutionStateChip, OutcomeChip } from "@/ui/chips";
-import { readPage, type ListSearchParams } from "@/ui/list-params";
+import { readPage, readPageSize, type ListSearchParams } from "@/ui/list-params";
+import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { Pager } from "@/ui/pager";
 import { requireSession } from "@/ui/session";
 
@@ -27,10 +28,12 @@ export default async function MyWorkPage({
   const params = await searchParams;
   const auth = await requireSession();
   const page = readPage(params);
+  const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
 
   const [open, done] = await Promise.all([
     listExecutionsForTester(auth.userId, {
       page,
+      pageSize,
       states: [ExecutionLifecycleState.PLANNED, ExecutionLifecycleState.IN_PROGRESS]
     }),
     // The recap is capped at 8 by the copy below, so it asks for exactly 8.
@@ -89,6 +92,8 @@ export default async function MyWorkPage({
               page={page}
               pathname="/my-work"
               params={params}
+              pageSize={pageSize}
+              sizeOptions={PAGE_SIZE_OPTIONS}
               label="open work queue"
             />
           </div>

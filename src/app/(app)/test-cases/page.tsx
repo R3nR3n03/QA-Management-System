@@ -2,7 +2,8 @@ import Link from "next/link";
 import { QamsRole } from "@prisma/client";
 import { listTestCases } from "@/domain/test-cases";
 import { CaseTable } from "@/ui/case-table";
-import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
+import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
+import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +17,10 @@ export default async function TestCasesPage({
   const params = await searchParams;
   const auth = await requireSession();
   const page = readPage(params);
+  const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
   // One page of rows plus the matching count — never the whole table.
-  const { rows, total } = await listTestCases({ page, query });
+  const { rows, total } = await listTestCases({ page, pageSize, query });
   const mayAuthor = auth.role !== QamsRole.QA_TESTER;
 
   return (
@@ -40,6 +42,7 @@ export default async function TestCasesPage({
         rows={rows}
         total={total}
         page={page}
+        pageSize={pageSize}
         pathname="/test-cases"
         params={params}
         emptyText="No test cases yet. Import the workbook or create a draft."

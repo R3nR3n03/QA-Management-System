@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { ExecutionLifecycleState } from "@prisma/client";
 import { listExecutionsWithCase } from "@/domain/executions";
-import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
+import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
+import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { ExecutionList } from "@/ui/record-list";
 import { requireSession } from "@/ui/session";
 
@@ -22,9 +23,11 @@ export default async function ExecutionsPage({
   const params = await searchParams;
   await requireSession();
   const page = readPage(params);
+  const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
   const { rows, total } = await listExecutionsWithCase({
     page,
+    pageSize,
     query,
     states: stateFilter(readParam(params, "state"))
   });
@@ -53,10 +56,17 @@ export default async function ExecutionsPage({
           // renders a "N cases" chip plus "+n more" for the rest.
           caseBusinessIds: execution.cases.map((covered) => covered.testCase.businessId),
           caseTitle: execution.cases[0]?.testCase.title ?? "",
-          testerName: execution.tester.displayName
+          testerName: execution.tester.displayName,
+          // Per-case outcomes in the same coverage order, so a multi-case run can say
+          // which of its cases passed rather than only its derived worst result.
+          caseResults: execution.cases.map((covered) => covered.result),
+          plannedAt: execution.createdAt,
+          startedAt: execution.startedAt,
+          finalizedAt: execution.finalizedAt
         }))}
         total={total}
         page={page}
+        pageSize={pageSize}
         pathname="/executions"
         params={params}
       />

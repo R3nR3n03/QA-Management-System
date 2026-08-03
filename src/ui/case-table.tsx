@@ -3,6 +3,7 @@ import type { TestCaseLifecycleState } from "@prisma/client";
 import { TestCaseStateChip } from "./chips";
 import { readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
+import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "./paging";
 import { UrlFilterToolbar } from "./toolbar";
 
 /**
@@ -37,6 +38,7 @@ export function CaseTable({
   pathname,
   params,
   emptyText,
+  pageSize = PAGE_SIZE,
   queryKey = "q",
   pageKey = "page"
 }: {
@@ -48,6 +50,7 @@ export function CaseTable({
   pathname: string;
   params: ListSearchParams | undefined;
   emptyText: string;
+  pageSize?: number;
   queryKey?: string;
   pageKey?: string;
 }) {
@@ -105,6 +108,8 @@ export function CaseTable({
           pathname={pathname}
           params={params}
           pageKey={pageKey}
+          pageSize={pageSize}
+          sizeOptions={PAGE_SIZE_OPTIONS}
           label="test cases"
         />
       </div>

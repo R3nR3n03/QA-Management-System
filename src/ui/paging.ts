@@ -28,6 +28,47 @@ export function pageSlice<T>(items: readonly T[], page: number, pageSize: number
   return items.slice((clamped - 1) * pageSize, clamped * pageSize);
 }
 
+/**
+ * The row counts a viewer may choose between. Kept short on purpose: a free-text page
+ * size is a way to pull the whole table through a paginated endpoint, and the server
+ * clamps to `MAX_PAGE_SIZE` regardless (`src/lib/pagination.ts`).
+ */
+export const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
+/** A rendered page number, or the elision between two runs of them. */
+export type PageToken = number | "gap";
+
+/**
+ * The page numbers to render, elided in the middle: `1 … 8 9 10 11 12 … 21`.
+ *
+ * Prev/Next alone is fine over three pages and hostile over twenty-one — reaching the
+ * end of a 1,002-row list meant twenty clicks. First and last are always present so
+ * both ends stay one click away, with `span` pages either side of the current one.
+ *
+ * A gap of exactly one page renders as that page rather than an ellipsis: `1 2 3` is
+ * both shorter and more useful than `1 … 3`.
+ */
+export function pageTokens(current: number, last: number, span = 2): PageToken[] {
+  if (last <= 1) return [1];
+
+  const wanted = new Set<number>([1, last]);
+  for (let page = current - span; page <= current + span; page += 1) {
+    if (page >= 1 && page <= last) wanted.add(page);
+  }
+
+  const tokens: PageToken[] = [];
+  let previous = 0;
+  for (const page of [...wanted].sort((a, b) => a - b)) {
+    if (previous > 0) {
+      if (page - previous === 2) tokens.push(previous + 1);
+      else if (page - previous > 2) tokens.push("gap");
+    }
+    tokens.push(page);
+    previous = page;
+  }
+  return tokens;
+}
+
 /** `"Showing 1–50 of 132"` — the pager's status line. */
 export function pageRangeLabel(total: number, page: number, pageSize: number = PAGE_SIZE): string {
   if (total === 0) return "Showing 0 of 0";

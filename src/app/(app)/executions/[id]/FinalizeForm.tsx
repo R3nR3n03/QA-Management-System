@@ -49,6 +49,9 @@ const OUTCOME_TONE: Record<string, string> = {
   BLOCKED: "state state-blocked"
 };
 
+/** The three outcomes, in the order they are offered. */
+const OUTCOMES = ["PASS", "FAIL", "BLOCKED"] as const;
+
 /**
  * Finalizing is the only irreversible step a tester takes: a finalized execution
  * cannot return to In Progress (`docs/roles-workflows.md:39`), and the history rows it
@@ -210,9 +213,22 @@ export function FinalizeForm({
 
         <FormNotice state={state} id={noticeId(FORM_ID)} />
 
-        <p className="muted">
+        <p className="muted" style={{ marginBottom: "var(--sp-2)" }}>
           {recordedCount} of {cases.length} case{cases.length === 1 ? "" : "s"} recorded.
         </p>
+
+        {/* The count is the accessible fact; this is the same fact at a glance, so it is
+            hidden from assistive tech rather than read out twice. Only worth drawing for
+            a run with something to progress through — a one-case bar is either 0% or
+            100%, which the sentence above already said. */}
+        {cases.length > 1 ? (
+          <div className="progress" aria-hidden>
+            <div
+              className="progress-fill"
+              style={{ width: `${(recordedCount / cases.length) * 100}%` }}
+            />
+          </div>
+        ) : null}
 
         <ul className="case-picker">
           {cases.map((covered) => {
@@ -236,6 +252,13 @@ export function FinalizeForm({
                   <span className="row-main">
                     <span className="bid">{covered.businessId}</span>
                     <span className="row-title">{covered.title}</span>
+                    {/* What was actually recorded, on the row that recorded it. Finalizing
+                        is irreversible, so the last look before committing should be a
+                        review of the evidence — not a list of ticks that requires
+                        reopening every case to remember what each one says. */}
+                    {saved?.actualResult ? (
+                      <span className="case-pick-said">{saved.actualResult}</span>
+                    ) : null}
                   </span>
                   {saved ? (
                     <span className={OUTCOME_TONE[saved.result]}>{OUTCOME_LABEL[saved.result]}</span>
@@ -299,23 +322,35 @@ export function FinalizeForm({
               </div>
             ) : null}
 
-            <label className={bad(field("result"))}>
-              <span>Result</span>
-              <select
-                value={draft.result}
-                onChange={(e) => setOutcome(e.target.value)}
-                required
-                autoFocus
-                {...fieldProps(state, field("result"), CASE_FORM_ID)}
-              >
-                <option value="" disabled>
-                  Choose a result…
-                </option>
-                <option value="PASS">Pass</option>
-                <option value="FAIL">Fail</option>
-                <option value="BLOCKED">Blocked</option>
-              </select>
-            </label>
+            {/* Three fixed options, so they are shown rather than hidden behind a menu:
+                the result is the decision the whole dialog exists for, and a <select>
+                made it two interactions and a scan of a dropdown. A radio group, not
+                buttons — the outcomes are mutually exclusive, and arrow-key navigation,
+                the group's name, and `required` all come from the platform. */}
+            <fieldset
+              className={
+                state?.field === field("result") ? "outcome-set outcome-set-bad" : "outcome-set"
+              }
+            >
+              <legend>Result</legend>
+              <div className="outcome-choices">
+                {OUTCOMES.map((outcome, index) => (
+                  <label key={outcome} className="outcome-choice" data-outcome={outcome}>
+                    <input
+                      type="radio"
+                      name="draft-result"
+                      value={outcome}
+                      checked={draft.result === outcome}
+                      onChange={() => setOutcome(outcome)}
+                      required
+                      autoFocus={index === 0}
+                      {...fieldProps(state, field("result"), CASE_FORM_ID)}
+                    />
+                    <span>{OUTCOME_LABEL[outcome]}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             <label className={bad(field("actualResult"))}>
               <span>What actually happened</span>

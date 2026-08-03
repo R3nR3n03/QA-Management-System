@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listDefectsWithCase } from "@/domain/defects";
-import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
+import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
+import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { DefectList } from "@/ui/record-list";
 import { requireSession } from "@/ui/session";
 
@@ -14,8 +15,9 @@ export default async function DefectsPage({
   const params = await searchParams;
   await requireSession();
   const page = readPage(params);
+  const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
-  const { rows, total } = await listDefectsWithCase({ page, query });
+  const { rows, total } = await listDefectsWithCase({ page, pageSize, query });
 
   return (
     <>
@@ -43,6 +45,7 @@ export default async function DefectsPage({
         }))}
         total={total}
         page={page}
+        pageSize={pageSize}
         pathname="/defects"
         params={params}
       />
