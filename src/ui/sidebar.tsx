@@ -206,7 +206,16 @@ export function Sidebar({
   return (
     <nav aria-label="Main" className={`rail${collapsed ? " rail-collapsed" : ""}`}>
       <div className="rail-top">
-        <span className="rail-brand">{collapsed ? "Q" : "QAMS"}</span>
+        {/* The mark is decoration and the word is the name, at BOTH widths: collapsed,
+            `.rail-word` is clipped rather than removed, so the rail still announces
+            "QAMS". This used to be `collapsed ? "Q" : "QAMS"`, which swapped the real
+            text — a collapsed rail introduced itself as "Q". */}
+        <span className="rail-brand">
+          <span className="rail-mark" aria-hidden="true">
+            Q
+          </span>
+          <span className="rail-word">QAMS</span>
+        </span>
         <button
           type="button"
           className="rail-icon-btn rail-collapse-btn"
@@ -249,50 +258,72 @@ export function Sidebar({
         {visibleGroups.length === 0 ? (
           <p className="rail-empty">No screens match.</p>
         ) : (
-          visibleGroups.map((section) => (
-            <div key={section.group} className="rail-group">
-              <div className="rail-heading">{section.group}</div>
-              {section.items.map((item) => {
-                const Icon = ICONS[item.href] ?? ListChecks;
-                const badge = badges[item.href];
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="nav-link"
-                    aria-current={item.href === activeHref ? "page" : undefined}
-                    title={collapsed ? item.label : undefined}
-                    /* Collapsed, `.nav-label` is `display: none` — out of the
-                       accessibility tree — while the badge is only clip-hidden and
-                       stays in it. Name-from-content therefore produced "12 waiting"
-                       with no screen name at all, so the items a reader most needs to
-                       reach were the ones they could not identify. `title` does not
-                       rescue it: that is consulted only when content yields nothing.
-                       An explicit name sidesteps the whole computation. */
-                    aria-label={
-                      collapsed
-                        ? badge
-                          ? `${item.label}, ${badge} waiting`
-                          : item.label
-                        : undefined
-                    }
-                  >
-                    <Icon size={17} strokeWidth={1.9} aria-hidden />
-                    <span className="nav-label">{item.label}</span>
-                    {badge ? (
-                      /* Not `aria-label` on the span: ARIA prohibits naming a generic
-                         role, so its exposure is unreliable. Real text, visually
-                         replaced by the abbreviated count. */
-                      <span className="nav-badge">
-                        <span className="sr-only">{badge} waiting</span>
-                        <span aria-hidden="true">{badge > 99 ? "99+" : badge}</span>
-                      </span>
-                    ) : null}
-                  </Link>
-                );
-              })}
-            </div>
-          ))
+          visibleGroups.map((section) => {
+            /* Derived from the group name rather than `useId`, so it is stable across
+               the server and client renders and readable in the DOM. `navigation.ts`
+               fixes the three names, and they are unique by construction. */
+            const headingId = `rail-group-${section.group.toLowerCase().replace(/\s+/g, "-")}`;
+            return (
+              /* The heading was previously a bare `<div>` — drawn, but invisible to
+                 assistive tech, so the rail announced one flat run of links with no
+                 boundary between "My work", "Records" and "Administration". Naming the
+                 group from the text already on screen restores the structure a sighted
+                 reader gets for free.
+
+                 This survives collapse: `.rail-heading` is `display: none` there, but
+                 accname explicitly USES a hidden element when `aria-labelledby` points
+                 directly at it, so the groups stay named on the icon rail too. */
+              <div
+                key={section.group}
+                className="rail-group"
+                role="group"
+                aria-labelledby={headingId}
+              >
+                <div className="rail-heading" id={headingId}>
+                  {section.group}
+                </div>
+                {section.items.map((item) => {
+                  const Icon = ICONS[item.href] ?? ListChecks;
+                  const badge = badges[item.href];
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="nav-link"
+                      aria-current={item.href === activeHref ? "page" : undefined}
+                      title={collapsed ? item.label : undefined}
+                      /* Collapsed, `.nav-label` is `display: none` — out of the
+                         accessibility tree — while the badge is only clip-hidden and
+                         stays in it. Name-from-content therefore produced "12 waiting"
+                         with no screen name at all, so the items a reader most needs to
+                         reach were the ones they could not identify. `title` does not
+                         rescue it: that is consulted only when content yields nothing.
+                         An explicit name sidesteps the whole computation. */
+                      aria-label={
+                        collapsed
+                          ? badge
+                            ? `${item.label}, ${badge} waiting`
+                            : item.label
+                          : undefined
+                      }
+                    >
+                      <Icon size={17} strokeWidth={1.9} aria-hidden />
+                      <span className="nav-label">{item.label}</span>
+                      {badge ? (
+                        /* Not `aria-label` on the span: ARIA prohibits naming a generic
+                           role, so its exposure is unreliable. Real text, visually
+                           replaced by the abbreviated count. */
+                        <span className="nav-badge">
+                          <span className="sr-only">{badge} waiting</span>
+                          <span aria-hidden="true">{badge > 99 ? "99+" : badge}</span>
+                        </span>
+                      ) : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })
         )}
       </div>
 

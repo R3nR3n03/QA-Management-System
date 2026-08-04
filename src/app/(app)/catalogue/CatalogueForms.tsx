@@ -57,7 +57,10 @@ export function ProductForm({ onDone }: { onDone: () => void }) {
         </label>
         <label className={bad("status")}>
           <span>Status</span>
-          <input name="status" placeholder="Active" required disabled={pending} {...fieldProps(state, "status", PRODUCT_FORM_ID)} />
+          <select name="status" defaultValue="Active" required disabled={pending} {...fieldProps(state, "status", PRODUCT_FORM_ID)}>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
         </label>
       </div>
       <button className="btn" type="submit" disabled={pending}>

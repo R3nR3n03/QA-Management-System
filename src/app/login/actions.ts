@@ -146,8 +146,15 @@ export async function signOut(): Promise<void> {
     occurredAt: new Date().toISOString(),
     requestId,
     status: 204,
-    method: "POST",
-    path: "/login",
+    // No `method`/`path`, matching `runAction` (`src/ui/action.ts:88`). A server action has
+    // no target of its own — the POST goes to whatever screen the shell was rendering, so
+    // this used to log `/login`, the one page the user demonstrably was NOT on. An operator
+    // asking "where did this session end" got a confident wrong answer, and it collided with
+    // the throttle line above, where `/login` is the real request path.
+    //
+    // `AUTH_LOGGED_OUT` with no path is therefore the screen door; the API door is the same
+    // action carrying `/api/v1/auth/logout` from `requestTarget`. The two still aggregate on
+    // `action`, which is what they share, and stay separable on what they don't.
     actorId: session?.userId,
     action: "AUTH_LOGGED_OUT",
     errorCode: revokeFailed ? "INTERNAL_ERROR" : undefined,

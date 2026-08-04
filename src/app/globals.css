@@ -1496,9 +1496,28 @@ dialog.modal::backdrop {
   align-items: stretch;
 }
 
+/* Pinned to the viewport, not stretched to the document.
+
+   `.shell` is `align-items: stretch` over a `min-height: 100vh` box, so the rail used to
+   take the height of the TALLEST column — the page content. On a long list that made the
+   rail thousands of pixels tall, which pushed `.rail-footer` (identity, theme, sign out)
+   to the bottom of the document: reaching sign-out meant scrolling past every row on the
+   screen. `.rail-groups` never scrolled either, because a column that grows without limit
+   never overflows, so its `overflow-y: auto` was inert.
+
+   Capping the height at the viewport and sticking it there fixes both at once: the footer
+   is always on screen, and `.rail-groups` finally has a bounded parent to scroll inside.
+   `align-self` must override the container's `stretch` or it fights the explicit height.
+   Nothing above this is a scroll container and neither html nor body sets `overflow`, so
+   sticky resolves against the viewport as intended. */
 .rail {
   width: var(--rail-w);
   flex: 0 0 auto;
+  align-self: flex-start;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh; /* phones/tablets: excludes the retracting browser chrome */
   background: var(--surface-2);
   border-right: 1px solid var(--line);
   padding: var(--sp-4) var(--sp-3);
@@ -1521,11 +1540,43 @@ dialog.modal::backdrop {
   min-height: 28px;
 }
 
+/* Brand lockup: mark + wordmark.
+
+   Not `--mono`. `DESIGN-SYSTEM.md:44` reserves it for business IDs and references, and
+   that reservation is the whole point of the token — a reader scanning for `TC-LOGIN-0001`
+   has learned that monospace means "an identifier, compare it character by character".
+   Spending it on chrome that is never compared to anything dilutes the one signal it
+   carries. `--sans` (inherited) is the correct voice for a name.
+
+   The mark exists because of what the collapsed rail used to render: a bare letter "Q"
+   with no container, which reads as a truncation rather than a logo. It is the same
+   geometry as `src/app/icon.svg`, so the tab and the rail now agree.
+
+   `--accent` on `--surface-2` for the word and `--on-accent` on `--accent` for the mark
+   are both already in the contrast matrix (`globals.contrast.test.ts:98,100`). */
 .rail-brand {
-  font-family: var(--mono);
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.rail-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-ctl);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  line-height: 1;
+}
+.rail-word {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   color: var(--accent);
   white-space: nowrap;
 }
@@ -1585,22 +1636,46 @@ dialog.modal::backdrop {
   display: none;
 }
 
+/* The only part of the rail that scrolls. `min-height: 0` is what lets it shrink below
+   its content inside the now-bounded column — without it a flex item floors at its
+   content height and would push the footer back off screen on a short viewport.
+   `overscroll-behavior` stops a flick that reaches the end of the nav from continuing
+   into the page behind it, which reads as the rail dragging the content sideways. */
 .rail-groups {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
 }
 
+/* Sticks to the top of `.rail-groups` while its own group is in view, so a reader who
+   has scrolled into the middle of a long list can still see which group they are in.
+   This only became possible once `.rail-groups` was given a bounded height and actually
+   scrolled — before that the rail grew with the page and nothing ever moved.
+
+   `z-index` is load-bearing, not defensive. The heading is the FIRST child of
+   `.rail-group`, so in paint order its own `.nav-link` siblings come after it and would
+   show through the stuck band. Lifting it into the positioned layer puts it above them.
+   The opaque background is the other half of the same fix.
+
+   Type: `--sans`, not `--mono` — see `.rail-brand` above. 11px/700 also carries further
+   than the old 10px monospace at the same visual weight; uppercase mono at 10px was the
+   smallest text in the product. */
 .rail-heading {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-3);
-  padding: 0 10px var(--sp-1);
+  background: var(--surface-2);
+  padding: var(--sp-1) 10px;
   white-space: nowrap;
   transition: opacity var(--rail-ease);
 }
@@ -1663,12 +1738,26 @@ dialog.modal::backdrop {
   color: var(--accent);
 }
 
+/* `flex: none` on all three fixed regions, so a short viewport takes its space out of
+   `.rail-groups` — which can scroll — instead of squashing the brand, the search box and
+   the footer, which cannot. Flex items shrink by default, and the footer is the one that
+   must survive intact: it holds sign-out.
+
+   The shadow is a scroll affordance, not decoration. Now that the nav clips at the
+   footer instead of running to the end of the page, a cut-off link needs to read as
+   "more above/below", not as the end of the list. */
+.rail-top,
+.rail-search {
+  flex: none;
+}
 .rail-footer {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-2) 0;
   border-top: 1px solid var(--line);
+  box-shadow: 0 -10px 12px -12px var(--line-strong);
 }
 .rail-avatar {
   flex: none;
@@ -1712,6 +1801,22 @@ dialog.modal::backdrop {
 .rail-collapsed .rail-identity,
 .rail-collapsed .rail-empty {
   display: none;
+}
+/* The wordmark is CLIPPED here, not `display: none` like everything above it, so the
+   rail keeps announcing "QAMS" at either width. This replaces a `collapsed ? "Q" : "QAMS"`
+   ternary in the component, which swapped the real DOM text — a collapsed rail announced
+   the landmark as, literally, "Q". The mark that renders in its place is `aria-hidden`,
+   so nothing is said twice. Same technique as `.rail-collapsed .nav-badge` below. */
+.rail-collapsed .rail-word {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  white-space: nowrap;
 }
 /* The badge count stays in the accessibility tree when the rail collapses (its
    aria-label still announces "N waiting"); the ::after dot below is the visual. */
@@ -1768,10 +1873,16 @@ dialog.modal::backdrop {
   .shell {
     flex-direction: column;
   }
+  /* Undo the viewport-pinned column. Here the rail is a top bar that scrolls away with
+     the page: a `100dvh` sticky element would hand the whole first screen to navigation
+     and leave the content below the fold. */
   .rail,
   .rail-collapsed {
     width: auto;
     flex: none;
+    align-self: auto;
+    position: static;
+    height: auto;
     border-right: none;
     border-bottom: 1px solid var(--line);
     padding: var(--sp-3);
@@ -1794,7 +1905,7 @@ dialog.modal::backdrop {
     display: revert;
   }
   /* Undo the collapsed-rail clipping: on a phone the rail is a top bar and the
-     badge is fully visible again. */
+     badge and wordmark are fully visible again. */
   .rail-collapsed .nav-badge {
     position: static;
     width: auto;
@@ -1804,6 +1915,20 @@ dialog.modal::backdrop {
     margin: 0;
     overflow: visible;
     clip: auto;
+  }
+  .rail-collapsed .rail-word {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+  }
+  /* The group label stops sticking. `.rail-groups` is `overflow: visible` at this width,
+     so it is no longer a scroll container — the nearest one is the viewport, and a sticky
+     heading would leave the rail entirely and pin itself over the page content. */
+  .rail-heading {
+    position: static;
   }
   .rail-collapsed .nav-link:has(.nav-badge)::after {
     display: none;
@@ -1824,6 +1949,8 @@ dialog.modal::backdrop {
   .rail-collapsed .rail-footer {
     flex-direction: row;
     align-items: center;
+    /* Nothing scrolls under it here, so the affordance would be a lie. */
+    box-shadow: none;
   }
   .shell-main {
     padding: var(--sp-4);

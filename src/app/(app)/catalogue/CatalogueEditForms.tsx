@@ -22,7 +22,7 @@ import {
  * immutable (`docs/data-model.md`). QA_LEAD gating is enforced in the domain.
  */
 
-type FieldSpec = { name: string; label: string; defaultValue: string };
+type FieldSpec = { name: string; label: string; defaultValue: string; options?: string[] };
 
 const FORM_ID = "edit-catalogue";
 
@@ -80,7 +80,17 @@ function EditableRow({
           {fields.map((field) => (
             <label key={field.name} className={bad(field.name)}>
               <span>{field.label}</span>
-              <input name={field.name} defaultValue={field.defaultValue} required disabled={pending} {...fieldProps(state, field.name, FORM_ID)} />
+              {field.options ? (
+                <select name={field.name} defaultValue={field.defaultValue} required disabled={pending} {...fieldProps(state, field.name, FORM_ID)}>
+                  {field.options.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input name={field.name} defaultValue={field.defaultValue} required disabled={pending} {...fieldProps(state, field.name, FORM_ID)} />
+              )}
             </label>
           ))}
           <button className="btn" type="submit" disabled={pending}>
@@ -119,7 +129,7 @@ export function EditableProductRow({
       fields={[
         { name: "name", label: "Name", defaultValue: name },
         { name: "versionTag", label: "Version", defaultValue: versionTag },
-        { name: "status", label: "Status", defaultValue: status }
+        { name: "status", label: "Status", defaultValue: status, options: ["Active", "Inactive"] }
       ]}
     >
       {children}

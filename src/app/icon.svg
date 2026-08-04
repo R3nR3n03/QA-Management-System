@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="QAMS">
+  <!-- The tab mark: the same "Q" the rail shows when collapsed (src/ui/sidebar.tsx),
+       on --accent (#3a4a7a). Drawn as geometry rather than a <text> glyph because a
+       favicon renders outside the page, with no access to the document's fonts — a
+       text-based mark falls back to whatever the platform picks and stops matching.
+
+       Solid accent fill, not a transparent outline: a tab strip is light or dark
+       depending on the OS theme, and a self-contained tile reads on both. Colours are
+       literals for the same reason — no CSS custom property is in scope here. If
+       --accent changes in globals.css, change it here too. -->
+  <rect width="32" height="32" rx="7" fill="#3a4a7a"/>
+  <circle cx="15" cy="15" r="6.25" fill="none" stroke="#ffffff" stroke-width="3"/>
+  <path d="M19.2 19.2 23.5 23.5" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+</svg>
