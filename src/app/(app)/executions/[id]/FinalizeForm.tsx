@@ -260,8 +260,13 @@ export function FinalizeForm({
                       <span className="case-pick-said">{saved.actualResult}</span>
                     ) : null}
                   </span>
+                  {/* The tone lookup is guarded: an unexpected value would otherwise
+                      render `class="undefined"`, an unstyled span where a result chip
+                      belongs. The import screens already guard the same lookup. */}
                   {saved ? (
-                    <span className={OUTCOME_TONE[saved.result]}>{OUTCOME_LABEL[saved.result]}</span>
+                    <span className={OUTCOME_TONE[saved.result] ?? "state"}>
+                      {OUTCOME_LABEL[saved.result] ?? saved.result}
+                    </span>
                   ) : (
                     <span className="muted">Not recorded</span>
                   )}

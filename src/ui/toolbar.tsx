@@ -17,13 +17,16 @@ export function FilterToolbar({
   onChange,
   placeholder,
   label,
-  busy = false
+  busy = false,
+  disabled = false
 }: {
   value: string;
   onChange: (next: string) => void;
   placeholder: string;
   label: string;
   busy?: boolean;
+  /** Held while the surrounding form is submitting, like every other control in it. */
+  disabled?: boolean;
 }) {
   return (
     <div className="list-toolbar" data-busy={busy ? "" : undefined}>
@@ -34,9 +37,16 @@ export function FilterToolbar({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Escape") onChange("");
+          // This filter sits INSIDE PlanForm's <form>, so Enter would otherwise trigger
+          // implicit submission and fire the real submit button — creating the execution
+          // and redirecting away mid-filter, from a keystroke meant to narrow a list.
+          // Reachable the moment anything is selected, which is when the submit button
+          // stops being disabled. `UrlFilterToolbar` below already guards this.
+          if (e.key === "Enter") e.preventDefault();
         }}
         placeholder={placeholder}
         aria-label={label}
+        disabled={disabled}
       />
     </div>
   );
@@ -82,9 +92,27 @@ export function UrlFilterToolbar({
   const urlValue = searchParams.get(paramKey) ?? "";
   const [value, setValue] = useState(urlValue);
   const [syncedFrom, setSyncedFrom] = useState(urlValue);
+  /**
+   * The last needle THIS input put in the URL, so its own echo can be told apart from
+   * a genuinely external change. State, not a ref: it is read while rendering, and a
+   * ref read during render is not safe under concurrent rendering.
+   *
+   * Without that distinction the re-sync deleted characters as they were typed. A
+   * commit writes the TRIMMED needle and `router.replace` runs in a transition, so the
+   * new `searchParams` only arrives after a server round trip — by which time the
+   * typing has moved on. The next render then saw a URL that differed from
+   * `syncedFrom` and dutifully overwrote the input with the older, shorter value.
+   *
+   * Type "foo", pause past the debounce, keep typing " bar": the commit for "foo"
+   * lands mid-word and the input snaps back to "foo". The slower the query, the wider
+   * the window — worst exactly where the debounce was supposed to help most.
+   */
+  const [committed, setCommitted] = useState(urlValue);
   if (urlValue !== syncedFrom) {
     setSyncedFrom(urlValue);
-    setValue(urlValue);
+    // Follow the URL only when something other than this input moved it — Back,
+    // Forward, or a link. Our own echo is ignored: the input is already ahead of it.
+    if (urlValue !== committed) setValue(urlValue);
   }
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -101,6 +129,7 @@ export function UrlFilterToolbar({
     if (trimmed === "") params.delete(paramKey);
     else params.set(paramKey, trimmed);
     params.delete(pageKey);
+    setCommitted(trimmed);
     const query = params.toString();
     startTransition(() => {
       router.replace(query === "" ? pathname : `${pathname}?${query}`, { scroll: false });
@@ -139,5 +168,66 @@ export function UrlFilterToolbar({
         aria-label={label}
       />
     </div>
+  );
+}
+
+/**
+ * A single-choice list filter that lives in the query string, like the needle above.
+ *
+ * A `<select>` rather than the chip row the lifecycle states use: those are a closed set
+ * of three or four, while products are catalogue records with no ceiling — a chip per
+ * product would wrap into a wall the moment a real catalogue arrives, and it would grow
+ * without anyone deciding it should.
+ *
+ * `router.replace` and no debounce: unlike typing, picking an option is one deliberate
+ * act, so it commits immediately and does not deserve a history entry of its own.
+ */
+export function UrlSelectFilter({
+  options,
+  label,
+  allLabel,
+  paramKey,
+  pageKey = "page"
+}: {
+  options: Array<{ value: string; label: string }>;
+  label: string;
+  allLabel: string;
+  paramKey: string;
+  pageKey?: string;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
+
+  const value = searchParams.get(paramKey) ?? "";
+
+  const commit = (next: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "") params.delete(paramKey);
+    else params.set(paramKey, next);
+    // Narrowing while on page 4 would land on nothing: the filtered list is shorter.
+    params.delete(pageKey);
+    const query = params.toString();
+    startTransition(() => {
+      router.replace(query === "" ? pathname : `${pathname}?${query}`, { scroll: false });
+    });
+  };
+
+  return (
+    <select
+      className="select-filter"
+      aria-label={label}
+      value={value}
+      data-busy={isPending ? "" : undefined}
+      onChange={(event) => commit(event.target.value)}
+    >
+      <option value="">{allLabel}</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }

@@ -1,6 +1,6 @@
-import { TestCaseLifecycleState } from "@prisma/client";
-import { listAssignableTesters } from "@/domain/executions";
-import { listTestCases } from "@/domain/test-cases";
+import { listProductOptions } from "@/domain/catalogue";
+import { listAssignableTesters, openExecutionCountsByTester } from "@/domain/executions";
+import { listApprovedCandidates } from "@/domain/test-cases";
 import { readParam, type ListSearchParams } from "@/ui/list-params";
 import { requireSession } from "@/ui/session";
 import { PlanForm } from "./PlanForm";
@@ -14,12 +14,22 @@ export default async function PlanExecutionPage({
 }) {
   const params = await searchParams;
   await requireSession();
-  // Unpaged on purpose: the picker needs every approved candidate. "Approved" is a
-  // `where` now rather than a filter over every test case in the system.
-  const [{ rows: approved }, testers] = await Promise.all([
-    listTestCases({ states: [TestCaseLifecycleState.APPROVED] }),
-    listAssignableTesters()
+  // Unpaged on purpose: the picker needs every approved candidate, because the selection
+  // has to survive filtering. What it RENDERS is bounded by the form.
+  const [approved, testers, openRuns, allProducts] = await Promise.all([
+    listApprovedCandidates(),
+    listAssignableTesters(),
+    openExecutionCountsByTester(),
+    listProductOptions()
   ]);
+
+  /*
+   * Only products that actually have an Approved case. The picker filters a set that is
+   * already in the browser, so offering a product with nothing to offer would produce an
+   * empty list and no explanation — a dead option in a dropdown reads as a broken filter.
+   */
+  const withCandidates = new Set(approved.map((testCase) => testCase.productId));
+  const products = allProducts.filter((product) => withCandidates.has(product.id));
 
   /*
    * `?cases=` is a preselection, never an instruction. A finalized run links here with
@@ -51,8 +61,23 @@ export default async function PlanExecutionPage({
           </div>
         ) : (
           <PlanForm
-            cases={approved.map((c) => ({ id: c.id, businessId: c.businessId, title: c.title }))}
-            testers={testers.map((t) => ({ id: t.id, displayName: t.displayName }))}
+            cases={approved.map((c) => ({
+              id: c.id,
+              businessId: c.businessId,
+              title: c.title,
+              priority: c.priority,
+              severity: c.severity,
+              productId: c.productId,
+              moduleName: c.module.name,
+              featureName: c.feature.name
+            }))}
+            products={products.map((p) => ({ id: p.id, businessId: p.businessId, name: p.name }))}
+            testers={testers.map((t) => ({
+              id: t.id,
+              displayName: t.displayName,
+              // Absent from the groupBy means no open runs, not missing data.
+              openRuns: openRuns.get(t.id) ?? 0
+            }))}
             preselect={preselect}
             unavailable={unavailable}
           />

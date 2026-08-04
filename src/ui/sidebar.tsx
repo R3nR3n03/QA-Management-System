@@ -81,22 +81,44 @@ const PREF_EVENT = "qams-pref-change";
  * mismatch — users who chose a non-default see one repaint after hydration, never an
  * error. Writes notify through one window event so every subscriber re-reads.
  */
+/**
+ * Hoisted, not inline: `useSyncExternalStore` re-subscribes whenever the `subscribe`
+ * identity changes, and an arrow defined in the body is a new function every render.
+ * This component re-renders on every keystroke in the rail search and on every route
+ * change, so an inline version tore down and re-attached four window listeners each
+ * time. It closes over nothing, so there is no reason for it to live in the body.
+ */
+function subscribeToPrefs(onChange: () => void): () => void {
+  window.addEventListener(PREF_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(PREF_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
 function useStoredPref(key: string, fallback: string): [string, (value: string | null) => void] {
   const value = useSyncExternalStore(
-    (onChange) => {
-      window.addEventListener(PREF_EVENT, onChange);
-      window.addEventListener("storage", onChange);
-      return () => {
-        window.removeEventListener(PREF_EVENT, onChange);
-        window.removeEventListener("storage", onChange);
-      };
+    subscribeToPrefs,
+    // Storage can throw outright — Safari private browsing, or a browser configured to
+    // block it. This runs during render, so an unguarded read would take the whole
+    // client tree down over a preference. A preference is never worth that: fall back.
+    () => {
+      try {
+        return localStorage.getItem(key) ?? fallback;
+      } catch {
+        return fallback;
+      }
     },
-    () => localStorage.getItem(key) ?? fallback,
     () => fallback
   );
   const set = (next: string | null) => {
-    if (next === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, next);
+    try {
+      if (next === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, next);
+    } catch {
+      // Not persisted. The event below still repaints this session correctly.
+    }
     window.dispatchEvent(new Event(PREF_EVENT));
   };
   return [value, set];
@@ -136,7 +158,18 @@ export function Sidebar({
     applyTheme(theme);
   }, [theme]);
 
-  const toggleCollapsed = () => setCollapsedPref(collapsed ? "0" : "1");
+  /**
+   * Collapsing clears the needle. The search box only renders while expanded, so a
+   * filter left active kept narrowing a list whose control had just left the screen —
+   * and a needle that matched nothing collapsed to a rail with no links at all (the
+   * "No screens match." line is itself hidden when collapsed). On a phone that was
+   * unrecoverable: the expand button is `display: none` under 760px, so the user was
+   * left with no navigation and no way to bring it back.
+   */
+  const toggleCollapsed = () => {
+    setQuery("");
+    setCollapsedPref(collapsed ? "0" : "1");
+  };
 
   const cycleTheme = () => {
     const order: Theme[] = ["system", "light", "dark"];
@@ -229,12 +262,30 @@ export function Sidebar({
                     className="nav-link"
                     aria-current={item.href === activeHref ? "page" : undefined}
                     title={collapsed ? item.label : undefined}
+                    /* Collapsed, `.nav-label` is `display: none` — out of the
+                       accessibility tree — while the badge is only clip-hidden and
+                       stays in it. Name-from-content therefore produced "12 waiting"
+                       with no screen name at all, so the items a reader most needs to
+                       reach were the ones they could not identify. `title` does not
+                       rescue it: that is consulted only when content yields nothing.
+                       An explicit name sidesteps the whole computation. */
+                    aria-label={
+                      collapsed
+                        ? badge
+                          ? `${item.label}, ${badge} waiting`
+                          : item.label
+                        : undefined
+                    }
                   >
                     <Icon size={17} strokeWidth={1.9} aria-hidden />
                     <span className="nav-label">{item.label}</span>
                     {badge ? (
-                      <span className="nav-badge" aria-label={`${badge} waiting`}>
-                        {badge > 99 ? "99+" : badge}
+                      /* Not `aria-label` on the span: ARIA prohibits naming a generic
+                         role, so its exposure is unreliable. Real text, visually
+                         replaced by the abbreviated count. */
+                      <span className="nav-badge">
+                        <span className="sr-only">{badge} waiting</span>
+                        <span aria-hidden="true">{badge > 99 ? "99+" : badge}</span>
                       </span>
                     ) : null}
                   </Link>

@@ -60,7 +60,9 @@ export function RowsTable({ rows }: { rows: ImportRowData[] }) {
   };
 
   const header = (key: SortKey, label: string) => (
-    <th aria-sort={sortKey === key ? (ascending ? "ascending" : "descending") : undefined}>
+    // `scope="col"` rather than leaving the association to a UA heuristic — it is also
+    // what makes `aria-sort` reliably interpreted.
+    <th scope="col" aria-sort={sortKey === key ? (ascending ? "ascending" : "descending") : undefined}>
       <button type="button" onClick={() => toggle(key)}>
         {label}
         {sortKey === key ? (
@@ -81,12 +83,15 @@ export function RowsTable({ rows }: { rows: ImportRowData[] }) {
     <>
       <div className="table-scroll">
         <table className="data-table">
+          {/* Without a name this announced as an unnamed 4-column table in a screen
+              reader's table list. */}
+          <caption className="sr-only">Import row report</caption>
           <thead>
             <tr>
               {header("source", "Sheet · row")}
               {header("outcome", "Outcome")}
               {header("errorCode", "Error code")}
-              <th>Details</th>
+              <th scope="col">Details</th>
             </tr>
           </thead>
           <tbody>

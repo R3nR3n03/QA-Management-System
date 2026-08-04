@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireAuth, type AuthContext } from "@/lib/auth";
+import { AppError } from "@/lib/errors";
 
 /**
  * The session gate for screens.
@@ -20,11 +21,23 @@ import { requireAuth, type AuthContext } from "@/lib/auth";
  * (`docs/api-and-security.md:37`). Only the failure presentation differs.
  */
 export async function requireSession(): Promise<AuthContext> {
+  let authenticated: AuthContext;
   try {
-    return await requireAuth();
-  } catch {
-    // Must be outside the try: redirect() signals by throwing, so calling it inside
-    // would be swallowed by this very catch.
-    redirect("/login");
+    authenticated = await requireAuth();
+  } catch (error) {
+    // ONLY an authentication failure means "go and sign in". `requireAuth` also issues
+    // a `prisma.user.findUnique`, so a connection failure or timeout throws here too —
+    // and a bare `catch` turned that into a redirect, so a database incident logged
+    // every signed-in user out. They would then sign in, `authenticate()` would fail
+    // the same way, and they would be told their credentials were the problem. Anything
+    // that is not UNAUTHORIZED belongs to `src/app/error.tsx`, which reports it with a
+    // log-correlatable reference instead of guessing.
+    if (error instanceof AppError && error.code === "UNAUTHORIZED") {
+      // Must be outside the try: redirect() signals by throwing, so calling it inside
+      // would be swallowed by this very catch.
+      redirect("/login");
+    }
+    throw error;
   }
+  return authenticated;
 }

@@ -1,10 +1,15 @@
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import type { TestCaseLifecycleState } from "@prisma/client";
 import { TestCaseStateChip } from "./chips";
+import { ListEmpty } from "./list-empty";
 import { readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "./paging";
-import { UrlFilterToolbar } from "./toolbar";
+import { UrlFilterToolbar, UrlSelectFilter } from "./toolbar";
+
+/** A product offered as a filter option. */
+export type ProductOption = { id: string; businessId: string; name: string };
 
 /**
  * The one way a list of test cases renders, so `/test-cases`, `/my-work/drafts` and
@@ -40,7 +45,10 @@ export function CaseTable({
   emptyText,
   pageSize = PAGE_SIZE,
   queryKey = "q",
-  pageKey = "page"
+  pageKey = "page",
+  products,
+  productKey = "product",
+  productEmptyText = "No test case belongs to this product."
 }: {
   /** One page of rows, already fetched with `skip`/`take`. */
   rows: CaseRow[];
@@ -53,13 +61,42 @@ export function CaseTable({
   pageSize?: number;
   queryKey?: string;
   pageKey?: string;
+  /** Omit to leave the product filter off this screen entirely. */
+  products?: ProductOption[];
+  productKey?: string;
+  /**
+   * What to say when the product filter is the only thing that emptied the list. The
+   * default speaks for `/test-cases`, which shows every case; a screen that is already
+   * scoped must say so, or it claims something false. `/review` showing "no test case
+   * belongs to this product" for a product with two hundred Approved cases and nothing
+   * in review is a screen arguing with the one next to it.
+   */
+  productEmptyText?: string;
 }) {
   const query = readParam(params, queryKey);
-  // The toolbar must survive a filter that matches few rows, or there is no way left to
-  // clear it — so an ACTIVE filter keeps it on screen regardless of the count.
-  const showFilter = query !== "" || total > 5;
+  const product = readParam(params, productKey);
+  // A filter must survive matching few rows, or there is no way left to clear it — so an
+  // ACTIVE filter of either kind keeps the controls on screen regardless of the count.
+  const filtered = query !== "" || product !== "";
+  const showNeedle = filtered || total > 5;
+  /*
+   * The product dropdown is offered whenever there are products at all, matching
+   * `ExecutionList`. It used to require TWO — the argument being that with one product
+   * every row belongs to it, so the control cannot change the list, and a filter that
+   * does nothing teaches people to distrust the ones that do.
+   *
+   * That reads well and behaves badly: a catalogue grows one product at a time, and a
+   * filter that appears by itself once someone adds a second is a filter nobody knows
+   * to look for. It also made the control invisible on every screen of a single-product
+   * deployment, which looks like the feature was never built. Being consistently there
+   * is worth more than being hidden while it is redundant.
+   *
+   * It is NOT tied to `showNeedle`: the row count decides whether a needle earns its
+   * place, and the catalogue decides whether the product filter does.
+   */
+  const showProducts = products !== undefined && products.length > 0;
 
-  if (total === 0 && query === "") {
+  if (total === 0 && !filtered) {
     return (
       <div className="card empty">
         <p>{emptyText}</p>
@@ -69,38 +106,84 @@ export function CaseTable({
 
   return (
     <>
-      {showFilter ? (
-        <UrlFilterToolbar
-          placeholder="Filter by ID, title, or state…"
-          label="Filter test cases"
-          paramKey={queryKey}
-          pageKey={pageKey}
-        />
+      {showNeedle || showProducts ? (
+        <div className="row" style={{ marginBottom: "var(--sp-3)" }}>
+          {showNeedle ? (
+            <UrlFilterToolbar
+              placeholder="Filter by ID, title, or state…"
+              label="Filter test cases"
+              paramKey={queryKey}
+              pageKey={pageKey}
+            />
+          ) : null}
+          {showProducts ? (
+            <UrlSelectFilter
+              options={products.map((row) => ({
+                value: row.id,
+                label: `${row.businessId} · ${row.name}`
+              }))}
+              label="Filter by product"
+              allLabel="All products"
+              paramKey={productKey}
+              pageKey={pageKey}
+            />
+          ) : null}
+        </div>
       ) : null}
 
       <div className="card card-flush">
         {rows.length === 0 ? (
-          <div className="empty">
-            <p>Nothing matches &ldquo;{query}&rdquo;.</p>
-          </div>
+          // Two filters can each empty the list, so the message has to name the one that
+          // did it — "nothing matches" with an empty needle reads as a bug. ListEmpty
+          // takes the third case (a page past the end) off this branch entirely.
+          <ListEmpty
+            total={total}
+            pathname={pathname}
+            params={params}
+            pageKey={pageKey}
+            noMatch={
+              query !== ""
+                ? `Nothing matches “${query}”${product !== "" ? " in this product" : ""}.`
+                : productEmptyText
+            }
+          />
         ) : (
-          rows.map((row) => (
-            <div key={row.id} className="list-row">
-              <div className="row-main">
-                <div className="cluster">
-                  <span className="bid">{row.businessId}</span>
-                  <TestCaseStateChip state={row.lifecycleState} />
+          <ul className="row-list">
+            {rows.map((row) => (
+              <li key={row.id} className="list-row">
+                <div className="row-main">
+                  <div className="cluster">
+                    <span className="bid">{row.businessId}</span>
+                    <TestCaseStateChip state={row.lifecycleState} />
+                  </div>
+                  {/* The title is the click target, matching ExecutionList: it is the
+                      widest thing in the row and the thing the reader is already looking
+                      at. Before this, cases and defects were the only lists where
+                      clicking the title did nothing. */}
+                  <div className="row-title">
+                    <Link className="row-link" href={`/test-cases/${row.id}`}>
+                      {row.title}
+                    </Link>
+                  </div>
+                  <div className="muted">
+                    {row.priority || "no"} priority · {row.severity || "no"} severity
+                  </div>
                 </div>
-                <div className="row-title">{row.title}</div>
-                <div className="muted">
-                  {row.priority || "no"} priority · {row.severity || "no"} severity
-                </div>
-              </div>
-              <Link href={`/test-cases/${row.id}`} style={{ fontSize: 14 }}>
-                View
-              </Link>
-            </div>
-          ))
+                {/* Same destination as the title, so it leaves the tab order: 50 rows
+                    would otherwise be 100 tab stops to reach 50 places. The label names
+                    the record, or a screen reader's link list is 50 identical "View"s. */}
+                <Link
+                  className="btn btn-secondary btn-sm"
+                  href={`/test-cases/${row.id}`}
+                  aria-label={`View ${row.businessId}`}
+                  tabIndex={-1}
+                >
+                  View
+                  <ChevronRight size={14} aria-hidden />
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
         <Pager
           total={total}

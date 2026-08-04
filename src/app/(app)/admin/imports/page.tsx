@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { Download } from "lucide-react";
+import { ChevronRight, Download } from "lucide-react";
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listImportRuns } from "@/domain/imports";
+import { formatUtcMinute } from "@/ui/format";
 import { readPage, readPageSize, type ListSearchParams } from "@/ui/list-params";
+import { RUN_STATUS_TONE, toneFor } from "./[id]/outcome-tone";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { Pager } from "@/ui/pager";
 import { requireSession } from "@/ui/session";
@@ -54,37 +56,63 @@ export default async function ImportsPage({
       <h2>Runs</h2>
       <div className="card card-flush">
         {runs.length === 0 ? (
+          // The pager stays inside the non-empty branch: with `sizeOptions` passed it
+          // can never take its own bail-out, so an empty list was followed by
+          // "Showing 0 of 0 · Rows 25 50 100".
           <div className="empty">
-            <p>No imports yet.</p>
+            <p>No imports yet. Upload a workbook above to seed the catalogue.</p>
           </div>
         ) : (
-          runs.map((run) => (
-            <div key={run.id} className="list-row">
-              <div className="row-main">
-                <div className="row-title">{run.sourceFileName}</div>
-                <div className="muted">
-                  {run.startedAt.toISOString()} · {run.status}
-                  {run.completedAt ? ` · completed ${run.completedAt.toISOString()}` : ""}
-                </div>
-              </div>
-              <span
-                className={
-                  run.status === "COMPLETED" || run.status === "FAILED"
-                    ? "state state-accent"
-                    : "state"
-                }
-              >
-                {run.status}
-              </span>
-              <Link href={`/admin/imports/${run.id}`} style={{ fontSize: 14 }}>
-                Report
-              </Link>
-            </div>
-          ))
-        )}
-        <Pager total={total} page={page} pathname="/admin/imports" params={params} pageSize={pageSize}
+          <>
+            <ul className="row-list">
+              {runs.map((run) => (
+                <li key={run.id} className="list-row">
+                  <div className="row-main">
+                    <div className="row-title">
+                      <Link className="row-link" href={`/admin/imports/${run.id}`}>
+                        {run.sourceFileName}
+                      </Link>
+                    </div>
+                    {/* The house format, via the shared formatter — these screens were
+                        the only ones printing a raw `2026-08-04T09:12:33.123Z`. */}
+                    <div className="muted">
+                      <time dateTime={run.startedAt.toISOString()}>
+                        {formatUtcMinute(run.startedAt)}
+                      </time>
+                      {run.completedAt ? (
+                        <>
+                          {" · completed "}
+                          <time dateTime={run.completedAt.toISOString()}>
+                            {formatUtcMinute(run.completedAt)}
+                          </time>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                  <span className={toneFor(RUN_STATUS_TONE, run.status)}>{run.status}</span>
+                  <Link
+                    className="btn btn-secondary btn-sm"
+                    href={`/admin/imports/${run.id}`}
+                    aria-label={`Report for ${run.sourceFileName}`}
+                    tabIndex={-1}
+                  >
+                    Report
+                    <ChevronRight size={14} aria-hidden />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <Pager
+              total={total}
+              page={page}
+              pathname="/admin/imports"
+              params={params}
+              pageSize={pageSize}
               sizeOptions={PAGE_SIZE_OPTIONS}
-              label="import runs" />
+              label="import runs"
+            />
+          </>
+        )}
       </div>
     </>
   );

@@ -46,8 +46,9 @@ export default async function UsersPage({
       <div className="card card-flush">
         {/* Rows stay server-rendered (they carry server-action forms) and are the page
             the database returned, not the whole staff list sliced in the browser. */}
-        {users.map((user) => (
-            <div key={user.id} className="list-row">
+        <ul className="row-list">
+          {users.map((user) => (
+            <li key={user.id} className="list-row">
               <div className="row-main">
                 <div className="row-title">
                   {user.displayName}
@@ -58,7 +59,13 @@ export default async function UsersPage({
                   {user.active ? "" : " · inactive"}
                 </div>
               </div>
-              <RoleForm userId={user.id} version={user.version} role={user.role} />
+              <RoleForm
+                userId={user.id}
+                version={user.version}
+                role={user.role}
+                displayName={user.displayName}
+                isSelf={user.id === auth.userId}
+              />
               <EditPersonForm
                 userId={user.id}
                 version={user.version}
@@ -67,8 +74,9 @@ export default async function UsersPage({
                 active={user.active}
                 isSelf={user.id === auth.userId}
               />
-            </div>
-        ))}
+            </li>
+          ))}
+        </ul>
         <Pager total={total} page={page} pathname="/admin/users" params={params} pageSize={pageSize}
               sizeOptions={PAGE_SIZE_OPTIONS}
               label="people" />

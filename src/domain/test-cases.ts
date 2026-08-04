@@ -39,6 +39,8 @@ export type TestCaseListOptions = PageRequest & {
   states?: TestCaseLifecycleState[];
   /** Restrict to one author: "my drafts". */
   authorUserId?: string;
+  /** Restrict to one product — the top of the hierarchy, so the broadest useful scope. */
+  productId?: string;
 };
 
 /**
@@ -55,6 +57,8 @@ function testCaseWhere(options: TestCaseListOptions): Prisma.TestCaseWhereInput 
 
   if (options.states && options.states.length > 0) all.push({ lifecycleState: { in: options.states } });
   if (options.authorUserId) all.push({ authorUserId: options.authorUserId });
+  // Indexed: TestCase carries @@index([productId]).
+  if (options.productId) all.push({ productId: options.productId });
 
   if (needle !== "") {
     const matchingStates = Object.values(TestCaseLifecycleState).filter((state) =>
@@ -85,6 +89,42 @@ export async function listTestCases(options: TestCaseListOptions = {}) {
       }),
     () => prisma.testCase.count({ where })
   );
+}
+
+/**
+ * The candidates for an execution: every Approved case, with the context a person
+ * actually chooses one by.
+ *
+ * Purpose-built rather than a call to `listTestCases`, for two reasons.
+ *
+ * **It fetches less.** `listTestCases` includes every step of every row. The planner
+ * shows no steps, so against a few hundred Approved cases that is thousands of TestStep
+ * rows read, serialised and discarded on a screen that needs four columns.
+ *
+ * **It fetches the right things.** The picker used to offer nothing but an ID and a
+ * title, which is not how a run gets scoped — people plan by area and by priority, and
+ * neither was on screen or reachable by the filter. Module and feature names come from
+ * the hierarchy rather than being inferred from the business ID, which encodes only the
+ * product (`src/lib/business-ids.ts`).
+ *
+ * Unpaged on purpose: the picker's selection has to survive filtering, so it holds the
+ * whole candidate set. The screen bounds what it RENDERS.
+ */
+export async function listApprovedCandidates() {
+  return prisma.testCase.findMany({
+    where: { lifecycleState: TestCaseLifecycleState.APPROVED },
+    select: {
+      id: true,
+      businessId: true,
+      title: true,
+      priority: true,
+      severity: true,
+      productId: true,
+      module: { select: { name: true } },
+      feature: { select: { name: true } }
+    },
+    orderBy: { businessId: "asc" }
+  });
 }
 
 /** Cases waiting for a reviewer — powers the Review badge in the navigation. */

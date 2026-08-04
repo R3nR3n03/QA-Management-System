@@ -3,10 +3,12 @@ import { ChevronRight } from "lucide-react";
 import type { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome } from "@prisma/client";
 import { DefectStatusChip, ExecutionStateChip, OutcomeChip } from "./chips";
 import { formatUtcMinute } from "./format";
+import { ListEmpty } from "./list-empty";
 import { hrefWith, readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "./paging";
-import { UrlFilterToolbar } from "./toolbar";
+import { UrlFilterToolbar, UrlSelectFilter } from "./toolbar";
+import type { ProductOption } from "./case-table";
 
 /**
  * The filterable record lists for executions and defects.
@@ -90,7 +92,9 @@ export function ExecutionList({
   pageSize = PAGE_SIZE,
   queryKey = "q",
   pageKey = "page",
-  stateKey = "state"
+  stateKey = "state",
+  products,
+  productKey = "product"
 }: {
   rows: ExecutionRowData[];
   total: number;
@@ -101,10 +105,14 @@ export function ExecutionList({
   queryKey?: string;
   pageKey?: string;
   stateKey?: string;
+  /** Omit to leave the product filter off this screen entirely. */
+  products?: ProductOption[];
+  productKey?: string;
 }) {
   const query = readParam(params, queryKey);
   const activeState = readParam(params, stateKey) || "ALL";
-  const filtered = query !== "" || activeState !== "ALL";
+  const product = readParam(params, productKey);
+  const filtered = query !== "" || activeState !== "ALL" || product !== "";
 
   if (total === 0 && !filtered) {
     return (
@@ -119,11 +127,25 @@ export function ExecutionList({
       <div className="row">
         {/* An active filter keeps the controls on screen however few rows match, or
             there would be no way left to clear it. */}
-        {query !== "" || total > 5 ? (
+        {filtered || total > 5 ? (
           <UrlFilterToolbar
             placeholder="Filter by ID, case, tester, or state…"
             label="Filter executions"
             paramKey={queryKey}
+            pageKey={pageKey}
+          />
+        ) : null}
+        {/* Offered whenever the catalogue has products at all, however few — see the
+            note in CaseTable for why this is not gated on there being two. */}
+        {products && products.length > 0 ? (
+          <UrlSelectFilter
+            options={products.map((row) => ({
+              value: row.id,
+              label: `${row.businessId} · ${row.name}`
+            }))}
+            label="Filter by product"
+            allLabel="All products"
+            paramKey={productKey}
             pageKey={pageKey}
           />
         ) : null}
@@ -148,16 +170,21 @@ export function ExecutionList({
       </div>
       <div className="card card-flush">
         {rows.length === 0 ? (
-          <div className="empty">
-            <p>No execution matches the current filters.</p>
-          </div>
+          <ListEmpty
+            total={total}
+            pathname={pathname}
+            params={params}
+            pageKey={pageKey}
+            noMatch="No execution matches the current filters."
+          />
         ) : (
-          rows.map((row) => {
+          <ul className="row-list">
+          {rows.map((row) => {
             const event = lastEvent(row);
             const breakdown =
               row.caseBusinessIds.length > 1 ? outcomeBreakdown(row.caseResults) : "";
             return (
-              <div key={row.id} className="list-row">
+              <li key={row.id} className="list-row">
                 <div className="row-main">
                   <div className="cluster">
                     <span className="bid">{row.businessId}</span>
@@ -198,9 +225,10 @@ export function ExecutionList({
                   View
                   <ChevronRight size={14} aria-hidden />
                 </Link>
-              </div>
+              </li>
             );
-          })
+          })}
+          </ul>
         )}
         <Pager
           total={total}
@@ -235,7 +263,9 @@ export function DefectList({
   params,
   pageSize = PAGE_SIZE,
   queryKey = "q",
-  pageKey = "page"
+  pageKey = "page",
+  products,
+  productKey = "product"
 }: {
   rows: DefectRowData[];
   total: number;
@@ -245,10 +275,17 @@ export function DefectList({
   pageSize?: number;
   queryKey?: string;
   pageKey?: string;
+  /** Omit to leave the product filter off this screen entirely. */
+  products?: ProductOption[];
+  productKey?: string;
 }) {
   const query = readParam(params, queryKey);
+  const product = readParam(params, productKey);
+  const filtered = query !== "" || product !== "";
+  const showNeedle = filtered || total > 5;
+  const showProducts = products !== undefined && products.length > 0;
 
-  if (total === 0 && query === "") {
+  if (total === 0 && !filtered) {
     return (
       <div className="card empty">
         <p>No defects recorded.</p>
@@ -258,39 +295,82 @@ export function DefectList({
 
   return (
     <>
-      {query !== "" || total > 5 ? (
-        <UrlFilterToolbar
-          placeholder="Filter by ID, summary, severity, or status…"
-          label="Filter defects"
-          paramKey={queryKey}
-          pageKey={pageKey}
-        />
+      {showNeedle || showProducts ? (
+        <div className="row" style={{ marginBottom: "var(--sp-3)" }}>
+          {showNeedle ? (
+            <UrlFilterToolbar
+              placeholder="Filter by ID, summary, severity, or status…"
+              label="Filter defects"
+              paramKey={queryKey}
+              pageKey={pageKey}
+            />
+          ) : null}
+          {/* Same rule as the other three lists — see the note in CaseTable. */}
+          {showProducts ? (
+            <UrlSelectFilter
+              options={products.map((row) => ({
+                value: row.id,
+                label: `${row.businessId} · ${row.name}`
+              }))}
+              label="Filter by product"
+              allLabel="All products"
+              paramKey={productKey}
+              pageKey={pageKey}
+            />
+          ) : null}
+        </div>
       ) : null}
       <div className="card card-flush">
         {rows.length === 0 ? (
-          <div className="empty">
-            <p>Nothing matches &ldquo;{query}&rdquo;.</p>
-          </div>
+          <ListEmpty
+            total={total}
+            pathname={pathname}
+            params={params}
+            pageKey={pageKey}
+            // Either filter can empty this list, so the sentence has to name the one
+            // that did — "nothing matches" with no needle reads as a bug.
+            noMatch={
+              query !== "" ? (
+                <>
+                  Nothing matches &ldquo;{query}&rdquo;{product !== "" ? " in this product" : ""}.
+                </>
+              ) : (
+                "No defect has been raised against this product."
+              )
+            }
+          />
         ) : (
-          rows.map((defect) => (
-            <div key={defect.id} className="list-row">
-              <div className="row-main">
-                <div className="cluster">
-                  <span className="bid">{defect.businessId}</span>
-                  <DefectStatusChip status={defect.status} />
+          <ul className="row-list">
+            {rows.map((defect) => (
+              <li key={defect.id} className="list-row">
+                <div className="row-main">
+                  <div className="cluster">
+                    <span className="bid">{defect.businessId}</span>
+                    <DefectStatusChip status={defect.status} />
+                  </div>
+                  <div className="row-title">
+                    <Link className="row-link" href={`/defects/${defect.id}`}>
+                      {defect.summary}
+                    </Link>
+                  </div>
+                  <div className="muted">
+                    <span className="bid">{defect.caseBusinessId}</span>
+                    {" · "}
+                    {defect.priority || "no"} priority · {defect.severity || "no"} severity
+                  </div>
                 </div>
-                <div className="row-title">{defect.summary}</div>
-                <div className="muted">
-                  <span className="bid">{defect.caseBusinessId}</span>
-                  {" · "}
-                  {defect.priority || "no"} priority · {defect.severity || "no"} severity
-                </div>
-              </div>
-              <Link href={`/defects/${defect.id}`} style={{ fontSize: 14 }}>
-                View
-              </Link>
-            </div>
-          ))
+                <Link
+                  className="btn btn-secondary btn-sm"
+                  href={`/defects/${defect.id}`}
+                  aria-label={`View ${defect.businessId}`}
+                  tabIndex={-1}
+                >
+                  View
+                  <ChevronRight size={14} aria-hidden />
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
         <Pager
           total={total}

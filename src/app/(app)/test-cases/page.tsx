@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { QamsRole } from "@prisma/client";
+import { listProductOptions } from "@/domain/catalogue";
 import { listTestCases } from "@/domain/test-cases";
 import { CaseTable } from "@/ui/case-table";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
@@ -19,8 +20,13 @@ export default async function TestCasesPage({
   const page = readPage(params);
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
+  const productId = readParam(params, "product");
   // One page of rows plus the matching count — never the whole table.
-  const { rows, total } = await listTestCases({ page, pageSize, query });
+  const [{ rows, total }, products] = await Promise.all([
+    listTestCases({ page, pageSize, query, productId: productId || undefined }),
+    listProductOptions()
+  ]);
+  const productName = products.find((row) => row.id === productId)?.name;
   const mayAuthor = auth.role !== QamsRole.QA_TESTER;
 
   return (
@@ -35,8 +41,9 @@ export default async function TestCasesPage({
       </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         {total} test case{total === 1 ? "" : "s"}
-        {query ? ` matching “${query}”` : ""}. Approved content is immutable — a material change is
-        a new Draft revision.
+        {query ? ` matching “${query}”` : ""}
+        {productName ? ` in ${productName}` : ""}. Approved content is immutable — a material
+        change is a new Draft revision.
       </p>
       <CaseTable
         rows={rows}
@@ -45,7 +52,16 @@ export default async function TestCasesPage({
         pageSize={pageSize}
         pathname="/test-cases"
         params={params}
-        emptyText="No test cases yet. Import the workbook or create a draft."
+        products={products}
+        // The empty state's whole job is naming the next step, so it has to name one
+        // this viewer can actually take. Unconditionally it told a QA Tester to create a
+        // draft (authors only) and to import the workbook (Lead only), with neither
+        // control on screen for them — the "New draft" button above is already gated.
+        emptyText={
+          mayAuthor
+            ? "No test cases yet. Create a draft to get started."
+            : "No test cases yet. A QA Engineer or Lead adds them."
+        }
       />
     </>
   );

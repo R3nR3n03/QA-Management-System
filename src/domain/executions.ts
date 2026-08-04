@@ -20,6 +20,13 @@ export type ExecutionListOptions = PageRequest & {
   /** Restrict to these lifecycle states. */
   states?: ExecutionLifecycleState[];
   testerId?: string;
+  /**
+   * Restrict to runs covering at least one case of this product. An execution has no
+   * product of its own — it reaches one only through the cases it covers — so a
+   * multi-case run spanning two products matches both, which is the honest answer for
+   * a filter that asks "which runs touch this product".
+   */
+  productId?: string;
 };
 
 /**
@@ -34,6 +41,9 @@ function executionWhere(options: ExecutionListOptions): Prisma.TestExecutionWher
 
   if (options.states && options.states.length > 0) all.push({ state: { in: options.states } });
   if (options.testerId) all.push({ testerId: options.testerId });
+  if (options.productId) {
+    all.push({ cases: { some: { testCase: { productId: options.productId } } } });
+  }
 
   if (needle !== "") {
     const lower = needle.toLowerCase();
@@ -523,6 +533,26 @@ export async function openAssignedExecutionCount(testerId: string) {
   return prisma.testExecution.count({
     where: { testerId, state: { not: ExecutionLifecycleState.FINALIZED } }
   });
+}
+
+/**
+ * Open runs per tester, as a `testerId -> count` map.
+ *
+ * The planner picks who runs a set of cases, and offering a bare list of names makes
+ * that a guess: the person choosing has no way to see that one tester already has nine
+ * unfinished runs and another has none. This is the same count the My work badge shows
+ * (`openAssignedExecutionCount`), for everyone at once rather than one query per name.
+ *
+ * A `groupBy` returns only testers who HAVE open runs, so callers must read a missing
+ * key as zero — which is why this returns a map rather than rows.
+ */
+export async function openExecutionCountsByTester(): Promise<Map<string, number>> {
+  const rows = await prisma.testExecution.groupBy({
+    by: ["testerId"],
+    where: { state: { not: ExecutionLifecycleState.FINALIZED } },
+    _count: { _all: true }
+  });
+  return new Map(rows.map((row) => [row.testerId, row._count._all]));
 }
 
 /**

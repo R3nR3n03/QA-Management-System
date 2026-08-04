@@ -103,7 +103,10 @@ export function EditPersonForm({
         </form>
 
         <div style={{ marginTop: "var(--sp-5)", borderTop: "1px solid var(--line-soft)", paddingTop: "var(--sp-4)" }}>
-          <FormNotice state={activeState} id={noticeId(ACTIVE_FORM_ID)} />
+          {/* Only while the confirmation is closed — the dialog renders its own copy,
+              and two live notices would share one DOM id. The reactivate button below
+              submits straight from this modal, so this is where its outcome belongs. */}
+          {confirming ? null : <FormNotice state={activeState} id={noticeId(ACTIVE_FORM_ID)} />}
           {isSelf ? (
             <p className="why" style={{ margin: 0 }}>
               <strong>You cannot deactivate your own account.</strong> Ask another QA Lead if it
@@ -137,6 +140,10 @@ export function EditPersonForm({
         title="Deactivate this account?"
         description="They are signed out immediately and cannot sign in until reactivated. Their records and history are preserved — no user is ever deleted."
         recordName={`${displayName} · ${email}`}
+        /* "The last active QA Lead cannot be deactivated" is a reachable rejection, and
+           it used to render inside the modal UNDER this dialog's backdrop — so the one
+           person who could hit it saw the button re-enable and nothing else. */
+        notice={<FormNotice state={activeState} id={noticeId(ACTIVE_FORM_ID)} />}
       >
         <form action={activeAction} style={{ display: "inline" }}>
           <input type="hidden" name="userId" value={userId} />

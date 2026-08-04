@@ -17,6 +17,13 @@ export type DefectListOptions = PageRequest & {
   /** Needle matched against defect ID, summary, priority, severity, status and case ID. */
   query?: string;
   statuses?: DefectLifecycleState[];
+  /**
+   * Restrict to defects raised against a case of this product. A defect has no product
+   * column of its own — it reaches one through its single test case — so unlike an
+   * execution this is an exact relation filter rather than a `some`: one defect, one
+   * case, one product.
+   */
+  productId?: string;
 };
 
 /** The `where` behind every filtered defect read — previously a `.filter()` in the browser. */
@@ -25,6 +32,8 @@ function defectWhere(options: DefectListOptions): Prisma.DefectWhereInput {
   const all: Prisma.DefectWhereInput[] = [];
 
   if (options.statuses && options.statuses.length > 0) all.push({ status: { in: options.statuses } });
+  // Reached through the owning case; TestCase carries @@index([productId]).
+  if (options.productId) all.push({ testCase: { productId: options.productId } });
 
   if (needle !== "") {
     const matchingStatuses = Object.values(DefectLifecycleState).filter((status) =>

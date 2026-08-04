@@ -66,7 +66,6 @@ export function ToggleForm({
 
   return (
     <>
-      <FormNotice state={state} id={noticeId(FORM_ID)} />
       <button
         type="button"
         className="btn btn-danger btn-sm"
@@ -82,6 +81,11 @@ export function ToggleForm({
         title="Deactivate this value?"
         description="New records can no longer use it; existing records keep it. Reactivating later restores it — nothing is deleted."
         recordName={`${catalogue} · ${value}`}
+        /* Inside the dialog, because the dialog is where the reader is. A rejection
+           keeps it open (the effect below only closes on success), so a notice rendered
+           on the page sat behind the blurred backdrop — the button re-enabled and
+           nothing appeared to happen, with the reason two layers back. */
+        notice={<FormNotice state={state} id={noticeId(FORM_ID)} />}
       >
         <form action={formAction} style={{ display: "inline" }}>
           {hidden}

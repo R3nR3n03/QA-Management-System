@@ -10,31 +10,49 @@
  */
 
 :root {
+  /* Tells the UA which way to render the chrome it owns and we cannot style: <select>
+     dropdown popups, scrollbars, date pickers, and the default checkbox/radio glyphs in
+     .pick-row and .outcome-choice. Without it the dark theme repainted every token but
+     left those rendering light — a white dropdown panel opening out of a #0f1116 page. */
+  color-scheme: light;
+
   --paper: #f5f6f9;
   --surface: #ffffff;
   --surface-2: #edeff4;
   --line: #d8dce6;
   --line-soft: #e6e9f0;
+  /* The boundary of an INTERACTIVE control (input, select, outlined button, option
+     card). Separate from --line because the two have different jobs: --line draws
+     structure a reader may ignore, while this is the only thing marking where a
+     control begins — WCAG 2.2 SC 1.4.11 asks 3:1 of it, and --line carries 1.37:1.
+     A form control's fill is --surface, the same as the card behind it, so without
+     this the control has no perceivable edge at all. Verified >=3:1 against
+     --surface, --paper and --surface-2 (the three backgrounds a control sits on). */
+  --line-strong: #848994;
 
   --ink: #171a21;
   --ink-2: #454b59;
-  --ink-3: #6b7280;
+  /* Muted ink. Dark enough to clear 4.5:1 on the darkest background it lands on —
+     --accent-wash, which is a hovered list row. #6b7280 reached only 4.02:1 there. */
+  --ink-3: #646a77;
 
   --accent: #3a4a7a;
   --accent-2: #55689c;
   --accent-wash: #e7eaf4;
   --on-accent: #ffffff;
 
-  --pass: #2e7d5b;
+  /* Status ink is chip TEXT on its own wash, so each pair must clear 4.5:1: Pass was
+     4.26:1 and Blocked 3.44:1 against theirs. These are the most-read marks in the
+     product — a QA reader grades on them — so they are held to body-text contrast
+     rather than the 3:1 a decorative fill would get. */
+  --pass: #2c7857;
   --pass-wash: #e2f0e9;
   --fail: #b3392f;
   --fail-wash: #f8e5e3;
-  --blocked: #a9761a;
+  --blocked: #8f6416;
   --blocked-wash: #f7eedc;
   /* Ink placed on top of a status-colored fill (danger buttons, badges). */
   --on-status: #ffffff;
-
-  --shadow: 0 1px 2px rgba(23, 26, 33, 0.06), 0 4px 16px rgba(23, 26, 33, 0.05);
 
   --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
@@ -66,11 +84,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     /* DARK-TOKENS-START */
+    color-scheme: dark;
     --paper: #0f1116;
     --surface: #171a21;
     --surface-2: #1e222b;
     --line: #2c313d;
     --line-soft: #242935;
+    --line-strong: #6c6f7a;
     --ink: #e6e9f0;
     --ink-2: #b4bac7;
     --ink-3: #868d9c;
@@ -94,11 +114,13 @@
 
 :root[data-theme="dark"] {
   /* DARK-TOKENS-START */
+  color-scheme: dark;
   --paper: #0f1116;
   --surface: #171a21;
   --surface-2: #1e222b;
   --line: #2c313d;
   --line-soft: #242935;
+  --line-strong: #6c6f7a;
   --ink: #e6e9f0;
   --ink-2: #b4bac7;
   --ink-3: #868d9c;
@@ -280,7 +302,7 @@ a {
 .btn-secondary {
   background: var(--surface);
   color: var(--ink);
-  border-color: var(--line);
+  border-color: var(--line-strong);
 }
 .btn-secondary:hover:not(:disabled) {
   border-color: var(--accent-2);
@@ -313,7 +335,11 @@ a {
 /* The current page and the active rows-per-page are also non-links — you are already
    there. `aria-current` carries that to assistive tech; this carries it visually, and
    the numerals sit on a fixed width so the row does not jitter between 9 and 10. */
-.row > .btn-sm[aria-current] {
+/* Descendant, not child: the pager wraps its size options in a `.cluster` group, so a
+   direct-child selector reached the page numbers but never the active rows-per-page —
+   which kept `cursor: pointer` from `.btn` and so looked clickable while being a
+   non-interactive <span>. Two adjacent controls in one pager behaved differently. */
+.row .btn-sm[aria-current] {
   min-width: 2.25em;
   text-align: center;
   cursor: default;
@@ -394,7 +420,7 @@ a {
   font: inherit;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-ctl);
   background: var(--surface);
   color: var(--ink);
@@ -407,11 +433,21 @@ a {
   border-color: var(--accent-2);
   box-shadow: 0 0 0 3px var(--accent-wash);
 }
+/* Secondary guidance under a control, or under a group of them.
+ *
+ * Both selectors are needed. `.hint` alone carries the class anywhere on the page; the
+ * `.field .hint` form exists only to outrank `.field > span` (0,1,1), which styles a
+ * field's LABEL and would otherwise win against a bare class and render the hint at
+ * label size and weight. This rule was `.field .hint` alone, which meant every hint
+ * outside a field label — a note under a picker, a line under a submit — silently
+ * rendered as full-size body copy. */
+.hint,
 .field .hint {
+  display: block;
   font-size: 12.5px;
   color: var(--ink-3);
   font-weight: 400;
-  margin-top: var(--sp-1);
+  margin: var(--sp-1) 0 0;
 }
 .field-bad input,
 .field-bad textarea,
@@ -488,10 +524,15 @@ a {
   flex: 1;
 }
 
-/* Content cell of a record row: grows, truncates instead of overflowing. */
+/* Content cell of a record row: grows, and breaks rather than overflowing.
+   `min-width: 0` only lets the FLEX ITEM shrink below its content — it does nothing to
+   an unbreakable token inside it. A pasted URL in a defect summary, or a long
+   requirement statement, would still push the row past the shell and give the whole
+   page a horizontal scrollbar on a phone. `anywhere` is what actually breaks it. */
 .row-main {
   flex: 1 1 260px;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .row-title {
   font-weight: 600;
@@ -539,7 +580,7 @@ a {
   text-align: left;
   color: var(--ink);
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-ctl);
   cursor: pointer;
   transition:
@@ -634,7 +675,7 @@ a {
   text-align: center;
   color: var(--ink-2);
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-ctl);
   cursor: pointer;
   transition:
@@ -680,25 +721,100 @@ a {
   border-color: var(--fail);
 }
 
-/* ---------- checkbox picker rows ---------- */
+/* ---------- checkbox picker ---------- */
 
-/* A selectable candidate in a long list (the execution planner). The whole row is the
-   label, so the click target is the line rather than the 13px box; a selected row is
-   tinted so the choices stay findable while scrolling past the ones that are not. */
-.pick-row {
+/* A bounded, scrollable multi-select. The candidate list used to be an unbounded column
+   of rows: at the 100-row render cap and two lines per row that is several thousand
+   pixels, which pushed the rest of the form — who runs it, and the submit — far below
+   anything on screen. A picker has to stay a control, not become the page, so the list
+   scrolls inside a fixed frame and the form around it stays whole.
+   Height is viewport-relative so it does not eat a laptop screen, with a ceiling so it
+   does not sprawl on a large one. */
+.pick-list {
+  max-height: min(56vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-ctl);
+  background: var(--surface);
+}
+
+/* The bar above the list: what is selected, then the controls that change it. The count
+   takes the room so the buttons stay grouped on the right at any width. */
+.pick-bar {
   display: flex;
   align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.pick-bar-count {
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink-2);
+}
+
+/* A selectable candidate. The whole row is the label, so the click target is the line
+   rather than the 13px box; rows are separated by hairlines rather than gaps, which is
+   what lets a long list stay scannable instead of reading as loose fragments. */
+.pick-row {
+  display: flex;
+  align-items: flex-start;
   gap: var(--sp-3);
-  padding: 6px var(--sp-2);
-  border-radius: var(--radius-sm);
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--line-soft);
   cursor: pointer;
   transition: background var(--ease);
+}
+.pick-row:last-child {
+  border-bottom: none;
 }
 .pick-row:hover {
   background: var(--surface-2);
 }
 .pick-row-on {
   background: var(--accent-wash);
+}
+/* The box sits on the first line of a two-line row rather than centred against both.
+   Sized up from the ~13px UA default: it is the control that carries the decision. */
+.pick-row > input {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  flex: none;
+  accent-color: var(--accent);
+}
+.pick-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+/* ID and title on one line, wrapping as a pair rather than the title running under the
+   ID. The title is the strong element: it is what identifies the case to a person, and
+   the ID is what identifies it to the system. */
+.pick-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  line-height: 1.35;
+}
+.pick-title {
+  font-weight: 600;
+  color: var(--ink);
+}
+/* Where the case lives and how it is graded — the two things a run is scoped by, kept
+   as two chunks with real space between them. As one dot-separated run of four facts in
+   the lightest ink they were unreadable at a glance, which is the whole job of this
+   line. Each chunk wraps as a unit on a narrow screen instead of breaking mid-fact. */
+.pick-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--sp-5);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
 }
 
 /* Visually hidden but present for assistive tech. */
@@ -715,6 +831,17 @@ a {
 }
 
 /* ---------- lists, sections, and states ---------- */
+
+/* Record rows are a real list. They were sibling <div>s, so a screen reader announced
+   an undifferentiated run of generic containers — no "list, 50 items", no item-to-item
+   navigation, no way to hear where the list ended. The <ul> restores all three; this
+   rule takes back the bullets and indent so nothing moves visually. (The finalize
+   case-picker and the stepper were already real lists — record lists were the gap.) */
+.row-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
 
 /* A record row inside a padding-0 card. Hover marks the row as interactive without
    moving anything; the last row keeps the card's rounded bottom. */
@@ -742,10 +869,39 @@ a {
   margin-bottom: var(--sp-3);
   padding: 0 var(--sp-2) 0 10px;
   max-width: 360px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-ctl);
   background: var(--surface);
   transition: border-color var(--ease), box-shadow var(--ease);
+}
+/* Inside a .stack the gap already separates it; its own margin would double-count and
+   leave the filter floating away from the list it filters. */
+.stack > .list-toolbar,
+.row > .list-toolbar {
+  margin-bottom: 0;
+}
+
+/* A dropdown filter standing beside the needle. Matches the toolbar's height, border and
+   focus treatment so the two read as one control strip rather than two borrowed widgets;
+   it dims while its navigation is in flight, the same quiet signal the needle uses. */
+.select-filter {
+  font: inherit;
+  font-size: 13.5px;
+  padding: 7px 10px;
+  max-width: 260px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-ctl);
+  transition: border-color var(--ease), box-shadow var(--ease), opacity var(--ease);
+}
+.select-filter:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+.select-filter[data-busy] {
+  opacity: 0.6;
 }
 .list-toolbar:focus-within {
   border-color: var(--accent-2);
@@ -786,6 +942,13 @@ a {
   padding: var(--sp-4) var(--sp-4) var(--sp-2);
   margin: 0 0 var(--sp-4);
 }
+/* A rejected GROUP of controls (the execution planner's case picker). Marks the
+   section's own edge — the field-level `.field-bad` tints every input inside a
+   container it is applied to, including ones unrelated to the rejection. */
+.form-section-bad {
+  border-color: var(--fail);
+}
+
 .form-section > legend {
   font-size: 12px;
   font-weight: 700;
@@ -994,6 +1157,19 @@ a {
   padding: var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
+  /* Sticky, and opaque so rows do not show through. At the 50-row page size the
+     headers otherwise scrolled away and the Outcome / Error-code columns became
+     unlabelled halfway down a scan. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+/* A sortable header hands its padding to the button, so the whole cell is the target.
+   It was an ~11px-tall hit area — well under the 24px minimum (WCAG 2.2 SC 2.5.8) —
+   because the <th> held all the padding and the button none. */
+.data-table th:has(button) {
+  padding: 0;
 }
 .data-table td {
   padding: var(--sp-2) var(--sp-4);
@@ -1018,7 +1194,10 @@ a {
   color: inherit;
   background: none;
   border: none;
-  padding: 0;
+  /* Carries the cell's padding (see `.data-table th:has(button)`), and fills the cell
+     so the target is the header a person actually aims at. */
+  padding: var(--sp-2) var(--sp-4);
+  width: 100%;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1157,7 +1336,6 @@ dialog.modal {
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--elev-2);
-  width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 64px);
 }
 dialog.modal[open] {
@@ -1165,11 +1343,24 @@ dialog.modal[open] {
   flex-direction: column;
   animation: modal-in 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* One rule per size the component can emit. `md` was previously implicit — the base
+   rule carried its width and no `.modal-md` existed — so the class the component put on
+   every default dialog matched nothing, which read as a dropped rule. */
 dialog.modal-sm {
   width: min(420px, calc(100vw - 32px));
 }
+dialog.modal-md {
+  width: min(560px, calc(100vw - 32px));
+}
 dialog.modal-lg {
   width: min(760px, calc(100vw - 32px));
+}
+
+/* The page behind an open dialog is inert to INTERACTION, which is not the same as
+   still. Without this the wheel scrolls the page under the backdrop while the dialog
+   stays put — the content the viewer was working from slides away behind them. */
+html:has(dialog[open]) {
+  overflow: hidden;
 }
 dialog.modal::backdrop {
   background: rgba(15, 17, 22, 0.45);
@@ -1364,7 +1555,7 @@ dialog.modal::backdrop {
   align-items: center;
   gap: var(--sp-2);
   padding: 0 var(--sp-2) 0 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--rail-radius);
   background: var(--surface);
   transition: border-color var(--rail-ease), box-shadow var(--rail-ease);
@@ -1589,10 +1780,18 @@ dialog.modal::backdrop {
   .rail-collapse-btn {
     display: none;
   }
+  /* `revert`, not `initial`: `initial` means `display: inline` regardless of what the
+     element was. `.nav-label` and `.rail-identity` are flex items so they get blockified
+     back, but `.rail-heading` sits in a plain div — as an inline box its bottom padding
+     stopped affecting layout, and group headings lost their separation from the links
+     under them on phones. `.rail-empty` is here too: without it, a collapsed rail whose
+     needle matched nothing showed no links AND no explanation, and the expand button is
+     hidden at this width, so there was no way back. */
   .rail-collapsed .rail-heading,
   .rail-collapsed .nav-label,
+  .rail-collapsed .rail-empty,
   .rail-collapsed .rail-identity {
-    display: initial;
+    display: revert;
   }
   /* Undo the collapsed-rail clipping: on a phone the rail is a top bar and the
      badge is fully visible again. */
