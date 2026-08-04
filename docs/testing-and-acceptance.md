@@ -7,6 +7,7 @@
 | Workbook map | Inspect all 13 source sheets | Each is mapped in `excel-source-map.md`; Home and Dashboard behavior is explicitly non-imported/derived. |
 | Seed import | Import a valid workbook copy | Records are created in dependency order, IDs are preserved, dashboard values are recomputed. |
 | Seed import | Re-import unchanged source | No duplicate records; rows report `SKIPPED_UNCHANGED`. |
+| Seed import | Existing ID with changed values | Row reports `RECONCILIATION_REQUIRED`, preserves proposed values, and requires QA Lead follow-up. |
 | Seed import | Unknown parent or invalid source value | Dependent row is rejected with source row and stable error code; no partial dependent write. |
 | Seed import | Imported test case lifecycle | Case is created Approved per the seed-import exception; its row report notes "Imported as Approved." and the run report records the policy. |
 | Test design | QA Engineer submits valid own Draft | State becomes In Review. |

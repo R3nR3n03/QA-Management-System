@@ -31,7 +31,7 @@ User management by the QA Lead covers account creation, role changes, profile ed
 
 Approved content is immutable. A material change requires a new Draft revision linked to the prior test case; retiring the prior revision is optional and must not break historical references.
 
-**Seed-import exception.** Test cases created by the one-time workbook seed import enter the system as Approved without passing through Draft → In Review, because the workbook predates this workflow and its Test Execution and Execution History sheets can only be imported against Approved cases. The importing QA Lead is recorded as author. Each affected row's import report carries the note "Imported as Approved.", and the run report records the policy as a whole. This exception applies to the seed import only; no interactive path may create a test case in any state other than Draft.
+**Seed-import exception.** Test cases created by the one-time workbook seed import enter the system as Approved without passing through Draft → In Review, because the workbook predates this workflow and its Test Execution and Execution History sheets can only be imported against Approved cases. The importing QA Lead is recorded as author. Each affected row's import report carries the note "Imported as Approved.", and the run report records the policy as a whole. Reconciliation-required import rows also retain the proposed workbook values in structured form so the QA Lead can resolve them later. This exception applies to the seed import only; no interactive path may create a test case in any state other than Draft.
 
 ## Execution lifecycle
 

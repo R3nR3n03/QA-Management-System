@@ -401,6 +401,11 @@ model ImportRowReport {
   errorCode    String?
   recordId     String?
   details      String?
+  proposedValuesJson Json?
+  resolutionDecision String?
+  resolutionRationale String?
+  resolvedAt   DateTime?
+  resolvedBy   String?
   createdAt    DateTime @default(now())
   createdBy    String
 

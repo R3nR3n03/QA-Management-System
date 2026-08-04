@@ -31,7 +31,7 @@
 5. Recalculate dashboard metrics from persisted records.
 6. Produce a row-level import report: source sheet/row, outcome, record ID, and error code.
 
-The import is idempotent by source business ID: re-importing the same values performs no duplicate insert; changed values require a QA Lead-approved reconciliation. A row with an unknown parent, duplicate business ID, invalid controlled value, or malformed step number is rejected without partial dependent writes.
+The import is idempotent by source business ID: re-importing the same values performs no duplicate insert; changed values require a QA Lead-approved reconciliation. Reconciliation-required rows keep the proposed source values in structured form so the QA Lead can review them later. A row with an unknown parent, duplicate business ID, invalid controlled value, or malformed step number is rejected without partial dependent writes.
 
 ## Source-controlled values
 

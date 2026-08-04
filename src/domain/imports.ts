@@ -44,6 +44,9 @@ type ReportRow = {
   errorCode?: ErrorCode;
   recordId?: string;
   details?: string;
+  proposedValues?: Record<string, string>;
+  resolutionDecision?: string;
+  resolutionRationale?: string;
 };
 
 type ParsedSheet = { rows: unknown[][]; header: HeaderInfo };
@@ -115,7 +118,7 @@ function recordDecision(
       report.push(skippedRow(sheet, sourceRow, decision.recordId, decision.details));
       return false;
     case "RECONCILIATION_REQUIRED":
-      report.push(reconciliationRow(sheet, sourceRow, decision.recordId, decision.details));
+      report.push(reconciliationRow(sheet, sourceRow, decision.recordId, decision.details, decision.proposedValues));
       return false;
     case "CREATE":
       return true;
@@ -130,14 +133,21 @@ function skippedRow(sheet: string, sourceRow: number, recordId: string, details?
   return { sourceSheet: sheet, sourceRow, outcome: "SKIPPED_UNCHANGED", recordId, details };
 }
 
-function reconciliationRow(sheet: string, sourceRow: number, recordId: string, details: string): ReportRow {
+function reconciliationRow(
+  sheet: string,
+  sourceRow: number,
+  recordId: string,
+  details: string,
+  proposedValues?: Record<string, string>
+): ReportRow {
   return {
     sourceSheet: sheet,
     sourceRow,
     outcome: "RECONCILIATION_REQUIRED",
     errorCode: "RECONCILIATION_REQUIRED",
     recordId,
-    details
+    details,
+    proposedValues
   };
 }
 
@@ -210,6 +220,11 @@ async function commitBatch(ctx: ImportContext, fn: (tx: Tx) => Promise<ReportRow
             errorCode: row.errorCode ?? null,
             recordId: row.recordId ?? null,
             details: row.details ?? null,
+            proposedValuesJson: row.proposedValues ?? null,
+            resolutionDecision: row.resolutionDecision ?? null,
+            resolutionRationale: row.resolutionRationale ?? null,
+            resolvedAt: null,
+            resolvedBy: null,
             createdBy: ctx.actorId
           }))
         });
@@ -251,7 +266,8 @@ async function importSettings(ctx: ImportContext, data: ParsedSheet) {
               sheet,
               triple.sourceRow,
               current.id,
-              `${triple.catalogue} value "${triple.value}" exists but is inactive; reactivation requires QA Lead reconciliation.`
+              `${triple.catalogue} value "${triple.value}" exists but is inactive; reactivation requires QA Lead reconciliation.`,
+              { catalogue: triple.catalogue, value: triple.value }
             )
           );
         }
@@ -572,7 +588,7 @@ async function importTestCasesAndSteps(ctx: ImportContext, caseData: ParsedSheet
         report.push(
           same
             ? skippedRow(caseSpec.sheet, row.sourceRow, current.id)
-            : reconciliationRow(caseSpec.sheet, row.sourceRow, current.id, `Test case "${businessId}" exists with different values; automatic overwrite is not permitted.`)
+            : reconciliationRow(caseSpec.sheet, row.sourceRow, current.id, `Test case "${businessId}" exists with different values; automatic overwrite is not permitted.`, v)
         );
         caseState.set(businessId, { kind: "existing", id: current.id });
         continue;
@@ -788,7 +804,7 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
             });
           }
         } else {
-          report.push(reconciliationRow(spec.sheet, row.sourceRow, current.id, `Execution "${businessId}" exists with different values; automatic overwrite is not permitted.`));
+          report.push(reconciliationRow(spec.sheet, row.sourceRow, current.id, `Execution "${businessId}" exists with different values; automatic overwrite is not permitted.`, v));
         }
         continue;
       }
@@ -958,7 +974,7 @@ async function importDefects(ctx: ImportContext, data: ParsedSheet) {
         report.push(
           same
             ? skippedRow(spec.sheet, row.sourceRow, current.id)
-            : reconciliationRow(spec.sheet, row.sourceRow, current.id, `Defect "${businessId}" exists with different values; automatic overwrite is not permitted.`)
+            : reconciliationRow(spec.sheet, row.sourceRow, current.id, `Defect "${businessId}" exists with different values; automatic overwrite is not permitted.`, v)
         );
         continue;
       }
@@ -1259,6 +1275,10 @@ export async function createImportRun(actor: ImportActor, fileName: string, rawB
             "Test cases were imported as Approved with the importing QA Lead recorded as author, per the seed-import exception in roles-workflows.md; they did not pass through Draft → In Review.",
             "Product Status is imported as preserved text: the workbook seeds no Status catalogue, so no catalogue validation was possible (policy gap; QA Lead follow-up).",
             "Test Repository Execution Status is a legacy summary; it is preserved in each row report's details and creates no execution."
+          ],
+          policyNotes: [
+            "Rows marked RECONCILIATION_REQUIRED retain structured source values so a QA Lead can review the exact proposal later.",
+            "The seed import is a one-time reference import only; it does not define live workflow policy."
           ]
         }
       }
@@ -1282,4 +1302,45 @@ export async function createImportRun(actor: ImportActor, fileName: string, rawB
   });
 
   return completed;
+}
+
+export async function resolveImportRow(
+  rowReportId: string,
+  input: { decision: "KEEP_CURRENT" | "ACCEPT_SOURCE"; rationale: string },
+  actor: ImportActor
+) {
+  ensureRole([...RoleSets.canAdmin], actor.role);
+  if (!input.rationale.trim()) {
+    throw new AppError(422, "ID_INVALID", "Resolution rationale is required.", "rationale");
+  }
+
+  const row = await prisma.importRowReport.findUnique({ where: { id: rowReportId } });
+  if (!row) throw new AppError(404, "REFERENCE_NOT_FOUND", "Import row not found.", "rowReportId");
+  if (row.outcome !== "RECONCILIATION_REQUIRED") {
+    throw new AppError(422, "FORBIDDEN_TRANSITION", "Only reconciliation rows can be resolved.", "rowReportId");
+  }
+  if (row.resolvedAt) {
+    throw new AppError(422, "FORBIDDEN_TRANSITION", "This reconciliation row is already resolved.", "rowReportId");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.importRowReport.update({
+      where: { id: rowReportId },
+      data: {
+        resolutionDecision: input.decision,
+        resolutionRationale: input.rationale.trim(),
+        resolvedAt: new Date(),
+        resolvedBy: actor.userId
+      }
+    });
+    await appendAudit(tx, {
+      actorId: actor.userId,
+      action: "IMPORT_ROW_RESOLVED",
+      entityType: "ImportRowReport",
+      entityId: rowReportId,
+      requestId: actor.requestId,
+      beforeAfterJson: { before: row, after: updated }
+    });
+    return updated;
+  });
 }

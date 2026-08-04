@@ -231,24 +231,21 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(
 
 /**
  * Parse an Execution History `Date` cell: `Date` objects (from `cellDates: true`),
- * Excel serial numbers, and **ISO-8601 strings only**. Anything else returns null,
- * which the importer reports as a rejected row.
+ * Excel serial numbers, and strict ISO-8601 strings only. Anything else returns
+ * null, which the importer reports as a rejected row.
  *
  * WHY STRINGS ARE RESTRICTED. This used to call `new Date(trimmed)` on any string.
  * For non-ISO input that is implementation-defined: `"01/02/2026"` parses as 2 January
- * in a US locale and 1 February in most others, and **both succeed** — so there was no
+ * in a US locale and 1 February in most others, and both succeed — so there was no
  * error to report and no way to notice. The value becomes `occurredAt` on an
  * `ExecutionHistory` row, which `docs/data-model.md:48` makes immutable. A silently
  * wrong timestamp in an append-only audit record is worse than a rejected row:
  * a rejection is recoverable by fixing the workbook, a wrong date is not.
  *
- * A rejected row still names the offending value, so an ambiguous format is a
- * fixable, visible problem rather than a silent corruption.
- *
- * DETERMINISM. A time with no offset (`2026-03-04T05:06`) is interpreted by JS in the
- * server's local zone, which would make an import's result depend on where it ran.
- * Such values are treated as UTC. A date with no time is already UTC midnight per the
- * ECMAScript spec.
+ * DETERMINISM. ISO-shaped text dates are accepted, and time values without an explicit
+ * offset are normalized to UTC by the parser, which keeps imports reproducible. What
+ * stays rejected are ambiguous prose or locale-specific formats like `01/02/2026` or
+ * `March 4 2026`.
  */
 export function parseHistoryDate(value: unknown): Date | null {
   if (value instanceof Date) {

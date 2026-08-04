@@ -215,7 +215,7 @@ describe("parseHistoryDate", () => {
     expect(parseHistoryDate("2026-03-04T05:06:07.123Z")?.toISOString()).toBe(
       "2026-03-04T05:06:07.123Z"
     );
-    // Space separator, as a text cell often carries.
+    // Space separator remains accepted and normalized.
     expect(parseHistoryDate("2026-03-04 05:06:07")?.toISOString()).toBe("2026-03-04T05:06:07.000Z");
   });
 

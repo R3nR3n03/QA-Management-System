@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { LocalPager } from "@/ui/local-pager";
 import { pageSlice } from "@/ui/paging";
 import { OUTCOME_TONE } from "./outcome-tone";
+import { resolveImportRowAction } from "./actions";
 
 /**
  * The row-level import report as a real table: homogeneous columns people scan and
@@ -22,11 +23,16 @@ export type ImportRowData = {
   outcome: string;
   errorCode: string | null;
   details: string | null;
+  proposedValues: Record<string, string> | null;
+  resolutionDecision: string | null;
+  resolutionRationale: string | null;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
 };
 
 type SortKey = "source" | "outcome" | "errorCode";
 
-export function RowsTable({ rows }: { rows: ImportRowData[] }) {
+export function RowsTable({ rows, runId }: { rows: ImportRowData[]; runId: string }) {
   const [sortKey, setSortKey] = useState<SortKey>("source");
   const [ascending, setAscending] = useState(true);
   const [page, setPage] = useState(1);
@@ -92,6 +98,8 @@ export function RowsTable({ rows }: { rows: ImportRowData[] }) {
               {header("outcome", "Outcome")}
               {header("errorCode", "Error code")}
               <th scope="col">Details</th>
+              <th scope="col">Proposed values</th>
+              <th scope="col">Resolution</th>
             </tr>
           </thead>
           <tbody>
@@ -105,6 +113,29 @@ export function RowsTable({ rows }: { rows: ImportRowData[] }) {
                 </td>
                 <td>{row.errorCode ? <span className="bid">{row.errorCode}</span> : null}</td>
                 <td>{row.details ?? ""}</td>
+                <td>{row.proposedValues ? <pre className="muted">{JSON.stringify(row.proposedValues, null, 2)}</pre> : ""}</td>
+                <td>
+                  {row.resolvedAt ? (
+                    <div className="stack" style={{ gap: 4 }}>
+                      <span className="bid">{row.resolutionDecision}</span>
+                      <span className="muted">{row.resolutionRationale}</span>
+                      <span className="muted">Resolved {row.resolvedAt}</span>
+                    </div>
+                  ) : row.outcome === "RECONCILIATION_REQUIRED" ? (
+                    <form action={resolveImportRowAction} className="stack" style={{ gap: 4 }}>
+                      <input type="hidden" name="runId" value={runId} />
+                      <input type="hidden" name="rowReportId" value={row.id} />
+                      <select name="decision" defaultValue="KEEP_CURRENT">
+                        <option value="KEEP_CURRENT">Keep current</option>
+                        <option value="ACCEPT_SOURCE">Accept source</option>
+                      </select>
+                      <input name="rationale" placeholder="Resolution rationale" />
+                      <button className="btn btn-secondary btn-sm" type="submit">
+                        Resolve
+                      </button>
+                    </form>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>

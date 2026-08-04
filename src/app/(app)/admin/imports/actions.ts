@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createImportRun } from "@/domain/imports";
+import { createImportRun, resolveImportRow } from "@/domain/imports";
 import { AppError } from "@/lib/errors";
 import { assertWithinUploadLimit, maxUploadBytes } from "@/lib/upload-limits";
 import { failState, runAction, type FormState } from "@/ui/action";
@@ -32,4 +32,21 @@ export async function uploadWorkbookAction(_prev: FormState, formData: FormData)
   if (!result.ok) return failState(result);
   revalidatePath("/admin/imports");
   redirect(`/admin/imports/${result.data.id}`);
+}
+
+export async function resolveImportRowAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const rowReportId = String(formData.get("rowReportId") ?? "").trim();
+  const decision = String(formData.get("decision") ?? "").trim();
+  const rationale = String(formData.get("rationale") ?? "").trim();
+
+  if (!rowReportId) return { title: "Import row missing", detail: "Choose a reconciliation row first.", field: "rowReportId" };
+  if (decision !== "KEEP_CURRENT" && decision !== "ACCEPT_SOURCE") {
+    return { title: "Invalid decision", detail: "Choose a valid reconciliation decision.", field: "decision" };
+  }
+
+  const result = await runAction((actor) => resolveImportRow(rowReportId, { decision, rationale }, actor));
+  if (!result.ok) return failState(result);
+
+  revalidatePath(`/admin/imports/${String(formData.get("runId") ?? "")}`);
+  return null;
 }

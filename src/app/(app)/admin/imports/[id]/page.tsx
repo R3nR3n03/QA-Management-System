@@ -14,6 +14,7 @@ type RunReport = {
   unknownColumns?: Record<string, string[]>;
   dashboard?: { products: number; testCases: number };
   policyGaps?: string[];
+  policyNotes?: string[];
 };
 
 /**
@@ -65,6 +66,18 @@ export default async function ImportRunPage({ params }: { params: Promise<{ id: 
         </div>
       ) : null}
 
+      {report.policyNotes && report.policyNotes.length > 0 ? (
+        <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
+          <div className="stack">
+            {report.policyNotes.map((note) => (
+              <p key={note} className="muted">
+                {note}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {Object.keys(outcomeCounts).length > 0 ? (
         <>
           <h2>Outcomes by sheet</h2>
@@ -97,8 +110,14 @@ export default async function ImportRunPage({ params }: { params: Promise<{ id: 
               sourceRow: row.sourceRow,
               outcome: row.outcome,
               errorCode: row.errorCode,
-              details: row.details
+              details: row.details,
+              proposedValues: (row.proposedValuesJson as Record<string, string> | null) ?? null,
+              resolutionDecision: row.resolutionDecision,
+              resolutionRationale: row.resolutionRationale,
+              resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
+              resolvedBy: row.resolvedBy
             }))}
+            runId={run.id}
           />
         )}
       </div>
