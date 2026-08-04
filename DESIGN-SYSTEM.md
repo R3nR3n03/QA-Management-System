@@ -1,6 +1,6 @@
 # QAMS Design System
 
-**Updated:** 2026-08-01 · **Lives in:** `src/app/globals.css` (tokens + primitives), `src/ui/*` (components)
+**Updated:** 2026-08-04 · **Lives in:** `src/app/globals.css` (tokens + primitives), `src/ui/*` (components)
 **Status:** the implemented system, documented — not a proposal. Outside `docs/` deliberately: visual
 treatment is not QA policy (`docs/architecture.md` § "Web interface" records the policy-level UI
 decisions; this file records the craft).
@@ -8,8 +8,14 @@ decisions; this file records the craft).
 ## Principles
 
 1. **Semantic color is the loudest channel.** Pass/Fail/Blocked and severity do real work on every
-   screen, so the brand accent stays quiet and neutrals are biased cool toward it. Nothing else may
-   use the status colors.
+   screen, so the brand accent stays quiet and neutrals are biased cool toward it. The status
+   colors mark graded QA results and the terminal outcome of a system operation the product has
+   already decided (an import run that FAILED, a staged row that was REJECTED or is held for
+   RECONCILIATION_REQUIRED). What they may never do is express a judgement about product quality
+   that policy has not defined — no percentage, threshold or ageing target
+   (`business-rules-and-validation.md:37-38`). The earlier blanket "nothing else may use them" cost
+   more than it bought: a failed import rendered identically to a successful one, so a run that had
+   imported nothing could be read as "my workbook imported".
 2. **State is never color alone.** Every status ships as a chip: word + stripe + wash. Charts carry
    identity in row labels and chips; fills are reinforcement.
 3. **The domain is the gate; the UI is a courtesy.** Hiding/disabling in the UI is presentation.
@@ -25,7 +31,8 @@ decisions; this file records the craft).
 | Group | Tokens | Notes |
 |---|---|---|
 | Surfaces | `--paper`, `--surface`, `--surface-2` | page, card, inset |
-| Lines | `--line`, `--line-soft` | borders, row separators |
+| Lines | `--line`, `--line-soft` | **structure only**: card edges, row separators, axis rules. Decoration a reader may ignore |
+| Control edge | `--line-strong` | the boundary of an **interactive** control — input, select, textarea, outlined button, option card, picker frame. A control's fill is `--surface`, the same as the card behind it, so this is the only thing marking where it begins. Held to 3:1 (WCAG 2.2 SC 1.4.11); `--line` is 1.37:1 and must never be used for one |
 | Ink | `--ink`, `--ink-2`, `--ink-3` | primary / secondary / muted text |
 | Accent | `--accent`, `--accent-2`, `--accent-wash`, `--on-accent` | brand; wash = hover/active fields |
 | Status | `--pass`, `--fail`, `--blocked` + `-wash` each | **reserved**: lifecycle results, severity emphasis, danger buttons |
@@ -41,6 +48,23 @@ user chose light) and `:root[data-theme=…]` (the in-app toggle, persisted per 
 token must be defined in all three blocks. The two dark blocks are wrapped in
 `DARK-TOKENS-START/END` markers and `src/app/globals.dark-sync.test.ts` fails the build if they
 ever disagree.
+
+Both dark blocks also declare `color-scheme: dark` (and `:root` declares `light`). That is what
+tells the UA to render the chrome it owns and we cannot style — `<select>` dropdown popups,
+scrollbars, date pickers, the default checkbox/radio glyphs — the right way round. Without it the
+dark theme repainted every token and still opened white dropdown panels out of a `#0f1116` page.
+
+The stored theme is applied by a small nonced inline script in `src/app/layout.tsx`, not by an
+effect in `Sidebar`. `Sidebar` renders only inside `(app)`, so the effect left `/login`, the 404
+and the error page light for a user who had chosen dark — the three screens most likely to open a
+session. Being inline and synchronous, it also wins the race against first paint, which an effect
+cannot; `Sidebar` still owns the toggle.
+
+**Contrast is enforced, not asserted.** `src/app/globals.contrast.test.ts` reads the token values
+out of `globals.css` and fails on any pair below its WCAG 2.2 floor — 4.5:1 for body text (3:1
+large), 3:1 for a control boundary. It also checks that `--line-strong` is actually wired to every
+control rule, because a sound token nothing references proves nothing. Retuning a colour runs the
+whole matrix in both themes.
 
 ## Typography
 
@@ -67,7 +91,10 @@ ever disagree.
 | List filter | `FilterToolbar` (`src/ui/toolbar.tsx`), `.list-toolbar` | the one filter toolbar; appears only when a list exceeds 5 rows; Escape clears; filtering is presentation — the server decides what exists |
 | Stepper | `Stepper` (`src/ui/stepper.tsx`), `.stepper` | ordered list of lifecycle stages; current step carries `aria-current="step"`, done steps carry sr-only "(complete)" — never color alone |
 | Data table | `.data-table` in a `.table-scroll` | for homogeneous ≥3-column data people scan and compare (import report); record rows with a story stay `.list-row`. Sortable headers are real buttons with `aria-sort`; long tables page via the shared `Pager` (pages of 50, client-side only — the earlier binary "show all" reveal is superseded), and a sort change resets to page 1 |
-| Pager / PagedList | `Pager` (`src/ui/pager.tsx`), `PagedList` (`src/ui/paged-list.tsx`) | THE canonical list pagination: pages of 50 (`PAGE_SIZE` in `src/ui/paging.ts`), client-side only — which rows exist is always the server's answer. "Showing X–Y of N" + Prev/Next as real keyboard-operable buttons; the pager renders nothing until a list passes one page (the >50 sibling of FilterToolbar's >5 rule). It composes AFTER whatever narrows the list — text filter, lifecycle chips, column sort — and the page resets to 1 whenever those change. `PagedList` slices an array of server-rendered row nodes so lists whose rows carry server-action forms page without becoming client components. Client state, not URL params — same as every list filter |
+| Pager | `Pager` (`src/ui/pager.tsx`) | THE canonical list pagination: pages of 50 (`PAGE_SIZE` in `src/ui/paging.ts`), **server-side**. `total` is the database's `COUNT` and the rows on screen are the only ones fetched, so turning a page is a navigation — real `<a href>`s, middle-clickable, working before hydration. Page and filter live in the query string (`src/ui/list-params.ts`), which is what lets a server component read them; `hrefWith` carries the rest of the string along so paging one list on a four-list screen does not disturb the other three. "Showing X–Y of N", numbered jumps elided in the middle, Prev/Next. Renders nothing until a list passes one page (the >50 sibling of FilterToolbar's >5 rule) |
+| Local pager | `LocalPager` (`src/ui/local-pager.tsx`) | The in-memory exception, for a list that cannot be re-fetched because it is one column: the import-run report, whose rows come out of a single `ImportRun.reportJson`. Reach for `Pager` by default — this is not an alternative to it |
+| List empty state | `ListEmpty` (`src/ui/list-empty.tsx`) | A paged list renders zero rows for two unrelated reasons and must not confuse them: the filters matched nothing (caller's sentence), or the page is past the end (`total > 0`). Every list used to infer it from the filter params alone, so an overshooting offset reported the wrong cause — `Nothing matches “”.` with empty quotes — above a pager honestly saying "Showing 1–50 of 60". The out-of-range branch carries the only way out, since Prev/Next are computed from the clamped page and point back into the same empty view |
+| Record list | `.row-list` + `.list-row` | Record rows are a real `<ul>`/`<li>`. As sibling `<div>`s a screen reader announced a run of generic containers with no "list, 50 items", no item-to-item navigation and no end. `.row-list` only takes back the bullets and indent, so nothing moves visually |
 | Chips | `.state` + tone classes | word + stripe + wash; survives greyscale; `.state-accent` is the informational tone for non-lifecycle statuses (import outcomes, "Active") — the Pass/Fail/Blocked tones stay reserved for what policy grades |
 | Notice | `.notice`, `.notice-advisory` | failures red; POLICY_NOT_DEFINED and successes calm; `FormNotice` renders both |
 | Inline warning | `.why` | a blocked or irreversible action carries its reason inline, never in a tooltip |
@@ -79,8 +106,8 @@ ever disagree.
 | Breadcrumbs | `.crumbs` (`Breadcrumbs`) | detail screens only; current record is text with `aria-current` |
 | Empty state | `.empty` | one calm sentence + the action that fills it |
 | Sidebar | `.rail*`, `.nav-link`, `.nav-badge` | see `src/ui/sidebar.tsx`; badges are domain read models |
-| Modal | `Modal` (`src/ui/modal.tsx`), `.modal*` | native `<dialog>` (focus trap, Escape, inert page, focus return are the platform's); sizes sm/md/lg; sticky head/foot, scrollable body; full-sheet under 560px; backdrop click closes only when `closeOnBackdrop` (entry forms: no — typed input outlives a stray click) |
-| Confirm dialog | `ConfirmDialog` | warning icon + consequence + the named record + Cancel; the committing control is a caller-supplied server-action form. Used where one click removes availability (deactivate person, deactivate value). A confirm may stack over an open edit modal: both live in the native top layer, which gives focus and Escape to the topmost and returns them outward — allowed, and nothing else may stack deeper |
+| Modal | `Modal` (`src/ui/modal.tsx`), `.modal*` | native `<dialog>` (focus trap, Escape, inert page, focus return are the platform's); sizes sm/md/lg; sticky head/foot, scrollable body; full-sheet under 560px; backdrop click closes only when `closeOnBackdrop` (entry forms: no — typed input outlives a stray click). **The element is authoritative:** every dismissal goes through `el.close()` and the native `close` event is the only path to `onClose`, so a handler cannot fire twice. State is reconciled after every render, not only when `open` flips — with `[open]` as the dependency a browser-initiated close against a handler that did not clear `open` desynced the two permanently and the dialog became unopenable. The body mounts **only while open**, so an abandoned attempt does not come back with its typed value and its stale red notice (note: that resets the form, not a `useActionState` living in the parent — put the form in a child if the action state must reset too). Closed on unmount, before React detaches the node, or focus never returns to the trigger. Initial focus goes to `[data-autofocus]`; a consumer's `autoFocus` is inert here, because the dialog is `display: none` when React commits |
+| Confirm dialog | `ConfirmDialog` | warning icon + consequence + the named record + Cancel; the committing control is a caller-supplied server-action form, and the buttons live in the real `.modal-foot` so they stay put instead of scrolling away. `notice` is where the committing action's own rejection goes — rendered on the page instead, it sat behind the backdrop, so a refused confirm looked like a button that did nothing. Used where one click removes availability (deactivate person, deactivate value). A confirm may stack over an open edit modal: both live in the native top layer, which gives focus and Escape to the topmost and returns them outward — allowed, and nothing else may stack deeper |
 | Toast | `ToastProvider`/`useToast` (`src/ui/toast.tsx`), `.toast*` | SUCCESSES ONLY — fires when a modal closes itself and takes its inline notice with it. Failures always stay inline (`FormNotice`) naming the field. Polite live region, 4s auto-dismiss that pauses on hover/focus, an explicit dismiss button, no other actions |
 
 **Modal vs. page rule:** a create/edit flow lives in a modal when the hosting screen already
@@ -90,11 +117,23 @@ data fetch (new defect, plan execution). Detail-screen lifecycle actions (approv
 transition, reassign, finalize) stay inline on the record — they are the record's story, not a
 data-entry interruption.
 
-Component modules: `sidebar.tsx`, `case-table.tsx`, `record-list.tsx`, `chips.tsx`, `notice.tsx`,
-`breadcrumbs.tsx`, `toolbar.tsx` (FilterToolbar), `pager.tsx`/`paged-list.tsx`/`paging.ts`
-(list pagination), `stepper.tsx`, `modal.tsx`, `toast.tsx`,
-`form.ts` (field-error accessibility helpers), `action.ts` (FormState contract),
+Component modules: `sidebar.tsx`, `case-table.tsx`, `record-list.tsx`, `list-empty.tsx`,
+`chips.tsx`, `notice.tsx`, `breadcrumbs.tsx`, `toolbar.tsx` (`FilterToolbar` controlled,
+`UrlFilterToolbar`/`UrlSelectFilter` query-string backed), `pager.tsx`/`local-pager.tsx`/
+`paging.ts`/`list-params.ts` (list pagination and its query string), `stepper.tsx`, `modal.tsx`,
+`toast.tsx`, `form.ts` (field-error accessibility helpers), `action.ts` (FormState contract),
 `navigation.ts` (the ratified screen inventory).
+
+**A filter inside a form must swallow Enter.** `FilterToolbar` sits within `PlanForm`'s `<form>`,
+where implicit submission would fire the real submit button — creating the execution and
+redirecting away from a keystroke meant to narrow a list. Both toolbars `preventDefault()` on
+Enter; any future in-form filter must too.
+
+**A rejected GROUP marks the section, not the fields in it.** `fieldClass`/`bad()` return the
+`.field` classes and belong on a `<label>`. On a container they tint every control inside —
+rejecting the execution planner's case selection turned the unrelated product filter red. Use
+`.form-section-bad` (or `outcome-set-bad`) and put `aria-invalid`/`aria-describedby` on the
+control that was actually rejected.
 
 **Inline styles:** a page may inline a style only when it is data-driven (a bar's `width: pct%`)
 or a genuine single-property one-off (an odd margin). Recurring compositions — headers, rows,
@@ -133,3 +172,14 @@ meaning. Icon-per-screen map lives in `sidebar.tsx`, keyed by href so `navigatio
    `.sr-only` sentence summarizes the series for readers who don't get the bars.
 9. Anything that disappears on its own can be paused: toasts pause on hover/focus and carry a
    dismiss button.
+10. A row action's accessible name identifies its RECORD. Fifty links reading "View" are
+    unusable in a screen reader's link list — `aria-label={\`View ${businessId}\`}`, and the row
+    title carries the same href as `.row-link` so the pointer target is the widest thing in the
+    row. The trailing button then leaves the tab order (`tabIndex={-1}`), or 50 rows become 100
+    tab stops to reach 50 places.
+11. A skeleton announces with TEXT, not `aria-label`. A live region announces its content; a name
+    is not content, so a region of text-free placeholders announced nothing at all. `.sr-only`
+    sentence inside, `aria-hidden` on the shapes.
+12. An empty state names a next step THIS role can take. The test-case list told a QA Tester to
+    create a draft (authors only) and import the workbook (Lead only), with neither control on
+    screen for them.

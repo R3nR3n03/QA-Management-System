@@ -52,12 +52,16 @@ export default async function TraceabilityPage({
         <>
           <h2>Requirements without trace links</h2>
           <div className="card card-flush" style={{ marginBottom: "var(--sp-5)" }}>
-            {unlinked.rows.map((requirement) => (
-              <div key={requirement.id} className="list-row">
-                <span className="bid">{requirement.businessId}</span>
-                <span style={{ color: "var(--ink-2)" }}>{requirement.statement}</span>
-              </div>
-            ))}
+            <ul className="row-list">
+              {unlinked.rows.map((requirement) => (
+                <li key={requirement.id} className="list-row">
+                  <span className="bid">{requirement.businessId}</span>
+                  <span className="row-main" style={{ color: "var(--ink-2)" }}>
+                    {requirement.statement}
+                  </span>
+                </li>
+              ))}
+            </ul>
             <Pager
               total={unlinked.total}
               page={unlinkedPage}
@@ -77,22 +81,43 @@ export default async function TraceabilityPage({
             <p>No trace links yet.</p>
           </div>
         ) : (
-          links.rows.map((link) => (
-            <div key={link.id} className="list-row">
-              <span className="bid">{link.requirement.businessId}</span>
-              <span className="muted">→</span>
-              <span className="bid">{link.testCase.businessId}</span>
-              {link.defect ? (
-                <>
-                  <span className="muted">→</span>
-                  <span className="bid">{link.defect.businessId}</span>
-                </>
-              ) : null}
-              <span className="row-main" style={{ color: "var(--ink-2)" }}>
-                {link.testCase.title}
-              </span>
-            </div>
-          ))
+          <ul className="row-list">
+            {links.rows.map((link) => (
+              /* Three bare business IDs separated by arrows say nothing about which is
+                 the requirement, the case or the defect — and the arrow is a glyph a
+                 screen reader either reads as "right arrow" or skips, leaving three
+                 unrelated IDs in a row. Knowing what traces to what IS the RTM, so each
+                 ID carries its kind as sr-only text and the arrows go decorative, the
+                 same treatment `.crumbs span[aria-hidden]` already gets. */
+              <li key={link.id} className="list-row">
+                <span className="bid">
+                  <span className="sr-only">Requirement </span>
+                  {link.requirement.businessId}
+                </span>
+                <span className="muted" aria-hidden="true">
+                  →
+                </span>
+                <span className="bid">
+                  <span className="sr-only">covered by test case </span>
+                  {link.testCase.businessId}
+                </span>
+                {link.defect ? (
+                  <>
+                    <span className="muted" aria-hidden="true">
+                      →
+                    </span>
+                    <span className="bid">
+                      <span className="sr-only">which raised defect </span>
+                      {link.defect.businessId}
+                    </span>
+                  </>
+                ) : null}
+                <span className="row-main" style={{ color: "var(--ink-2)" }}>
+                  {link.testCase.title}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
         <Pager
           total={links.total}

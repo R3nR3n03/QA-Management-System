@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-const nav = vi.hoisted(() => ({ search: "", replace: vi.fn() }));
+/**
+ * `pathname` is settable because the URL-backed filters build their destination from
+ * `usePathname()`, NOT from the `pathname` prop the server passes for its links. A test
+ * that renders the defects list under a hard-coded "/executions" would assert the wrong
+ * URL and pass anyway.
+ */
+const nav = vi.hoisted(() => ({ search: "", pathname: "/executions", replace: vi.fn() }));
 
 vi.mock("next/link", () => ({
   default: ({
@@ -24,7 +30,7 @@ vi.mock("next/link", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: nav.replace, push: vi.fn() }),
-  usePathname: () => "/executions",
+  usePathname: () => nav.pathname,
   useSearchParams: () => new URLSearchParams(nav.search)
 }));
 
@@ -45,6 +51,7 @@ import { makeDefectRows, makeExecutionRows } from "./pagination-fixtures";
 afterEach(cleanup);
 beforeEach(() => {
   nav.search = "";
+  nav.pathname = "/executions";
   nav.replace.mockClear();
 });
 
@@ -164,6 +171,59 @@ describe("ExecutionList", () => {
     expect(screen.getByText("2026-01-05 09:00 UTC")).toBeTruthy();
   });
 
+  it("offers products as a dropdown and keeps the choice when the state chip changes", () => {
+    nav.search = "product=prod-1";
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(3)}
+        total={3}
+        page={1}
+        pathname="/executions"
+        params={{ product: "prod-1" }}
+        products={[
+          { id: "prod-1", businessId: "PROD001", name: "Storefront" },
+          { id: "prod-2", businessId: "PROD002", name: "Back office" }
+        ]}
+      />
+    );
+
+    const select = screen.getByLabelText("Filter by product") as HTMLSelectElement;
+    expect(select.value).toBe("prod-1");
+    expect(screen.getByRole("option", { name: "PROD001 · Storefront" })).toBeTruthy();
+    // The two filters compose: narrowing by state must not silently drop the product.
+    expect(href("Finalized")).toBe("/executions?product=prod-1&state=FINALIZED");
+  });
+
+  /** One product is still a product: see the note in `case-table.tsx`. */
+  it("offers the product filter when the catalogue holds a single product", () => {
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(3)}
+        total={3}
+        page={1}
+        pathname="/executions"
+        params={{}}
+        products={[{ id: "prod-1", businessId: "PROD001", name: "Storefront" }]}
+      />
+    );
+
+    expect(screen.getByLabelText("Filter by product")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "PROD001 · Storefront" })).toBeTruthy();
+  });
+
+  it("leaves the product filter off entirely when no products are passed", () => {
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(3)}
+        total={3}
+        page={1}
+        pathname="/executions"
+        params={{}}
+      />
+    );
+    expect(screen.queryByLabelText("Filter by product")).toBeNull();
+  });
+
   it("separates an empty list from an empty filter result", () => {
     const { unmount } = render(
       <ExecutionList rows={[]} total={0} page={1} pathname="/executions" params={{}} />
@@ -207,5 +267,110 @@ describe("DefectList", () => {
   it("falls back to the empty state when there are no defects at all", () => {
     render(<DefectList rows={[]} total={0} page={1} pathname="/defects" params={{}} />);
     expect(screen.getByText("No defects recorded.")).toBeTruthy();
+  });
+
+  it("offers the product filter, and commits a choice back to page 1", () => {
+    nav.search = "page=4";
+    nav.pathname = "/defects";
+    render(
+      <DefectList
+        rows={makeDefectRows(50)}
+        total={60}
+        page={4}
+        pathname="/defects"
+        params={{ page: "4" }}
+        products={[
+          { id: "prod-1", businessId: "PROD001", name: "Storefront" },
+          { id: "prod-2", businessId: "PROD002", name: "Back office" }
+        ]}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Filter by product"), {
+      target: { value: "prod-1" }
+    });
+    expect(nav.replace).toHaveBeenCalledWith("/defects?product=prod-1", { scroll: false });
+  });
+
+  it("names the product when it is the filter that emptied the list", () => {
+    nav.search = "product=prod-2";
+    render(
+      <DefectList
+        rows={[]}
+        total={0}
+        page={1}
+        pathname="/defects"
+        params={{ product: "prod-2" }}
+        products={[{ id: "prod-2", businessId: "PROD002", name: "Back office" }]}
+      />
+    );
+
+    // Not "no defects recorded" — there are 60 of them, none against this product.
+    expect(screen.getByText("No defect has been raised against this product.")).toBeTruthy();
+    expect(screen.queryByText("No defects recorded.")).toBeNull();
+    // And the filter that emptied it survives, or there is no way left to clear it.
+    expect((screen.getByLabelText("Filter by product") as HTMLSelectElement).value).toBe("prod-2");
+  });
+
+  it("leaves the product filter off the defects list when no products are passed", () => {
+    render(
+      <DefectList rows={makeDefectRows(50)} total={60} page={1} pathname="/defects" params={{}} />
+    );
+    expect(screen.queryByLabelText("Filter by product")).toBeNull();
+  });
+});
+
+/**
+ * A page past the end of the list.
+ *
+ * `readPage` does not clamp and `Pager` clamps for display only, so an offset beyond the
+ * last row returns zero rows while `total` stays positive. Every list used to attribute
+ * that to the filters: the defect list rendered `Nothing matches “”.` — with visibly
+ * empty quotes — and the executions list blamed filters that were not set, both directly
+ * above a pager honestly reporting "Showing 1–50 of 60".
+ *
+ * Reachable without touching a URL: hold page 2 of a queue while colleagues work it down
+ * to a single page.
+ */
+describe("a page past the end of the list", () => {
+  it("says so on the executions list rather than blaming a filter", () => {
+    nav.search = "";
+    render(
+      <ExecutionList rows={[]} total={60} page={9} pathname="/executions" params={{ page: "9" }} />
+    );
+
+    expect(screen.getByText("This page is past the end of the list.")).toBeTruthy();
+    expect(screen.queryByText("No execution matches the current filters.")).toBeNull();
+    // The pager's Previous/Next are computed from the clamped page, so they point back
+    // into the same empty view. This link is the only way out.
+    expect(screen.getByRole("link", { name: "Go to the first page" }).getAttribute("href")).toBe(
+      "/executions"
+    );
+  });
+
+  it("says so on the defects list instead of quoting an empty needle", () => {
+    nav.search = "";
+    render(<DefectList rows={[]} total={60} page={9} pathname="/defects" params={{ page: "9" }} />);
+
+    expect(screen.getByText("This page is past the end of the list.")).toBeTruthy();
+    expect(screen.queryByText("Nothing matches “”.")).toBeNull();
+  });
+
+  it("keeps the other filters when returning to page 1", () => {
+    nav.search = "q=login";
+    render(
+      <DefectList
+        rows={[]}
+        total={60}
+        page={9}
+        pathname="/defects"
+        params={{ q: "login", page: "9" }}
+      />
+    );
+
+    // Dropping the needle as well would silently widen the list the viewer had narrowed.
+    expect(screen.getByRole("link", { name: "Go to the first page" }).getAttribute("href")).toBe(
+      "/defects?q=login"
+    );
   });
 });

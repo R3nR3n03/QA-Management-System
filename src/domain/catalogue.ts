@@ -73,6 +73,18 @@ export async function listCatalogueOptions() {
   return { products, modules, features };
 }
 
+/**
+ * Products as filter options: every one, three columns, cheapest ordering.
+ *
+ * Separate from `listCatalogueOptions` because the list screens need only this third of
+ * it — pulling modules and features to render one product dropdown is two queries and
+ * two result sets thrown away on every page load. Unpaged: a dropdown that only offers
+ * the first page of products is a filter that silently cannot reach some rows.
+ */
+export async function listProductOptions() {
+  return prisma.product.findMany({ select: OPTION_SELECT, orderBy: { businessId: "asc" } });
+}
+
 // The single-record getters exist so route handlers never touch the ORM directly
 // (`architecture.md:33`) and a missing record surfaces through the standard error
 // shape, requestId included (`api-and-security.md:22-31`) — implementation audit §4.2.

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const nav = vi.hoisted(() => ({ search: "", replace: vi.fn() }));
 
@@ -161,6 +161,142 @@ describe("CaseTable", () => {
     );
     expect(screen.getByText("Nothing matches “zzz”.")).toBeTruthy();
     expect(screen.queryByText("No test cases yet.")).toBeNull();
+  });
+
+  /**
+   * The product dropdown and the needle answer different questions, so they are offered
+   * on different conditions: the needle once the list is long enough to be worth
+   * narrowing, the dropdown as soon as the catalogue has a product in it. A single
+   * product does not disqualify it — a catalogue grows one product at a time, and a
+   * filter that appears by itself once someone adds a second is one nobody knows to
+   * look for.
+   */
+  it("offers the product filter on a short list, and with a single product", () => {
+    render(
+      <CaseTable
+        rows={makeCaseRows(3)}
+        total={3}
+        page={1}
+        pathname="/test-cases"
+        params={{}}
+        emptyText="No cases."
+        products={[{ id: "prod-1", businessId: "PROD001", name: "Storefront" }]}
+      />
+    );
+
+    expect(screen.getByLabelText("Filter by product")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "PROD001 · Storefront" })).toBeTruthy();
+    // Three rows is still too short to earn a needle: the two gates are independent.
+    expect(screen.queryByLabelText("Filter test cases")).toBeNull();
+  });
+
+  it("leaves the product filter off entirely when no products are passed", () => {
+    render(
+      <CaseTable
+        rows={makeCaseRows(50)}
+        total={132}
+        page={1}
+        pathname="/test-cases"
+        params={{}}
+        emptyText="No cases."
+      />
+    );
+
+    // `/review` and `/my-work/drafts` share this component and pass no products.
+    expect(screen.queryByLabelText("Filter by product")).toBeNull();
+    expect(screen.getByLabelText("Filter test cases")).toBeTruthy();
+  });
+
+  it("commits a chosen product to the URL and returns to the first page", () => {
+    nav.search = "q=login&page=4";
+    render(
+      <CaseTable
+        rows={makeCaseRows(50)}
+        total={132}
+        page={4}
+        pathname="/test-cases"
+        params={{ q: "login", page: "4" }}
+        emptyText="No cases."
+        products={[
+          { id: "prod-1", businessId: "PROD001", name: "Storefront" },
+          { id: "prod-2", businessId: "PROD002", name: "Back office" }
+        ]}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Filter by product"), {
+      target: { value: "prod-2" }
+    });
+
+    // The needle survives (the two filters compose) and `page` is dropped, because a
+    // narrower list has fewer pages and page 4 of it may not exist.
+    expect(nav.replace).toHaveBeenCalledWith("/test-cases?q=login&product=prod-2", {
+      scroll: false
+    });
+  });
+
+  it("keeps the controls on screen when the product filter is what emptied the list", () => {
+    nav.search = "product=prod-2";
+    render(
+      <CaseTable
+        rows={[]}
+        total={0}
+        page={1}
+        pathname="/test-cases"
+        params={{ product: "prod-2" }}
+        emptyText="No test cases yet."
+        products={[
+          { id: "prod-1", businessId: "PROD001", name: "Storefront" },
+          { id: "prod-2", businessId: "PROD002", name: "Back office" }
+        ]}
+      />
+    );
+
+    // Not "no test cases yet" — there are plenty, just none in this product. And the
+    // filter that emptied it stays put, or there is no way left to clear it.
+    expect(screen.getByText("No test case belongs to this product.")).toBeTruthy();
+    expect((screen.getByLabelText("Filter by product") as HTMLSelectElement).value).toBe("prod-2");
+  });
+
+  /**
+   * `/review` and `/my-work/drafts` are already scoped — to In Review, and to the
+   * viewer's own unfinished work. The default sentence claims the product holds no test
+   * cases at all, which on those screens is usually false and reads as a data problem.
+   */
+  it("lets an already-scoped screen say which nothing it means", () => {
+    nav.search = "product=prod-1";
+    render(
+      <CaseTable
+        rows={[]}
+        total={0}
+        page={1}
+        pathname="/review"
+        params={{ product: "prod-1" }}
+        emptyText="Nothing is waiting for review."
+        products={[{ id: "prod-1", businessId: "PROD001", name: "Storefront" }]}
+        productEmptyText="Nothing in this product is waiting for review."
+      />
+    );
+
+    expect(screen.getByText("Nothing in this product is waiting for review.")).toBeTruthy();
+    expect(screen.queryByText("No test case belongs to this product.")).toBeNull();
+  });
+
+  it("names both filters when a needle inside a product matches nothing", () => {
+    nav.search = "q=zzz&product=prod-1";
+    render(
+      <CaseTable
+        rows={[]}
+        total={0}
+        page={1}
+        pathname="/test-cases"
+        params={{ q: "zzz", product: "prod-1" }}
+        emptyText="No test cases yet."
+        products={[{ id: "prod-1", businessId: "PROD001", name: "Storefront" }]}
+      />
+    );
+
+    expect(screen.getByText("Nothing matches “zzz” in this product.")).toBeTruthy();
   });
 
   it("seeds the filter box from the URL, so a shared link shows its own needle", () => {

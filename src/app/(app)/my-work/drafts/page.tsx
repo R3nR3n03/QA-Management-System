@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { TestCaseLifecycleState } from "@prisma/client";
+import { listProductOptions } from "@/domain/catalogue";
 import { listTestCases } from "@/domain/test-cases";
 import { CaseTable } from "@/ui/case-table";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
@@ -25,13 +26,21 @@ export default async function MyDraftsPage({
   const auth = await requireSession();
   const page = readPage(params);
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
-  const { rows, total } = await listTestCases({
-    page,
-    pageSize,
-    query: readParam(params, "q"),
-    authorUserId: auth.userId,
-    states: [TestCaseLifecycleState.DRAFT, TestCaseLifecycleState.IN_REVIEW]
-  });
+  // Author, state and product are all `where` clauses together — this screen never sees
+  // a row it is not entitled to, filter or no filter.
+  const productId = readParam(params, "product");
+  const [{ rows, total }, products] = await Promise.all([
+    listTestCases({
+      page,
+      pageSize,
+      query: readParam(params, "q"),
+      authorUserId: auth.userId,
+      states: [TestCaseLifecycleState.DRAFT, TestCaseLifecycleState.IN_REVIEW],
+      productId: productId || undefined
+    }),
+    listProductOptions()
+  ]);
+  const productName = products.find((row) => row.id === productId)?.name;
 
   return (
     <>
@@ -42,8 +51,8 @@ export default async function MyDraftsPage({
         </Link>
       </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
-        Your cases still in Draft or In Review. A case needs at least one step before it can be
-        submitted.
+        Your cases still in Draft or In Review{productName ? `, in ${productName}` : ""}. A case
+        needs at least one step before it can be submitted.
       </p>
       <CaseTable
         rows={rows}
@@ -53,6 +62,10 @@ export default async function MyDraftsPage({
         pathname="/my-work/drafts"
         params={params}
         emptyText="You have no drafts in flight."
+        products={products}
+        // Scoped to this author's unfinished work, so the default sentence would be
+        // false: the product may hold hundreds of cases, none of them theirs and in flight.
+        productEmptyText="You have no drafts in flight in this product."
       />
     </>
   );

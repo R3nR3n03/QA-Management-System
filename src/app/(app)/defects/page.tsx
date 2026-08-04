@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { listProductOptions } from "@/domain/catalogue";
 import { listDefectsWithCase } from "@/domain/defects";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
@@ -17,7 +18,12 @@ export default async function DefectsPage({
   const page = readPage(params);
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
-  const { rows, total } = await listDefectsWithCase({ page, pageSize, query });
+  const productId = readParam(params, "product");
+  const [{ rows, total }, products] = await Promise.all([
+    listDefectsWithCase({ page, pageSize, query, productId: productId || undefined }),
+    listProductOptions()
+  ]);
+  const productName = products.find((row) => row.id === productId)?.name;
 
   return (
     <>
@@ -29,8 +35,11 @@ export default async function DefectsPage({
       </div>
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         {total} defect{total === 1 ? "" : "s"}
-        {query ? ` matching “${query}”` : ""}. No state is ever skipped, and nothing is deleted —
-        closure always records its evidence or rationale.
+        {query ? ` matching “${query}”` : ""}
+        {/* "against" not "in": a defect belongs to a product only through the case it
+            was raised against. */}
+        {productName ? ` against ${productName}` : ""}. No state is ever skipped, and nothing is
+        deleted — closure always records its evidence or rationale.
       </p>
 
       <DefectList
@@ -48,6 +57,7 @@ export default async function DefectsPage({
         pageSize={pageSize}
         pathname="/defects"
         params={params}
+        products={products}
       />
     </>
   );
