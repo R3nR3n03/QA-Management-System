@@ -21,12 +21,18 @@ afterEach(cleanup);
 
 const pad = (n: number) => String(n).padStart(4, "0");
 
-/** Odd cases sit in product-a/Checkout/High, even ones in product-b/Search/Low, so the
-    filters have something to separate that is neither the ID nor the title. */
+/**
+ * Odd cases sit in product-a/Checkout/High, even ones in product-b/Search/Low, so the
+ * filters have something to separate that is neither the ID nor the title. Requirements
+ * split further within each product — product-a's odds split into req-1/req-2, product-b's
+ * evens into req-3/req-4 — so a requirement filter has something to narrow that a product
+ * filter alone would not.
+ */
 function makeCases(count: number) {
   return Array.from({ length: count }, (_, index) => {
     const n = index + 1;
     const odd = n % 2 === 1;
+    const requirementNumber = odd ? (n % 4 === 1 ? 1 : 2) : n % 4 === 2 ? 3 : 4;
     return {
       id: `case-${n}`,
       businessId: `TC-PLAN-${pad(n)}`,
@@ -34,6 +40,8 @@ function makeCases(count: number) {
       priority: odd ? "High" : "Low",
       severity: odd ? "Major" : "Minor",
       productId: odd ? "product-a" : "product-b",
+      requirementId: `req-${requirementNumber}`,
+      requirementBusinessId: `REQ00${requirementNumber}`,
       moduleName: odd ? "Checkout" : "Search",
       featureName: odd ? "Card payment" : "Autocomplete"
     };
@@ -62,6 +70,7 @@ function submittedIds(container: HTMLElement): string[] {
 
 const filterBox = () => screen.getByLabelText("Filter approved test cases");
 const productBox = () => screen.getByLabelText("Filter by product") as HTMLSelectElement;
+const requirementBox = () => screen.getByLabelText("Filter by requirement") as HTMLSelectElement;
 
 describe("PlanForm", () => {
   it("starts with the preselected cases ticked", () => {
@@ -286,6 +295,104 @@ describe("PlanForm", () => {
 
     fireEvent.change(productBox(), { target: { value: "product-b" } });
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  });
+
+  it("offers a requirement filter with no products prop at all", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    expect(screen.getByRole("option", { name: "REQ001" })).toBeTruthy();
+    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
+    // req-1 is cases 1 and 5.
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0001/ })).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0005/ })).toBeTruthy();
+  });
+
+  it("keeps a selection the requirement filter has scoped out of view", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0003/ }));
+    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
+
+    // Case 3 is req-2, so it leaves the screen — but not the run.
+    expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0003/ })).toBeNull();
+    expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
+    expect(submittedIds(container)).toEqual(["case-3"]);
+  });
+
+  it("composes the requirement filter with the needle", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+
+    fireEvent.change(filterBox(), { target: { value: "Candidate 5" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0005/ })).toBeTruthy();
+  });
+
+  it("matches a requirement business ID by the needle alone", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.change(filterBox(), { target: { value: "REQ002" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0003/ })).toBeTruthy();
+  });
+
+  /**
+   * A product is the broader cut, so selecting one rescopes which requirements are even
+   * worth offering — REQ003/REQ004 belong to product-b and would only ever produce an
+   * empty list once product-a is chosen. The same reasoning `page.tsx` already applies
+   * to products (drop what has no candidate behind it).
+   */
+  it("scopes the requirement options to the selected product", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
+
+    expect(screen.getByRole("option", { name: "REQ003" })).toBeTruthy();
+
+    fireEvent.change(productBox(), { target: { value: "product-a" } });
+    expect(screen.getByRole("option", { name: "REQ001" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "REQ002" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "REQ003" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "REQ004" })).toBeNull();
+  });
+
+  it("resets the requirement filter when the product changes underneath it", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
+
+    fireEvent.change(requirementBox(), { target: { value: "req-3" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+
+    // req-3 belongs to product-b; switching to product-a would otherwise combine two
+    // filters into a silent empty list with no explanation for either one.
+    fireEvent.change(productBox(), { target: { value: "product-a" } });
+    expect(requirementBox().value).toBe("");
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+  });
+
+  it("names the requirement when its scope is what emptied the list", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
+    fireEvent.change(filterBox(), { target: { value: "Card payment" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+
+    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
+    expect(screen.getByText("Nothing matches “Autocomplete” in REQ001.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all approved cases" }));
+    expect(screen.getAllByRole("checkbox")).toHaveLength(6);
+    expect(requirementBox().value).toBe("");
+  });
+
+  it("names both scopes together when a product and a requirement combine to empty the list", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
+
+    fireEvent.change(productBox(), { target: { value: "product-a" } });
+    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
+    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
+
+    expect(screen.getByText("Nothing matches “Autocomplete” in Storefront · REQ001.")).toBeTruthy();
   });
 
   /**
