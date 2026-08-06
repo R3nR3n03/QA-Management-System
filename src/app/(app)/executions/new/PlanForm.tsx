@@ -25,6 +25,8 @@ export type PlanCandidate = {
   priority: string;
   severity: string;
   productId: string;
+  requirementId: string;
+  requirementBusinessId: string;
   moduleName: string;
   featureName: string;
 };
@@ -49,6 +51,7 @@ function haystack(candidate: PlanCandidate): string {
     candidate.title,
     candidate.moduleName,
     candidate.featureName,
+    candidate.requirementBusinessId,
     candidate.priority,
     candidate.severity
   ]
@@ -94,19 +97,38 @@ export function PlanForm({
   const [state, formAction, pending] = useActionState<FormState, FormData>(createExecutionAction, null);
   const [query, setQuery] = useState("");
   const [productId, setProductId] = useState("");
+  const [requirementId, setRequirementId] = useState("");
   const [onlySelected, setOnlySelected] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(preselect));
   const bad = (field: string) => fieldClass(state, field);
 
+  /*
+   * Requirement options come from the candidates themselves, not a separate catalogue
+   * fetch — every case already carries its own requirement, so there is nothing a
+   * server round-trip would add. Scoped to the current product (or the whole set, with
+   * none chosen) for the same reason `page.tsx` only offers products with a candidate
+   * behind them: an option that empties the list on selection reads as a broken filter.
+   */
+  const requirementOptions = useMemo(() => {
+    const scoped = productId === "" ? cases : cases.filter((testCase) => testCase.productId === productId);
+    const byId = new Map<string, string>();
+    for (const testCase of scoped) byId.set(testCase.requirementId, testCase.requirementBusinessId);
+    return [...byId.entries()]
+      .map(([id, businessId]) => ({ id, businessId }))
+      .sort((a, b) => a.businessId.localeCompare(b.businessId));
+  }, [cases, productId]);
+
   const matching = useMemo(() => {
     let pool = onlySelected ? cases.filter((testCase) => selected.has(testCase.id)) : cases;
-    // Product first: it is the broadest cut, and the needle then searches within it
-    // rather than across the whole catalogue.
+    // Product first: it is the broadest cut. Requirement narrows within whatever the
+    // product left — its own options are scoped the same way — and the needle
+    // searches within whatever both leave, rather than across the whole catalogue.
     if (productId !== "") pool = pool.filter((testCase) => testCase.productId === productId);
+    if (requirementId !== "") pool = pool.filter((testCase) => testCase.requirementId === requirementId);
     const needle = query.trim().toLowerCase();
     if (!needle) return pool;
     return pool.filter((testCase) => haystack(testCase).includes(needle));
-  }, [cases, query, productId, onlySelected, selected]);
+  }, [cases, query, productId, requirementId, onlySelected, selected]);
 
   // What is actually rendered. Everything below keys off THIS, not `matching` — a
   // hidden input is what keeps an off-screen selection in the submitted body, so the
@@ -140,19 +162,23 @@ export function PlanForm({
     setOnlySelected(false);
     setQuery("");
     setProductId("");
+    setRequirementId("");
   };
 
   const productName = products.find((product) => product.id === productId)?.name;
+  const requirementName = requirementOptions.find((requirement) => requirement.id === requirementId)?.businessId;
+  const scopeLabel = [productName, requirementName].filter(Boolean).join(" · ");
 
   /*
    * A needle earns its place once the list is long enough to be worth narrowing; the
-   * product dropdown earns its place as soon as the catalogue has a product to offer,
-   * regardless of how many candidates are on screen. Two different questions, so two
-   * different conditions — and `page.tsx` has already dropped any product with no
-   * Approved case, so an offered option always has something behind it.
+   * product and requirement dropdowns earn theirs as soon as there is anything to
+   * offer, regardless of how many candidates are on screen. Different questions, so
+   * different conditions — and every option offered always has a candidate behind it
+   * (`page.tsx` for products; `requirementOptions` is built the same way).
    */
   const showNeedle = cases.length > 5;
   const showProducts = products.length > 0;
+  const showRequirements = requirementOptions.length > 0;
 
   return (
     <form action={formAction}>
@@ -181,13 +207,13 @@ export function PlanForm({
       <fieldset className={`form-section${state?.field === "testCaseIds" ? " form-section-bad" : ""}`}>
         <legend>Approved test cases</legend>
         <div className="stack">
-          {showNeedle || showProducts ? (
+          {showNeedle || showProducts || showRequirements ? (
             <div className="row">
               {showNeedle ? (
                 <FilterToolbar
                   value={query}
                   onChange={setQuery}
-                  placeholder="Filter by ID, title, module, feature, priority…"
+                  placeholder="Filter by ID, title, module, feature, requirement, priority…"
                   label="Filter approved test cases"
                 />
               ) : null}
@@ -200,13 +226,36 @@ export function PlanForm({
                   className="select-filter"
                   aria-label="Filter by product"
                   value={productId}
-                  onChange={(event) => setProductId(event.target.value)}
+                  onChange={(event) => {
+                    setProductId(event.target.value);
+                    // The requirement options are about to be rescoped to the new
+                    // product; a selection from the old scope could now point at a
+                    // requirement no other row shares, which would look like a
+                    // second, unexplained filter narrowing the list.
+                    setRequirementId("");
+                  }}
                   disabled={pending}
                 >
                   <option value="">All products</option>
                   {products.map((product) => (
                     <option key={product.id} value={product.id}>
                       {product.businessId} · {product.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {showRequirements ? (
+                <select
+                  className="select-filter"
+                  aria-label="Filter by requirement"
+                  value={requirementId}
+                  onChange={(event) => setRequirementId(event.target.value)}
+                  disabled={pending}
+                >
+                  <option value="">All requirements</option>
+                  {requirementOptions.map((requirement) => (
+                    <option key={requirement.id} value={requirement.id}>
+                      {requirement.businessId}
                     </option>
                   ))}
                 </select>
@@ -275,8 +324,8 @@ export function PlanForm({
               <div className="empty">
                 {/* Several different nothings, and confusing them wastes the reader's
                     time: an empty selection, a scope that excludes the selection, a
-                    product with no match, and a needle that matches nothing at all. Each
-                    names the filter that actually emptied the list. */}
+                    product/requirement scope with no match, and a needle that matches
+                    nothing at all. Each names the filter that actually emptied the list. */}
                 {onlySelected && selected.size === 0 ? (
                   <p>Nothing is selected yet.</p>
                 ) : onlySelected ? (
@@ -289,12 +338,12 @@ export function PlanForm({
                 ) : query !== "" ? (
                   <p>
                     Nothing matches &ldquo;{query}&rdquo;
-                    {productName ? ` in ${productName}` : ""}.
+                    {scopeLabel ? ` in ${scopeLabel}` : ""}.
                   </p>
                 ) : (
-                  <p>{productName} has no approved cases to plan.</p>
+                  <p>{scopeLabel || "This scope"} has no approved cases to plan.</p>
                 )}
-                {onlySelected || query !== "" || productId !== "" ? (
+                {onlySelected || query !== "" || productId !== "" || requirementId !== "" ? (
                   <button type="button" className="btn btn-ghost btn-sm" onClick={showAll}>
                     Show all approved cases
                   </button>
@@ -321,11 +370,13 @@ export function PlanForm({
                     </span>
                     {/* Runs get scoped by area and by priority, so those are what a row
                         has to show — as two separate chunks, because they answer two
-                        different questions. Module and feature come from the hierarchy:
-                        the business ID encodes only the product. */}
+                        different questions. Module, feature, and requirement come from
+                        the hierarchy: the business ID encodes only the product. The
+                        requirement is shown because the needle can match it — a needle
+                        match on something invisible would read as broken. */}
                     <span className="pick-meta">
                       <span>
-                        {testCase.moduleName} · {testCase.featureName}
+                        {testCase.moduleName} · {testCase.featureName} · {testCase.requirementBusinessId}
                       </span>
                       <span>
                         {testCase.priority || "no"} priority · {testCase.severity || "no"} severity

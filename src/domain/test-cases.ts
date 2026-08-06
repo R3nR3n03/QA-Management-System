@@ -120,8 +120,10 @@ export async function listApprovedCandidates() {
       priority: true,
       severity: true,
       productId: true,
+      requirementId: true,
       module: { select: { name: true } },
-      feature: { select: { name: true } }
+      feature: { select: { name: true } },
+      requirement: { select: { businessId: true } }
     },
     orderBy: { businessId: "asc" }
   });
