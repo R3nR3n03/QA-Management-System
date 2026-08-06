@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
 import { ExecutionLifecycleState, ExecutionOutcome, QamsRole } from "@prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CalendarDays, CircleCheckBig, Clock, FileText } from "lucide-react";
 import { listControlledValues } from "@/domain/admin";
 import { listOpenDefectsForCases } from "@/domain/defects";
 import { executionDetail, listAssignableTesters } from "@/domain/executions";
@@ -8,31 +10,98 @@ import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-c
 import { ExecutionStateChip, OutcomeChip, TestCaseStateChip } from "@/ui/chips";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
 import { formatUtcMinute } from "@/ui/format";
+import { hrefWith, readPage, readParam, type ListSearchParams } from "@/ui/list-params";
+import { Pager } from "@/ui/pager";
+import { pageSlice } from "@/ui/paging";
+import { UrlFilterToolbar } from "@/ui/toolbar";
 import { requireSession } from "@/ui/session";
+import { StepsDisclosure } from "@/ui/steps-disclosure";
 import { Stepper } from "@/ui/stepper";
 import { FinalizeForm } from "./FinalizeForm";
 import { ReassignForm } from "./ReassignForm";
 import { StartForm } from "./StartForm";
 
-const RAIL: { state: ExecutionLifecycleState; label: string }[] = [
-  { state: ExecutionLifecycleState.PLANNED, label: "Planned" },
-  { state: ExecutionLifecycleState.IN_PROGRESS, label: "In Progress" },
-  { state: ExecutionLifecycleState.FINALIZED, label: "Finalized" }
+const RAIL: { state: ExecutionLifecycleState; label: string; icon: ReactNode }[] = [
+  {
+    state: ExecutionLifecycleState.PLANNED,
+    label: "Planned",
+    icon: <CalendarDays size={17} strokeWidth={1.9} />
+  },
+  {
+    state: ExecutionLifecycleState.IN_PROGRESS,
+    label: "In Progress",
+    icon: <Clock size={17} strokeWidth={1.9} />
+  },
+  {
+    state: ExecutionLifecycleState.FINALIZED,
+    label: "Finalized",
+    icon: <CircleCheckBig size={17} strokeWidth={1.9} />
+  }
 ];
 
-/** The moment each stage was reached, or nothing when it has not been. */
+/**
+ * The moment each stage was reached, or "Not yet" when it has not been.
+ *
+ * An unreached stage says so in words rather than leaving the line out. As a bar
+ * segment an omitted hint was right — a missing caption reads as "no timestamp here".
+ * As a TILE it reads as a rendering fault: two cards with two lines beside one with a
+ * stray centred label. The words also make the stepper's claim complete without colour,
+ * which the empty slot left to inference.
+ */
 function railHint(
   state: ExecutionLifecycleState,
   execution: { createdAt: Date; startedAt: Date | null; finalizedAt: Date | null }
-): string | undefined {
+): string {
   if (state === ExecutionLifecycleState.PLANNED) return formatUtcMinute(execution.createdAt);
   if (state === ExecutionLifecycleState.IN_PROGRESS)
-    return execution.startedAt ? formatUtcMinute(execution.startedAt) : undefined;
-  return execution.finalizedAt ? formatUtcMinute(execution.finalizedAt) : undefined;
+    return execution.startedAt ? formatUtcMinute(execution.startedAt) : "Not yet";
+  return execution.finalizedAt ? formatUtcMinute(execution.finalizedAt) : "Not yet";
 }
 
-export default async function ExecutionPage({ params }: { params: Promise<{ id: string }> }) {
+/**
+ * The views a reader may take over a run's covered cases.
+ *
+ * "PENDING" is not an outcome the model has — it is the absence of one, which is exactly
+ * what a reader of a part-graded run wants to isolate. It is named "Not graded" rather
+ * than "Skipped": policy defines three outcomes (`docs/business-rules-and-validation.md`),
+ * and a fourth word on the same strip would read as a fourth grade.
+ */
+const OUTCOME_VIEWS: { value: string; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: ExecutionOutcome.PASS, label: "Pass" },
+  { value: ExecutionOutcome.FAIL, label: "Fail" },
+  { value: ExecutionOutcome.BLOCKED, label: "Blocked" },
+  { value: "PENDING", label: "Not graded" }
+];
+
+/* The three keys this screen owns in the query string. Named apart from the record
+   lists' `q`/`page` because a covered-case list is not the executions list — a link
+   carrying both would otherwise cross-talk. */
+const OUTCOME_PARAM = "outcome";
+const CASE_QUERY_PARAM = "caseq";
+const CASE_PAGE_PARAM = "casepage";
+
+/** A hand-edited `?outcome=` that names nothing shows every case rather than none. */
+function readOutcomeView(params: ListSearchParams): string {
+  const raw = readParam(params, OUTCOME_PARAM);
+  return OUTCOME_VIEWS.some((view) => view.value === raw) ? raw : "ALL";
+}
+
+function matchesView(view: string, result: ExecutionOutcome | null): boolean {
+  if (view === "ALL") return true;
+  if (view === "PENDING") return result === null;
+  return result === view;
+}
+
+export default async function ExecutionPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<ListSearchParams>;
+}) {
   const { id } = await params;
+  const query = await searchParams;
   const auth = await requireSession();
   const execution = await executionDetail(id);
   if (!execution) notFound();
@@ -66,12 +135,45 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
 
   const currentIndex = RAIL.findIndex((step) => step.state === execution.state);
 
+  // Recording results IS the work on an In Progress run, so the finalize form takes the
+  // record's whole two-column layout: the wide column becomes the working list of cases
+  // and the rail becomes the commit panel. The read-only layout below serves every other
+  // state. (Nothing is lost by not rendering History here — history rows are written
+  // only by `finalizeExecution`, so an In Progress run has none.)
+  const working = execution.state === ExecutionLifecycleState.IN_PROGRESS && mayAct;
+
   // One execution covers one or more cases (`docs/business-rules-and-validation.md:27`);
   // per-case outcome fields live on the covered-case rows, the execution keeps only
   // its derived result.
   const single = execution.cases.length === 1 ? execution.cases[0] : null;
   const caseByTestCaseId = new Map(execution.cases.map((row) => [row.testCaseId, row]));
-  const anchor = (businessId: string) => `case-${businessId}`;
+
+  // The tally. A count of what policy already graded — never a rate, a threshold or a
+  // judgement, which `docs/business-rules-and-validation.md:37-38` does not define.
+  const countOf = (view: string) =>
+    execution.cases.filter((covered) => matchesView(view, covered.result)).length;
+  const graded = execution.cases.filter((covered) => covered.result !== null).length;
+
+  // The view strip earns its place only once something has been graded: on a Planned run
+  // every segment but "Not graded" reads zero, which is four controls saying nothing.
+  const outcomeView = readOutcomeView(query);
+  const showViews = execution.cases.length > 1 && graded > 0;
+
+  // Needle, then view, then page — the same order the record lists apply them in, so a
+  // covered-case list of a hundred behaves like every other list in the product.
+  const caseNeedle = readParam(query, CASE_QUERY_PARAM);
+  const needle = caseNeedle.toLowerCase();
+  const matchedCases = execution.cases.filter(
+    (covered) =>
+      (!showViews || matchesView(outcomeView, covered.result)) &&
+      (needle === "" ||
+        covered.testCase.businessId.toLowerCase().includes(needle) ||
+        covered.testCase.title.toLowerCase().includes(needle))
+  );
+  // `pageSlice` clamps, so an out-of-range `?casepage=` lands on the last page rather
+  // than on nothing — which is why the empty state below only has to explain filters.
+  const casePage = readPage(query, CASE_PAGE_PARAM);
+  const visibleCases = pageSlice(matchedCases, casePage);
 
   // Three screens already tell the reader that a rerun is a new execution covering only
   // the failed or blocked case(s) — and none of them offered a way to start one, so the
@@ -91,102 +193,231 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
   return (
     <>
       <Breadcrumbs trail={[{ href: "/executions", label: "Executions" }]} here={execution.businessId} />
-      <div className="cluster">
-        <span className="bid">{execution.businessId}</span>
-        <ExecutionStateChip state={execution.state} />
-        {execution.result ? <OutcomeChip outcome={execution.result} /> : null}
+
+      {/* The record's identity is its business ID — the thing people quote, search and
+          compare — so that is the h1, with the two chips that qualify it beside it. The
+          title of what it covers is the line under it, where a multi-case run can say so
+          without pretending to be one case. */}
+      <div className="page-head">
+        <div className="cluster">
+          <h1 className="run-id">{execution.businessId}</h1>
+          <ExecutionStateChip state={execution.state} />
+          {execution.result ? <OutcomeChip outcome={execution.result} /> : null}
+        </div>
+        {rerunCaseIds.length > 0 ? (
+          <Link className="btn btn-secondary" href={`/executions/new?cases=${rerunCaseIds.join(",")}`}>
+            Plan a rerun of {rerunCaseIds.length} case{rerunCaseIds.length === 1 ? "" : "s"}
+          </Link>
+        ) : null}
       </div>
 
-      <h1 style={{ marginTop: "var(--sp-2)" }}>
+      <p className="run-lede">
         {single ? single.testCase.title : `${execution.cases.length} test cases in one run`}
-      </h1>
+      </p>
+      <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
+        Assigned to {execution.tester.displayName}
+        {isAssignee ? " (you)" : ""}
+      </p>
 
-      {/* Identity line: each covered case anchors to its section below. */}
-      <div className="row" style={{ marginBottom: "var(--sp-5)" }}>
-        {execution.cases.map((covered) => (
-          <span key={covered.id} className="cluster">
-            <a className="bid" href={`#${anchor(covered.testCase.businessId)}`}>
-              {covered.testCase.businessId}
-            </a>
-            <TestCaseStateChip state={covered.testCase.lifecycleState} />
-          </span>
-        ))}
-        <span className="muted">
-          assigned to {execution.tester.displayName}
-          {isAssignee ? " (you)" : ""}
-        </span>
+      <div className="run-head">
+        <Stepper
+          variant="cards"
+          steps={RAIL.map((step) => ({
+            key: step.state,
+            label: step.label,
+            hint: railHint(step.state, execution),
+            icon: step.icon
+          }))}
+          currentIndex={currentIndex}
+          label="Execution lifecycle"
+        />
+
+        <div className="run-summary">
+          <div className="run-summary-title">Result summary</div>
+          <dl className="run-stats">
+            <div className="run-stat">
+              <dt>Total</dt>
+              <dd>{execution.cases.length}</dd>
+            </div>
+            <div className="run-stat run-stat-pass">
+              <dt>Pass</dt>
+              <dd>{countOf(ExecutionOutcome.PASS)}</dd>
+            </div>
+            <div className="run-stat run-stat-fail">
+              <dt>Fail</dt>
+              <dd>{countOf(ExecutionOutcome.FAIL)}</dd>
+            </div>
+            <div className="run-stat run-stat-blocked">
+              <dt>Blocked</dt>
+              <dd>{countOf(ExecutionOutcome.BLOCKED)}</dd>
+            </div>
+            {/* Always, including at zero: a fixed set of columns means two runs read the
+                same shape side by side, and "Not graded 0" is the useful statement that
+                nothing was left ungraded — not a gap the reader has to interpret. */}
+            <div className="run-stat">
+              <dt>Not graded</dt>
+              <dd>{countOf("PENDING")}</dd>
+            </div>
+          </dl>
+        </div>
       </div>
 
-      <Stepper
-        steps={RAIL.map((step) => ({
-          key: step.state,
-          label: step.label,
-          hint: railHint(step.state, execution)
-        }))}
-        currentIndex={currentIndex}
-        label="Execution lifecycle"
-      />
-
+      {working ? (
+        <FinalizeForm
+          executionId={execution.id}
+          version={execution.version}
+          cases={execution.cases.map((covered) => ({
+            testCaseId: covered.testCaseId,
+            businessId: covered.testCase.businessId,
+            title: covered.testCase.title,
+            steps: covered.testCase.steps.map((step) => ({
+              id: step.id,
+              action: step.action,
+              expectedResult: step.expectedResult
+            })),
+            openDefects: openDefects
+              .filter((defect) => defect.testCaseId === covered.testCaseId)
+              .map((defect) => ({ id: defect.id, businessId: defect.businessId, summary: defect.summary }))
+          }))}
+          priorities={priorities}
+          severities={severities}
+        />
+      ) : (
       <div className="detail-cols">
         <div>
-          {execution.cases.map((covered) => (
-            <section key={covered.id} id={anchor(covered.testCase.businessId)} style={{ marginBottom: "var(--sp-5)" }}>
-              <h2>
-                {single ? (
-                  "Steps"
-                ) : (
-                  <>
-                    <span className="bid">{covered.testCase.businessId}</span> · {covered.testCase.title}
-                  </>
-                )}
-              </h2>
-              {covered.result ? (
-                <div className="cluster" style={{ marginBottom: "var(--sp-2)" }}>
-                  <OutcomeChip outcome={covered.result} />
-                </div>
-              ) : null}
-              {covered.testCase.steps.length === 0 ? (
-                <p className="muted">This test case has no steps recorded.</p>
-              ) : (
-                // Step lists collapse per case: a single-case run keeps its steps open,
-                // the multi-case view starts folded so the page stays scannable.
-                <details open={single !== null}>
-                  <summary className="muted">
-                    {covered.testCase.steps.length} step{covered.testCase.steps.length === 1 ? "" : "s"}
-                  </summary>
-                  <ol style={{ paddingLeft: "var(--sp-5)", margin: 0 }}>
-                    {covered.testCase.steps.map((step) => (
-                      <li key={step.id} style={{ marginBottom: "var(--sp-3)" }}>
-                        <div style={{ color: "var(--ink)" }}>{step.action}</div>
-                        <div className="muted">Expected: {step.expectedResult}</div>
-                      </li>
-                    ))}
-                  </ol>
-                </details>
-              )}
-            </section>
-          ))}
+          <div className="row" style={{ marginBottom: "var(--sp-3)" }}>
+            <h2 style={{ margin: 0, flex: 1 }}>
+              {single ? "Covered case" : `Covered cases (${execution.cases.length})`}
+            </h2>
+            {/* The same >5 rule the record lists use. Its own key, and it resets this
+                list's page — not the record lists' `q`/`page`. */}
+            {execution.cases.length > 5 ? (
+              <UrlFilterToolbar
+                placeholder="Search cases…"
+                label="Search covered cases"
+                paramKey={CASE_QUERY_PARAM}
+                pageKey={CASE_PAGE_PARAM}
+              />
+            ) : null}
+          </div>
 
-          {execution.history.length > 0 ? (
-            <>
-              <h2 style={{ marginTop: "var(--sp-6)" }}>History</h2>
-              <p className="muted">Append-only. Corrections create a new execution, never an edit.</p>
-              {execution.history.map((row) => (
-                <div key={row.id} className="row" style={{ padding: "var(--sp-2) 0" }}>
-                  {!single ? (
-                    <span className="bid">
-                      {caseByTestCaseId.get(row.testCaseId)?.testCase.businessId ?? row.testCaseId}
-                    </span>
-                  ) : null}
-                  <OutcomeChip outcome={row.result} />
-                  <span className="muted">{formatUtcMinute(row.occurredAt)}</span>
-                </div>
+          {showViews ? (
+            <div
+              className="seg"
+              role="group"
+              aria-label="Filter covered cases by outcome"
+              style={{ marginBottom: "var(--sp-3)" }}
+            >
+              {OUTCOME_VIEWS.map((view) => (
+                <Link
+                  key={view.value}
+                  // Changing the view returns to page 1: staying on page 3 of a
+                  // now-shorter list would land on the last page, not the one asked for.
+                  href={hrefWith(`/executions/${execution.id}`, query, {
+                    [OUTCOME_PARAM]: view.value === "ALL" ? null : view.value,
+                    [CASE_PAGE_PARAM]: null
+                  })}
+                  aria-current={view.value === outcomeView ? "true" : undefined}
+                  scroll={false}
+                >
+                  {view.label} <span className="seg-count">{countOf(view.value)}</span>
+                </Link>
               ))}
-            </>
+            </div>
           ) : null}
+
+          <div className="card card-flush">
+            {visibleCases.length === 0 ? (
+              <div className="empty">
+                {/* Two filters can empty this list and the sentence has to name the one
+                    that did — "nothing matches" with no needle reads as a bug. And the
+                    absence of an outcome is not the absence of a grade: "graded not
+                    graded" is neither sentence. */}
+                <p>
+                  {caseNeedle !== "" ? (
+                    <>Nothing matches &ldquo;{caseNeedle}&rdquo;{outcomeView === "ALL" ? "" : " in this view"}.</>
+                  ) : outcomeView === "PENDING" ? (
+                    "Every covered case in this run has been graded."
+                  ) : (
+                    `No covered case in this run was graded ${
+                      OUTCOME_VIEWS.find((view) => view.value === outcomeView)?.label ?? ""
+                    }.`
+                  )}
+                </p>
+                <Link className="btn btn-secondary btn-sm" href={`/executions/${execution.id}`}>
+                  Show all {execution.cases.length} cases
+                </Link>
+              </div>
+            ) : (
+              <ul className="row-list">
+                {visibleCases.map((covered) => (
+                  // The outcome as a stripe down the row's edge. Reinforcement only: the
+                  // chip on the right already carries the word, so a greyscale or
+                  // colour-blind reader loses nothing (principle 2).
+                  <li key={covered.id} className="case-item" data-outcome={covered.result ?? undefined}>
+                    <div className="case-item-head">
+                      <span className="case-item-mark" aria-hidden>
+                        <FileText size={16} strokeWidth={1.9} />
+                      </span>
+                      <div className="row-main">
+                        <div className="cluster">
+                          <span className="bid">{covered.testCase.businessId}</span>
+                          <TestCaseStateChip state={covered.testCase.lifecycleState} />
+                          {/* The size of the job, on the row rather than only inside the
+                              steps disclosure — the working list says it here too. */}
+                          <span className="muted">
+                            {covered.testCase.steps.length} step
+                            {covered.testCase.steps.length === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                        {/* The title is the click target, and it goes to the CASE, not
+                            back to this run: the reader following a title wants the spec
+                            they are being graded against. */}
+                        <div className="row-title">
+                          <Link className="row-link" href={`/test-cases/${covered.testCaseId}`}>
+                            {covered.testCase.title}
+                          </Link>
+                        </div>
+                      </div>
+                      {covered.result ? (
+                        <OutcomeChip outcome={covered.result} />
+                      ) : (
+                        <span className="muted">Not graded</span>
+                      )}
+                    </div>
+
+                    {/* The evidence this run recorded, on the case it belongs to. It used
+                        to live in the 340px rail, which repeated every case ID a second
+                        time and put the outcome and its reason a column apart. */}
+                    {covered.actualResult ? <p className="case-said">{covered.actualResult}</p> : null}
+                    {covered.blockReason ? (
+                      <p className="why" style={{ marginTop: "var(--sp-2)" }}>
+                        <strong>Blocked:</strong> {covered.blockReason}
+                      </p>
+                    ) : null}
+
+                    {/* Steps fold per case: a single-case run keeps them open, a
+                        multi-case run starts folded so the list stays scannable. */}
+                    <StepsDisclosure steps={covered.testCase.steps} open={single !== null} />
+                  </li>
+                ))}
+              </ul>
+            )}
+            {/* `total` is the count AFTER filtering, so the range line tracks the view.
+                No rows-per-page control: the covered set is bounded by what the planner
+                chose, and one more control here would outweigh the list it governs. */}
+            <Pager
+              total={matchedCases.length}
+              page={casePage}
+              pathname={`/executions/${execution.id}`}
+              params={query}
+              pageKey={CASE_PAGE_PARAM}
+              label="covered cases"
+            />
+          </div>
         </div>
 
-        <aside>
+        <aside className="stack">
           <div className="card">
             {/* Finalized first, before the assignment gate: a closed run is assigned to
                 nobody's action, so telling a QA Tester that someone else "is running this
@@ -194,34 +425,32 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
             {execution.state === ExecutionLifecycleState.FINALIZED ? (
               <>
                 <h3>Finalized</h3>
-                {execution.cases.map((covered) => (
-                  <div key={covered.id} style={{ marginBottom: "var(--sp-3)" }}>
-                    {!single ? (
-                      <div className="cluster" style={{ marginBottom: "var(--sp-1)" }}>
-                        <span className="bid">{covered.testCase.businessId}</span>
-                        {covered.result ? <OutcomeChip outcome={covered.result} /> : null}
-                      </div>
-                    ) : null}
-                    <p style={{ margin: 0 }}>
-                      {covered.actualResult || "No actual result was recorded."}
-                    </p>
-                    {covered.blockReason ? (
-                      <p className="why" style={{ marginTop: "var(--sp-1)" }}>
-                        <strong>Blocked:</strong> {covered.blockReason}
-                      </p>
-                    ) : null}
-                  </div>
-                ))}
                 <p className="muted">
-                  This run is closed and cannot be edited. A rerun creates a new execution
-                  covering only the failed or blocked case(s).
+                  This run is closed and cannot be edited. Every case&rsquo;s recorded result is on
+                  its row. A rerun creates a new execution covering only the failed or blocked
+                  case(s).
                 </p>
-                {rerunCaseIds.length > 0 ? (
-                  <Link className="btn" href={`/executions/new?cases=${rerunCaseIds.join(",")}`}>
-                    Plan a rerun of {rerunCaseIds.length} case
-                    {rerunCaseIds.length === 1 ? "" : "s"}
-                  </Link>
-                ) : null}
+                {/* Who closed it and when. The header says who the run is ASSIGNED to,
+                    which is the same person here but not the same fact — and the finalized
+                    timestamp was readable only off the stage card. */}
+                <dl className="fact-grid">
+                  <div>
+                    <dt>Finalized on</dt>
+                    <dd>
+                      {execution.finalizedAt ? (
+                        <time dateTime={execution.finalizedAt.toISOString()}>
+                          {formatUtcMinute(execution.finalizedAt)}
+                        </time>
+                      ) : (
+                        "Not recorded"
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Executed by</dt>
+                    <dd>{execution.tester.displayName}</dd>
+                  </div>
+                </dl>
               </>
             ) : !mayAct ? (
               <>
@@ -232,7 +461,7 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
                   if it needs reassigning.
                 </p>
               </>
-            ) : execution.state === ExecutionLifecycleState.PLANNED ? (
+            ) : (
               <>
                 <h3>Ready to start</h3>
                 <StartForm executionId={execution.id} version={execution.version} />
@@ -243,28 +472,33 @@ export default async function ExecutionPage({ params }: { params: Promise<{ id: 
                   testers={assignableTesters}
                 />
               </>
-            ) : (
-              <>
-                <h3>Finalize</h3>
-                <FinalizeForm
-                  executionId={execution.id}
-                  version={execution.version}
-                  cases={execution.cases.map((covered) => ({
-                    testCaseId: covered.testCaseId,
-                    businessId: covered.testCase.businessId,
-                    title: covered.testCase.title,
-                    openDefects: openDefects
-                      .filter((defect) => defect.testCaseId === covered.testCaseId)
-                      .map((defect) => ({ id: defect.id, businessId: defect.businessId, summary: defect.summary }))
-                  }))}
-                  priorities={priorities}
-                  severities={severities}
-                />
-              </>
             )}
           </div>
+
+          {execution.history.length > 0 ? (
+            <div className="card">
+              <h3>History</h3>
+              <p className="muted">Append-only. Corrections create a new execution, never an edit.</p>
+              <ol className="history-list">
+                {execution.history.map((row) => (
+                  <li key={row.id} className="history-row">
+                    {!single ? (
+                      <span className="bid">
+                        {caseByTestCaseId.get(row.testCaseId)?.testCase.businessId ?? row.testCaseId}
+                      </span>
+                    ) : null}
+                    <OutcomeChip outcome={row.result} />
+                    <time className="muted" dateTime={row.occurredAt.toISOString()}>
+                      {formatUtcMinute(row.occurredAt)}
+                    </time>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
         </aside>
       </div>
+      )}
     </>
   );
 }
