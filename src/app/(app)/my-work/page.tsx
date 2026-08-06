@@ -1,24 +1,34 @@
-import Link from "next/link";
 import { ExecutionLifecycleState } from "@prisma/client";
-import { listExecutionsForTester } from "@/domain/executions";
-import { ExecutionStateChip, OutcomeChip } from "@/ui/chips";
-import { readPage, readPageSize, type ListSearchParams } from "@/ui/list-params";
+import { listFeatureOptions, listProductOptions } from "@/domain/catalogue";
+import { assignedWorkCounts, listExecutionsForTester } from "@/domain/executions";
+import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
-import { Pager } from "@/ui/pager";
 import { requireSession } from "@/ui/session";
+import { UrlFilterToolbar } from "@/ui/toolbar";
+import { FinalizedRecap, readWorkTab, WorkQueue } from "@/ui/work-queue";
+
+export const dynamic = "force-dynamic";
+
+/** How many finalized runs the recap shows before deferring to the executions list. */
+const RECAP_SIZE = 8;
 
 /**
  * A QA Tester's day is "run what I'm assigned", so their front door is a work queue,
- * not a dashboard. Unfinished work sorts first. Rows follow the executions list's
- * treatment: a "N cases" chip plus the first case's ID for multi-case runs.
+ * not a dashboard. Unfinished work sorts first, and the tabs split that queue by the
+ * two states it can be in.
  *
  * PROPOSAL: `docs/` establishes no home screen for any role (audit section 5.10). What is
- * NOT invented here is who may do what — every action below is gated by the domain
- * service it calls.
+ * NOT invented here is who may do what — every action below is a link to the run's own
+ * screen, where the domain service it calls does the gating.
  *
  * The two groups are two queries rather than one full read split with `.filter()`. That
  * is also what makes the open queue's ordering survive paging — see
- * `listExecutionsForTester` on why the lifecycle order is SQL now.
+ * `listExecutionsForTester` on why the lifecycle order is SQL now. The tab tallies are a
+ * third query (one `groupBy`, not one count per tab) run under the same filters as the
+ * list, so a tab never advertises rows the tab cannot show.
+ *
+ * Needle, product and feature are all `where` clauses on a read already scoped to the
+ * viewer's own runs: narrowing this screen never widens what it can see.
  */
 export default async function MyWorkPage({
   searchParams
@@ -29,110 +39,83 @@ export default async function MyWorkPage({
   const auth = await requireSession();
   const page = readPage(params);
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
+  const query = readParam(params, "q");
+  const tab = readWorkTab(params);
+  const productId = readParam(params, "product") || undefined;
+  const featureId = readParam(params, "feature") || undefined;
+  // "All" is the open queue, not every run: finalized work has its own section below.
+  const states =
+    tab === "ALL"
+      ? [ExecutionLifecycleState.PLANNED, ExecutionLifecycleState.IN_PROGRESS]
+      : [tab];
+  const scope = { query, productId, featureId };
 
-  const [open, done] = await Promise.all([
+  const [counts, open, done, products, features] = await Promise.all([
+    assignedWorkCounts(auth.userId, scope),
+    listExecutionsForTester(auth.userId, { ...scope, page, pageSize, states }),
+    // The recap is capped, so it asks for exactly the cap.
     listExecutionsForTester(auth.userId, {
-      page,
-      pageSize,
-      states: [ExecutionLifecycleState.PLANNED, ExecutionLifecycleState.IN_PROGRESS]
-    }),
-    // The recap is capped at 8 by the copy below, so it asks for exactly 8.
-    listExecutionsForTester(auth.userId, {
+      ...scope,
       page: 1,
-      pageSize: 8,
+      pageSize: RECAP_SIZE,
       states: [ExecutionLifecycleState.FINALIZED]
-    })
+    }),
+    listProductOptions(),
+    listFeatureOptions()
   ]);
 
   return (
     <>
-      <h1>My work</h1>
-
-      {open.total === 0 ? (
-        <div className="card empty" style={{ marginBottom: "var(--sp-6)" }}>
-          <p>Nothing is waiting on you right now.</p>
-          <Link href="/executions">View all executions</Link>
+      <div className="page-head">
+        <div className="page-head-text">
+          <h1>My work</h1>
+          <p className="muted">
+            {counts.open === 0
+              ? "You have no unfinished runs assigned to you."
+              : `${counts.open} run${counts.open === 1 ? "" : "s"} assigned to you and not yet finalized.`}
+          </p>
         </div>
-      ) : (
-        <>
-          <p>
-            {open.total} execution{open.total === 1 ? "" : "s"} assigned to you and not yet
-            finalized.
-          </p>
-          <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>
-            {open.rows.map((execution) => (
-              <div key={execution.id} className="list-row">
-                <div className="row-main">
-                  <div className="cluster">
-                    <span className="bid">{execution.businessId}</span>
-                    <ExecutionStateChip state={execution.state} />
-                    {execution.cases.length > 1 ? (
-                      <span className="state">{execution.cases.length} cases</span>
-                    ) : null}
-                  </div>
-                  <div className="row-title">{execution.cases[0]?.testCase.title}</div>
-                  <div className="muted">
-                    <span className="bid">{execution.cases[0]?.testCase.businessId}</span>
-                    {execution.cases.length > 1 ? ` +${execution.cases.length - 1} more` : ""}
-                    {execution.cases.length === 1 ? (
-                      <>
-                        {" · "}
-                        {execution.cases[0].testCase.priority || "no priority"} priority
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-                <Link className="btn" href={`/executions/${execution.id}`}>
-                  {execution.state === ExecutionLifecycleState.PLANNED ? "Start" : "Continue"}
-                </Link>
-              </div>
-            ))}
-            <Pager
-              total={open.total}
-              page={page}
-              pathname="/my-work"
-              params={params}
-              pageSize={pageSize}
-              sizeOptions={PAGE_SIZE_OPTIONS}
-              label="open work queue"
-            />
-          </div>
-        </>
-      )}
+        {/* The needle stays on screen once it is set, however few rows match, or there
+            would be no way left to clear it — the same rule the record lists follow. It
+            searches BOTH lists on this screen, which is why it sits in the page header
+            rather than inside the queue card with the filters that govern only that. */}
+        {query !== "" || counts.open + counts.finalized > 5 ? (
+          <UrlFilterToolbar placeholder="Search your runs…" label="Search your runs" paramKey="q" />
+        ) : null}
+      </div>
 
-      {done.total > 0 ? (
-        <>
-          <h2>Recently finalized</h2>
-          <p className="muted" style={{ marginBottom: "var(--sp-3)" }}>
-            Finalized runs are immutable. A rerun creates a new execution covering only the failed
-            or blocked case(s).
-          </p>
-          <div className="card card-flush">
-            {done.rows.map((execution) => (
-              <div key={execution.id} className="list-row">
-                <div className="row-main">
-                  <div className="cluster">
-                    <span className="bid">{execution.businessId}</span>
-                    {execution.cases.length > 1 ? (
-                      <span className="state">{execution.cases.length} cases</span>
-                    ) : null}
-                  </div>
-                  <div style={{ color: "var(--ink-2)" }}>{execution.cases[0]?.testCase.title}</div>
-                </div>
-                {execution.result ? <OutcomeChip outcome={execution.result} /> : null}
-                <Link className="btn btn-secondary btn-sm" href={`/executions/${execution.id}`}>
-                  View
-                </Link>
-              </div>
-            ))}
-          </div>
-          {done.total > 8 ? (
-            <p className="muted" style={{ marginTop: "var(--sp-3)" }}>
-              Showing the 8 most recent. <Link href="/executions">View all executions</Link>
-            </p>
-          ) : null}
-        </>
-      ) : null}
+      <WorkQueue
+        rows={open.rows.map((execution) => ({
+          id: execution.id,
+          businessId: execution.businessId,
+          state: execution.state,
+          caseBusinessIds: execution.cases.map((covered) => covered.testCase.businessId),
+          caseTitle: execution.cases[0]?.testCase.title ?? "",
+          priority: execution.cases[0]?.testCase.priority ?? "",
+          plannedAt: execution.createdAt,
+          startedAt: execution.startedAt
+        }))}
+        total={open.total}
+        counts={counts}
+        page={page}
+        pageSize={pageSize}
+        pathname="/my-work"
+        params={params}
+        products={products}
+        features={features}
+      />
+
+      <FinalizedRecap
+        rows={done.rows.map((execution) => ({
+          id: execution.id,
+          businessId: execution.businessId,
+          result: execution.result,
+          caseBusinessIds: execution.cases.map((covered) => covered.testCase.businessId),
+          caseTitle: execution.cases[0]?.testCase.title ?? "",
+          finalizedAt: execution.finalizedAt
+        }))}
+        total={done.total}
+      />
     </>
   );
 }

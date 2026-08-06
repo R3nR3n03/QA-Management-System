@@ -561,6 +561,45 @@ export async function openExecutionCountsByTester(): Promise<Map<string, number>
 }
 
 /**
+ * The tally behind the My work tabs: how many of a tester's runs sit in each state.
+ *
+ * One `groupBy` rather than a count per tab, and it takes the same filters the list
+ * takes — needle, product, feature — so a narrowed queue's tabs report the narrowed
+ * numbers. A tab counting something the tab cannot show is worse than no count at all.
+ * Counting is not new capability: it is the same `where` the list itself runs, narrowed
+ * to one tester.
+ */
+export type AssignedWorkCounts = {
+  planned: number;
+  inProgress: number;
+  /** Planned + In Progress — the unfinished queue, and the "All" tab's number. */
+  open: number;
+  finalized: number;
+};
+
+export async function assignedWorkCounts(
+  testerId: string,
+  options: Pick<ExecutionListOptions, "query" | "productId" | "featureId"> = {}
+): Promise<AssignedWorkCounts> {
+  const rows = await prisma.testExecution.groupBy({
+    by: ["state"],
+    where: executionWhere({ ...options, testerId }),
+    _count: { _all: true }
+  });
+  // A groupBy returns only states that HAVE rows, so a missing key is zero.
+  const countOf = (state: ExecutionLifecycleState) =>
+    rows.find((row) => row.state === state)?._count._all ?? 0;
+  const planned = countOf(ExecutionLifecycleState.PLANNED);
+  const inProgress = countOf(ExecutionLifecycleState.IN_PROGRESS);
+  return {
+    planned,
+    inProgress,
+    open: planned + inProgress,
+    finalized: countOf(ExecutionLifecycleState.FINALIZED)
+  };
+}
+
+/**
  * A tester's work queue, one page at a time.
  *
  * ## Why the in-memory sort had to go
