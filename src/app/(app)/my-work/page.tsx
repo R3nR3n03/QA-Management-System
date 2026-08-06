@@ -1,4 +1,5 @@
 import { ExecutionLifecycleState } from "@prisma/client";
+import { listFeatureOptions, listProductOptions } from "@/domain/catalogue";
 import { assignedWorkCounts, listExecutionsForTester } from "@/domain/executions";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
@@ -23,8 +24,11 @@ const RECAP_SIZE = 8;
  * The two groups are two queries rather than one full read split with `.filter()`. That
  * is also what makes the open queue's ordering survive paging — see
  * `listExecutionsForTester` on why the lifecycle order is SQL now. The tab tallies are a
- * third query (one `groupBy`, not one count per tab) run under the same needle as the
+ * third query (one `groupBy`, not one count per tab) run under the same filters as the
  * list, so a tab never advertises rows the tab cannot show.
+ *
+ * Needle, product and feature are all `where` clauses on a read already scoped to the
+ * viewer's own runs: narrowing this screen never widens what it can see.
  */
 export default async function MyWorkPage({
   searchParams
@@ -37,22 +41,27 @@ export default async function MyWorkPage({
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
   const tab = readWorkTab(params);
+  const productId = readParam(params, "product") || undefined;
+  const featureId = readParam(params, "feature") || undefined;
   // "All" is the open queue, not every run: finalized work has its own section below.
   const states =
     tab === "ALL"
       ? [ExecutionLifecycleState.PLANNED, ExecutionLifecycleState.IN_PROGRESS]
       : [tab];
+  const scope = { query, productId, featureId };
 
-  const [counts, open, done] = await Promise.all([
-    assignedWorkCounts(auth.userId, { query }),
-    listExecutionsForTester(auth.userId, { page, pageSize, query, states }),
+  const [counts, open, done, products, features] = await Promise.all([
+    assignedWorkCounts(auth.userId, scope),
+    listExecutionsForTester(auth.userId, { ...scope, page, pageSize, states }),
     // The recap is capped, so it asks for exactly the cap.
     listExecutionsForTester(auth.userId, {
+      ...scope,
       page: 1,
       pageSize: RECAP_SIZE,
-      query,
       states: [ExecutionLifecycleState.FINALIZED]
-    })
+    }),
+    listProductOptions(),
+    listFeatureOptions()
   ]);
 
   return (
@@ -66,6 +75,13 @@ export default async function MyWorkPage({
               : `${counts.open} run${counts.open === 1 ? "" : "s"} assigned to you and not yet finalized.`}
           </p>
         </div>
+        {/* The needle stays on screen once it is set, however few rows match, or there
+            would be no way left to clear it — the same rule the record lists follow. It
+            searches BOTH lists on this screen, which is why it sits in the page header
+            rather than inside the queue card with the filters that govern only that. */}
+        {query !== "" || counts.open + counts.finalized > 5 ? (
+          <UrlFilterToolbar placeholder="Search your runs…" label="Search your runs" paramKey="q" />
+        ) : null}
       </div>
 
       <WorkQueue
@@ -85,17 +101,8 @@ export default async function MyWorkPage({
         pageSize={pageSize}
         pathname="/my-work"
         params={params}
-        // The needle stays on screen once it is set, however few rows match, or there
-        // would be no way left to clear it — the same rule the record lists follow.
-        filter={
-          query !== "" || counts.open + counts.finalized > 5 ? (
-            <UrlFilterToolbar
-              placeholder="Search your runs…"
-              label="Search your runs"
-              paramKey="q"
-            />
-          ) : null
-        }
+        products={products}
+        features={features}
       />
 
       <FinalizedRecap

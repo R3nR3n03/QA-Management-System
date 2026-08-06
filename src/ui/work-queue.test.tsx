@@ -1,8 +1,27 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { vi } from "vitest";
+
+/**
+ * The scope dropdowns and the refresh control are client islands inside this otherwise
+ * server-rendered component, so the queue cannot render at all without the navigation
+ * hooks. `pathname` is settable because the dropdowns build their destination from
+ * `usePathname()`, NOT from the `pathname` prop the server passes for its links.
+ */
+const nav = vi.hoisted(() => ({
+  search: "",
+  pathname: "/my-work",
+  replace: vi.fn(),
+  refresh: vi.fn()
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: nav.replace, push: vi.fn(), refresh: nav.refresh }),
+  usePathname: () => nav.pathname,
+  useSearchParams: () => new URLSearchParams(nav.search)
+}));
 
 vi.mock("next/link", () => ({
   default: ({
@@ -72,9 +91,18 @@ function makeFinalizedRows(count: number): FinalizedRowData[] {
 
 const COUNTS = { open: 3, planned: 2, inProgress: 1 };
 
+const PRODUCTS = [{ id: "prod-1", businessId: "PRD001", name: "Portal" }];
+const FEATURES = [{ id: "feat-1", businessId: "FEA001", name: "Upload" }];
+
 const href = (name: string) => screen.getByRole("link", { name }).getAttribute("href");
 
 afterEach(cleanup);
+beforeEach(() => {
+  nav.search = "";
+  nav.pathname = "/my-work";
+  nav.replace.mockClear();
+  nav.refresh.mockClear();
+});
 
 describe("WorkQueue", () => {
   it("names the next move per row: Start for a planned run, Continue for one in progress", () => {
@@ -189,6 +217,106 @@ describe("WorkQueue", () => {
     );
     // Nothing assigned at all is not a dead end: the way out is a real link.
     expect(href("Browse all executions")).toBe("/executions");
+  });
+
+  it("offers the catalogue scopes, and picking one returns to page 1", () => {
+    nav.search = "page=3";
+    render(
+      <WorkQueue
+        rows={makeWorkRows(2)}
+        total={2}
+        counts={COUNTS}
+        page={3}
+        pathname="/my-work"
+        params={{ page: "3" }}
+        products={PRODUCTS}
+        features={FEATURES}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Filter your runs by product"), {
+      target: { value: "prod-1" }
+    });
+    // Narrowing while on page 3 would land on nothing: the scoped list is shorter.
+    expect(nav.replace).toHaveBeenCalledWith("/my-work?product=prod-1", { scroll: false });
+  });
+
+  it("leaves a scope filter off the bar when the catalogue holds none", () => {
+    render(
+      <WorkQueue
+        rows={makeWorkRows(1)}
+        total={1}
+        counts={COUNTS}
+        page={1}
+        pathname="/my-work"
+        params={{}}
+        products={[]}
+        features={[]}
+      />
+    );
+
+    expect(screen.queryByLabelText("Filter your runs by product")).toBe(null);
+    expect(screen.queryByLabelText("Filter your runs by feature")).toBe(null);
+  });
+
+  it("names the scope that emptied the queue, needle or not", () => {
+    const { rerender } = render(
+      <WorkQueue
+        rows={[]}
+        total={0}
+        counts={{ open: 0, planned: 0, inProgress: 0 }}
+        page={1}
+        pathname="/my-work"
+        params={{ product: "prod-1" }}
+        products={PRODUCTS}
+      />
+    );
+    expect(screen.getByText("No run of yours covers this product.")).toBeTruthy();
+
+    rerender(
+      <WorkQueue
+        rows={[]}
+        total={0}
+        counts={{ open: 0, planned: 0, inProgress: 0 }}
+        page={1}
+        pathname="/my-work"
+        params={{ product: "prod-1", feature: "feat-1" }}
+        products={PRODUCTS}
+        features={FEATURES}
+      />
+    );
+    expect(screen.getByText("No run of yours covers this product and feature.")).toBeTruthy();
+
+    // Both kinds of filter at once: the sentence has to admit to both, or clearing the
+    // needle alone looks like it should have brought rows back.
+    rerender(
+      <WorkQueue
+        rows={[]}
+        total={0}
+        counts={{ open: 0, planned: 0, inProgress: 0 }}
+        page={1}
+        pathname="/my-work"
+        params={{ q: "login", product: "prod-1" }}
+        products={PRODUCTS}
+      />
+    );
+    expect(screen.getByText("No run of yours matches “login” in this product.")).toBeTruthy();
+  });
+
+  it("refreshes the server data in place", () => {
+    render(
+      <WorkQueue
+        rows={makeWorkRows(1)}
+        total={1}
+        counts={COUNTS}
+        page={1}
+        pathname="/my-work"
+        params={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh your work queue" }));
+    expect(nav.refresh).toHaveBeenCalledTimes(1);
   });
 
   it("says the page overshot rather than blaming a filter", () => {

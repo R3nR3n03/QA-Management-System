@@ -1788,20 +1788,36 @@ a {
   padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--line-soft);
 }
-.work-bar-filter {
-  flex: 1 1 200px;
-  display: flex;
-  justify-content: flex-end;
-}
-.work-bar-filter .list-toolbar {
-  flex: 1 1 auto;
-  max-width: 320px;
-  margin-bottom: 0;
+/* The bar's right end: the tally and the control that brings it up to date. Pushed over
+   by `margin-left: auto` so it stays anchored right however many filters sit to its
+   left, and kept as one unit so the two never wrap apart from each other. */
+.work-bar-end {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
 }
 /* Tabular so the tally does not jitter between 9 and 10 runs as the list is filtered. */
 .work-bar-count {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* The refresh control while its transition is in flight. `prefers-reduced-motion` already
+   flattens the duration globally, and the button also announces "Refreshing…". */
+.icon-btn[data-busy] svg {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The screen-level search sits in the page header, which aligns its children on the
+   BASELINE for the h1 — a bordered control has to be centred instead. */
+.page-head > .list-toolbar {
+  align-self: center;
+  margin-bottom: 0;
 }
 
 /* A queue row: state mark, the record, when it last moved, and the one thing to do with

@@ -563,10 +563,11 @@ export async function openExecutionCountsByTester(): Promise<Map<string, number>
 /**
  * The tally behind the My work tabs: how many of a tester's runs sit in each state.
  *
- * One `groupBy` rather than a count per tab, and it takes the same `query` the list
- * takes so a filtered queue's tabs report the filtered numbers — tabs that ignored the
- * needle would promise rows the tab cannot show. Counting is not new capability: it is
- * the same `where` the list itself runs, narrowed to one tester.
+ * One `groupBy` rather than a count per tab, and it takes the same filters the list
+ * takes — needle, product, feature — so a narrowed queue's tabs report the narrowed
+ * numbers. A tab counting something the tab cannot show is worse than no count at all.
+ * Counting is not new capability: it is the same `where` the list itself runs, narrowed
+ * to one tester.
  */
 export type AssignedWorkCounts = {
   planned: number;
@@ -578,11 +579,11 @@ export type AssignedWorkCounts = {
 
 export async function assignedWorkCounts(
   testerId: string,
-  options: { query?: string } = {}
+  options: Pick<ExecutionListOptions, "query" | "productId" | "featureId"> = {}
 ): Promise<AssignedWorkCounts> {
   const rows = await prisma.testExecution.groupBy({
     by: ["state"],
-    where: executionWhere({ query: options.query, testerId }),
+    where: executionWhere({ ...options, testerId }),
     _count: { _all: true }
   });
   // A groupBy returns only states that HAVE rows, so a missing key is zero.
