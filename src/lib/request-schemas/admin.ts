@@ -91,6 +91,19 @@ export const setUserActiveSchema = z.strictObject({
 export const patchUserSchema = z.union([setUserActiveSchema, updateUserProfileSchema]);
 
 /**
+ * POST /api/v1/users/{id}/password -> `resetUserPassword`.
+ *
+ * Mirrors `changeOwnPasswordSchema`'s tolerance: blankness and the 8-character floor are
+ * the domain's own 422s. Unlike that schema there is no `currentPassword` — this path
+ * exists precisely for when the target cannot supply one — and `strictObject` blocks a
+ * smuggled `userId`; the target is always the path param, resolved server-side.
+ */
+export const resetUserPasswordSchema = z.strictObject({
+  newPassword: z.string(), // length floor enforced in the domain
+  version: z.number().optional() // ensureVersion tolerates undefined (409)
+});
+
+/**
  * POST /api/v1/controlled-values -> `createControlledValue`.
  *
  * `catalogue` is limited to the three documented catalogues (`docs/data-model.md:40` —

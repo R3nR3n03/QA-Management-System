@@ -6,18 +6,19 @@ import { ConfirmDialog, Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
 import { fieldClass, fieldProps, noticeId } from "@/ui/form";
-import { setUserActiveAction, updateUserProfileAction } from "./actions";
+import { resetUserPasswordAction, setUserActiveAction, updateUserProfileAction } from "./actions";
 
 const PROFILE_FORM_ID = "edit-person";
 const ACTIVE_FORM_ID = "edit-person-active";
+const PASSWORD_FORM_ID = "edit-person-password";
 
 /**
- * Profile editing and deactivation/reactivation for one person, in a modal opened
- * from their row. Two forms, one domain call each: `updateUserProfile` and
- * `setUserActive`. Deactivation goes through a confirmation dialog naming the
- * person and the consequence; the guardrails (no self-deactivation, never the last
- * active QA Lead) live in the domain — the UI states them and, for the self case,
- * does not offer the button at all.
+ * Profile editing, deactivation/reactivation, and password reset for one person, in a
+ * modal opened from their row. Three forms, one domain call each: `updateUserProfile`,
+ * `setUserActive`, and `resetUserPassword`. Deactivation goes through a confirmation
+ * dialog naming the person and the consequence; the guardrails (no self-deactivation,
+ * never the last active QA Lead, no self-reset) live in the domain — the UI states them
+ * and, for the self case, does not offer the button at all.
  */
 export function EditPersonForm({
   userId,
@@ -45,8 +46,14 @@ export function EditPersonForm({
     setUserActiveAction,
     null
   );
+  const [passwordState, passwordAction, passwordPending] = useActionState<FormState, FormData>(
+    resetUserPasswordAction,
+    null
+  );
   const wasProfilePending = useRef(false);
   const wasActivePending = useRef(false);
+  const wasPasswordPending = useRef(false);
+  const passwordFormRef = useRef<HTMLFormElement>(null);
 
   // Close the modal after a successful profile save; the page revalidates with the
   // new values and version.
@@ -68,8 +75,18 @@ export function EditPersonForm({
     wasActivePending.current = activePending;
   }, [activePending, activeState, open, active, toast]);
 
+  // Clear the password field once the reset succeeds, so it never lingers in the DOM —
+  // same reasoning as ChangePasswordForm.
+  useEffect(() => {
+    if (wasPasswordPending.current && !passwordPending && passwordState?.success) {
+      passwordFormRef.current?.reset();
+      toast("Password reset.");
+    }
+    wasPasswordPending.current = passwordPending;
+  }, [passwordPending, passwordState, toast]);
+
   const bad = (field: string) => fieldClass(profileState, field);
-  const pending = profilePending || activePending;
+  const pending = profilePending || activePending || passwordPending;
 
   return (
     <>
@@ -101,6 +118,40 @@ export function EditPersonForm({
             {profilePending ? "Saving…" : "Save changes"}
           </button>
         </form>
+
+        <div style={{ marginTop: "var(--sp-5)", borderTop: "1px solid var(--line-soft)", paddingTop: "var(--sp-4)" }}>
+          <FormNotice state={passwordState} id={noticeId(PASSWORD_FORM_ID)} />
+          {isSelf ? (
+            <p className="why" style={{ margin: 0 }}>
+              <strong>Use your account settings to change your own password.</strong> This resets
+              someone else&rsquo;s, for when they cannot supply their current one.
+            </p>
+          ) : (
+            <form ref={passwordFormRef} action={passwordAction}>
+              <input type="hidden" name="userId" value={userId} />
+              <input type="hidden" name="version" value={version} />
+              <label className={fieldClass(passwordState, "newPassword")}>
+                <span>New password</span>
+                <input
+                  name="newPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  minLength={8}
+                  disabled={pending}
+                  {...fieldProps(passwordState, "newPassword", PASSWORD_FORM_ID)}
+                />
+                <span className="hint">
+                  At least 8 characters. Signs them out everywhere; share the new password with
+                  them out of band.
+                </span>
+              </label>
+              <button className="btn btn-secondary" type="submit" disabled={pending}>
+                {passwordPending ? "Resetting…" : "Reset password"}
+              </button>
+            </form>
+          )}
+        </div>
 
         <div style={{ marginTop: "var(--sp-5)", borderTop: "1px solid var(--line-soft)", paddingTop: "var(--sp-4)" }}>
           {/* Only while the confirmation is closed — the dialog renders its own copy,
