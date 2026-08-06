@@ -7,6 +7,9 @@ import { ListEmpty } from "./list-empty";
 import { hrefWith, readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "./paging";
+import { RefreshButton } from "./refresh-button";
+import { UrlSelectFilter } from "./toolbar";
+import type { ProductOption } from "./case-table";
 
 /**
  * The My work queue: the rows a tester came to the screen to act on, and the recap of
@@ -81,6 +84,12 @@ function lastEvent(row: WorkRowData): { verb: string; at: Date } {
   return row.startedAt ? { verb: "Started", at: row.startedAt } : { verb: "Planned", at: row.plannedAt };
 }
 
+/** Which scope filter is narrowing the queue, for a sentence that has to name it. */
+function scopeWord(product: string, feature: string): string {
+  if (product !== "" && feature !== "") return "product and feature";
+  return product !== "" ? "product" : "feature";
+}
+
 /** The tone marker beside a row. Colour repeats the chip, never replaces it. */
 function StateMark({ state }: { state: ExecutionLifecycleState }) {
   const started = state === ExecutionLifecycleState.IN_PROGRESS;
@@ -102,8 +111,10 @@ export function WorkQueue({
   pageKey = "page",
   stateKey = "state",
   queryKey = "q",
-  /** The filter field, rendered by the caller so this stays a server component. */
-  filter
+  products,
+  productKey = "product",
+  features,
+  featureKey = "feature"
 }: {
   rows: WorkRowData[];
   total: number;
@@ -116,10 +127,18 @@ export function WorkQueue({
   pageKey?: string;
   stateKey?: string;
   queryKey?: string;
-  filter?: React.ReactNode;
+  /** Omit to leave the product filter off the bar entirely. */
+  products?: ProductOption[];
+  productKey?: string;
+  /** Omit to leave the feature filter off the bar entirely. */
+  features?: ProductOption[];
+  featureKey?: string;
 }) {
   const tab = readWorkTab(params, stateKey);
   const query = readParam(params, queryKey);
+  const product = readParam(params, productKey);
+  const feature = readParam(params, featureKey);
+  const scoped = product !== "" || feature !== "";
   const countFor = (value: (typeof WORK_TABS)[number]["value"]) =>
     value === ExecutionLifecycleState.PLANNED
       ? counts.planned
@@ -152,9 +171,42 @@ export function WorkQueue({
             </Link>
           ))}
         </div>
-        {filter ? <div className="work-bar-filter">{filter}</div> : null}
-        <span className="muted work-bar-count">
-          {total} run{total === 1 ? "" : "s"}
+        {/* Product and feature as dropdowns rather than more segments: lifecycle states
+            are a closed set of three, while the catalogue has no ceiling — a chip per
+            product would wrap into a wall the first time a real catalogue arrives. Same
+            treatment as the executions and defects lists. */}
+        {products && products.length > 0 ? (
+          <UrlSelectFilter
+            options={products.map((row) => ({
+              value: row.id,
+              label: `${row.businessId} · ${row.name}`
+            }))}
+            label="Filter your runs by product"
+            allLabel="All products"
+            paramKey={productKey}
+            pageKey={pageKey}
+          />
+        ) : null}
+        {features && features.length > 0 ? (
+          <UrlSelectFilter
+            options={features.map((row) => ({
+              value: row.id,
+              label: `${row.businessId} · ${row.name}`
+            }))}
+            label="Filter your runs by feature"
+            allLabel="All features"
+            paramKey={featureKey}
+            pageKey={pageKey}
+          />
+        ) : null}
+        <span className="work-bar-end">
+          <span className="muted work-bar-count">
+            {total} run{total === 1 ? "" : "s"}
+          </span>
+          {/* A queue is a shared surface — someone else can assign or finalize a run
+              while this tab sits open. Beside the tally, because the tally is the number
+              the refresh is there to bring up to date. */}
+          <RefreshButton label="Refresh your work queue" />
         </span>
       </div>
 
@@ -169,7 +221,15 @@ export function WorkQueue({
           // Planned tab is simply the wrong tab to be looking at.
           noMatch={
             query !== "" ? (
-              <>No run of yours matches &ldquo;{query}&rdquo;.</>
+              <>
+                No run of yours matches &ldquo;{query}&rdquo;
+                {scoped ? ` in this ${scopeWord(product, feature)}` : ""}.
+              </>
+            ) : scoped ? (
+              // The scope is the filter a reader is least likely to be looking at — the
+              // tab it emptied is on screen showing a zero, the dropdown is one line of
+              // small text — so it gets named.
+              `No run of yours covers this ${scopeWord(product, feature)}.`
             ) : tab === ExecutionLifecycleState.PLANNED ? (
               "Nothing planned is waiting on you."
             ) : tab === ExecutionLifecycleState.IN_PROGRESS ? (
