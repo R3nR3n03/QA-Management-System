@@ -21,7 +21,7 @@ const outcomeHeader = () => screen.getByRole("columnheader", { name: /Outcome/ }
 
 describe("RowsTable", () => {
   it("sorts by sheet · row ascending by default and pages at 50", () => {
-    render(<RowsTable rows={makeImportRows(60)} />);
+    render(<RowsTable rows={makeImportRows(60)} runId="RUN-1" />);
 
     expect(sheetHeader().getAttribute("aria-sort")).toBe("ascending");
     expect(sheetHeader().textContent).toContain("(sorted ascending)");
@@ -39,7 +39,7 @@ describe("RowsTable", () => {
   });
 
   it("clicking the active header flips the direction", () => {
-    render(<RowsTable rows={makeImportRows(60)} />);
+    render(<RowsTable rows={makeImportRows(60)} runId="RUN-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: /Sheet · row/ }));
 
@@ -51,7 +51,7 @@ describe("RowsTable", () => {
   });
 
   it("clicking another header sorts it ascending and releases the old aria-sort", () => {
-    render(<RowsTable rows={makeImportRows(60)} />);
+    render(<RowsTable rows={makeImportRows(60)} runId="RUN-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: /Outcome/ }));
 
@@ -61,7 +61,7 @@ describe("RowsTable", () => {
   });
 
   it("every sort click resets to page 1", () => {
-    render(<RowsTable rows={makeImportRows(60)} />);
+    render(<RowsTable rows={makeImportRows(60)} runId="RUN-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Showing 51–60 of 60")).toBeTruthy();
@@ -77,7 +77,7 @@ describe("RowsTable", () => {
   });
 
   it("hides the pager when the report fits one page", () => {
-    render(<RowsTable rows={makeImportRows(10)} />);
+    render(<RowsTable rows={makeImportRows(10)} runId="RUN-1" />);
 
     expect(screen.queryByRole("navigation")).toBeNull();
     expect(screen.getByText("Alpha · 1")).toBeTruthy();

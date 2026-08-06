@@ -49,6 +49,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # No Postgres service is started here (see note above) — prisma.config.ts still
+    # requires DATABASE_URL to be *set* for `prisma generate` to load its config, even
+    # though generate never opens a connection. A placeholder satisfies that.
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/qams_ci?schema=public
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4

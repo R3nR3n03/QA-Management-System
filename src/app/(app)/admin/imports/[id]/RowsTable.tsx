@@ -1,11 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { LocalPager } from "@/ui/local-pager";
 import { pageSlice } from "@/ui/paging";
+import { FormNotice } from "@/ui/notice";
+import { noticeId } from "@/ui/form";
+import type { FormState } from "@/ui/action";
 import { OUTCOME_TONE } from "./outcome-tone";
-import { resolveImportRowAction } from "./actions";
+import { resolveImportRowAction } from "../actions";
 
 /**
  * The row-level import report as a real table: homogeneous columns people scan and
@@ -122,18 +125,7 @@ export function RowsTable({ rows, runId }: { rows: ImportRowData[]; runId: strin
                       <span className="muted">Resolved {row.resolvedAt}</span>
                     </div>
                   ) : row.outcome === "RECONCILIATION_REQUIRED" ? (
-                    <form action={resolveImportRowAction} className="stack" style={{ gap: 4 }}>
-                      <input type="hidden" name="runId" value={runId} />
-                      <input type="hidden" name="rowReportId" value={row.id} />
-                      <select name="decision" defaultValue="KEEP_CURRENT">
-                        <option value="KEEP_CURRENT">Keep current</option>
-                        <option value="ACCEPT_SOURCE">Accept source</option>
-                      </select>
-                      <input name="rationale" placeholder="Resolution rationale" />
-                      <button className="btn btn-secondary btn-sm" type="submit">
-                        Resolve
-                      </button>
-                    </form>
+                    <ResolveRowForm runId={runId} rowReportId={row.id} />
                   ) : null}
                 </td>
               </tr>
@@ -143,5 +135,27 @@ export function RowsTable({ rows, runId }: { rows: ImportRowData[]; runId: strin
       </div>
       <LocalPager total={sorted.length} page={page} onPageChange={setPage} label="import row report" />
     </>
+  );
+}
+
+/** One reconciliation row's resolve form — its own component so `useActionState` runs per row. */
+function ResolveRowForm({ runId, rowReportId }: { runId: string; rowReportId: string }) {
+  const formId = `resolve-row-${rowReportId}`;
+  const [state, formAction, pending] = useActionState<FormState, FormData>(resolveImportRowAction, null);
+
+  return (
+    <form action={formAction} className="stack" style={{ gap: 4 }}>
+      <input type="hidden" name="runId" value={runId} />
+      <input type="hidden" name="rowReportId" value={rowReportId} />
+      <FormNotice state={state} id={noticeId(formId)} />
+      <select name="decision" defaultValue="KEEP_CURRENT">
+        <option value="KEEP_CURRENT">Keep current</option>
+        <option value="ACCEPT_SOURCE">Accept source</option>
+      </select>
+      <input name="rationale" placeholder="Resolution rationale" />
+      <button className="btn btn-secondary btn-sm" type="submit" disabled={pending}>
+        {pending ? "Resolving…" : "Resolve"}
+      </button>
+    </form>
   );
 }
