@@ -1756,6 +1756,133 @@ a {
   margin-bottom: var(--sp-6);
 }
 
+/* ---------- my work queue ---------- */
+
+/* A page header whose title carries a subtitle. `.page-head` aligns its children on the
+   BASELINE so an action button sits with the h1; a title and its lede have to travel
+   together as one block instead, or the button lines up with the second line. */
+.page-head-text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.page-head-text > h1,
+.page-head-text > h2 {
+  margin-bottom: 2px;
+}
+.page-head-text > p:last-child {
+  margin-bottom: 0;
+}
+
+.work-card {
+  margin-bottom: var(--sp-6);
+}
+
+/* The queue's own header strip: which slice of the queue is on screen (tabs), how to
+   narrow it (the needle), and how much of it there is. Inside the card rather than up in
+   the page header, because all three govern this list and nothing else on the screen. */
+.work-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line-soft);
+}
+.work-bar-filter {
+  flex: 1 1 200px;
+  display: flex;
+  justify-content: flex-end;
+}
+.work-bar-filter .list-toolbar {
+  flex: 1 1 auto;
+  max-width: 320px;
+  margin-bottom: 0;
+}
+/* Tabular so the tally does not jitter between 9 and 10 runs as the list is filtered. */
+.work-bar-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* A queue row: state mark, the record, when it last moved, and the one thing to do with
+   it. The mark and the button never shrink — the title column absorbs the width. */
+.work-row {
+  gap: var(--sp-3);
+}
+.work-cta {
+  flex: none;
+}
+/* The graded outcome as a stripe down the finalized row's edge, the same reinforcement
+   `.case-item` uses: a column of results reads as a shape before it reads as words, and
+   the chip on the row still carries the word. */
+.work-row[data-outcome="PASS"] {
+  box-shadow: inset 3px 0 0 var(--pass);
+}
+.work-row[data-outcome="FAIL"] {
+  box-shadow: inset 3px 0 0 var(--fail);
+}
+.work-row[data-outcome="BLOCKED"] {
+  box-shadow: inset 3px 0 0 var(--blocked);
+}
+
+/* The state marker on a row. Decorative on purpose — `aria-hidden`, because the chip
+   beside it already says the state in words; this only gives the eye something to land
+   on when scanning a column of otherwise identical rows. */
+.work-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.work-mark[data-tone="progress"] {
+  background: var(--accent-wash);
+  border-color: var(--accent-2);
+  color: var(--accent);
+}
+.work-mark[data-tone="done"] {
+  background: var(--pass-wash);
+  border-color: var(--pass);
+  color: var(--pass);
+}
+
+.work-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  white-space: nowrap;
+}
+
+.work-done {
+  margin-bottom: var(--sp-6);
+}
+.work-done-head {
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.work-done-note {
+  margin-top: var(--sp-3);
+}
+
+/* Narrow: the timestamp drops to its own line under the record rather than squeezing the
+   title into a two-word column, and the action stays beside the row it acts on. */
+@media (max-width: 720px) {
+  .work-when {
+    flex: 1 1 100%;
+    order: 3;
+  }
+  .work-cta {
+    order: 4;
+  }
+}
+
 /* ---------- modal dialogs ---------- */
 
 /* Native <dialog>: the UA controls display when closed; only style the open state. */
