@@ -68,6 +68,8 @@ export default async function PlanExecutionPage({
               priority: c.priority,
               severity: c.severity,
               productId: c.productId,
+              featureId: c.featureId,
+              featureBusinessId: c.feature.businessId,
               requirementId: c.requirementId,
               requirementBusinessId: c.requirement.businessId,
               moduleName: c.module.name,

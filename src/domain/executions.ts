@@ -27,6 +27,8 @@ export type ExecutionListOptions = PageRequest & {
    * a filter that asks "which runs touch this product".
    */
   productId?: string;
+  /** Same reasoning as `productId`, one level narrower in the hierarchy. */
+  featureId?: string;
 };
 
 /**
@@ -43,6 +45,9 @@ function executionWhere(options: ExecutionListOptions): Prisma.TestExecutionWher
   if (options.testerId) all.push({ testerId: options.testerId });
   if (options.productId) {
     all.push({ cases: { some: { testCase: { productId: options.productId } } } });
+  }
+  if (options.featureId) {
+    all.push({ cases: { some: { testCase: { featureId: options.featureId } } } });
   }
 
   if (needle !== "") {

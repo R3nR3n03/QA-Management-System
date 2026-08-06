@@ -94,7 +94,9 @@ export function ExecutionList({
   pageKey = "page",
   stateKey = "state",
   products,
-  productKey = "product"
+  productKey = "product",
+  features,
+  featureKey = "feature"
 }: {
   rows: ExecutionRowData[];
   total: number;
@@ -108,11 +110,15 @@ export function ExecutionList({
   /** Omit to leave the product filter off this screen entirely. */
   products?: ProductOption[];
   productKey?: string;
+  /** Omit to leave the feature filter off this screen entirely. */
+  features?: ProductOption[];
+  featureKey?: string;
 }) {
   const query = readParam(params, queryKey);
   const activeState = readParam(params, stateKey) || "ALL";
   const product = readParam(params, productKey);
-  const filtered = query !== "" || activeState !== "ALL" || product !== "";
+  const feature = readParam(params, featureKey);
+  const filtered = query !== "" || activeState !== "ALL" || product !== "" || feature !== "";
 
   if (total === 0 && !filtered) {
     return (
@@ -146,6 +152,18 @@ export function ExecutionList({
             label="Filter by product"
             allLabel="All products"
             paramKey={productKey}
+            pageKey={pageKey}
+          />
+        ) : null}
+        {features && features.length > 0 ? (
+          <UrlSelectFilter
+            options={features.map((row) => ({
+              value: row.id,
+              label: `${row.businessId} · ${row.name}`
+            }))}
+            label="Filter by feature"
+            allLabel="All features"
+            paramKey={featureKey}
             pageKey={pageKey}
           />
         ) : null}

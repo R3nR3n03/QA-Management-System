@@ -41,6 +41,8 @@ export type TestCaseListOptions = PageRequest & {
   authorUserId?: string;
   /** Restrict to one product — the top of the hierarchy, so the broadest useful scope. */
   productId?: string;
+  /** Restrict to one feature. */
+  featureId?: string;
 };
 
 /**
@@ -59,6 +61,8 @@ function testCaseWhere(options: TestCaseListOptions): Prisma.TestCaseWhereInput 
   if (options.authorUserId) all.push({ authorUserId: options.authorUserId });
   // Indexed: TestCase carries @@index([productId]).
   if (options.productId) all.push({ productId: options.productId });
+  // Indexed: TestCase carries @@index([featureId]).
+  if (options.featureId) all.push({ featureId: options.featureId });
 
   if (needle !== "") {
     const matchingStates = Object.values(TestCaseLifecycleState).filter((state) =>
@@ -120,9 +124,10 @@ export async function listApprovedCandidates() {
       priority: true,
       severity: true,
       productId: true,
+      featureId: true,
       requirementId: true,
       module: { select: { name: true } },
-      feature: { select: { name: true } },
+      feature: { select: { name: true, businessId: true } },
       requirement: { select: { businessId: true } }
     },
     orderBy: { businessId: "asc" }

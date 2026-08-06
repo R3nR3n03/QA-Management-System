@@ -85,6 +85,11 @@ export async function listProductOptions() {
   return prisma.product.findMany({ select: OPTION_SELECT, orderBy: { businessId: "asc" } });
 }
 
+/** Features as filter options, same shape and same reasoning as `listProductOptions`. */
+export async function listFeatureOptions() {
+  return prisma.feature.findMany({ select: OPTION_SELECT, orderBy: { businessId: "asc" } });
+}
+
 // The single-record getters exist so route handlers never touch the ORM directly
 // (`architecture.md:33`) and a missing record surfaces through the standard error
 // shape, requestId included (`api-and-security.md:22-31`) — implementation audit §4.2.

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { QamsRole } from "@prisma/client";
-import { listProductOptions } from "@/domain/catalogue";
+import { listFeatureOptions, listProductOptions } from "@/domain/catalogue";
 import { listTestCases } from "@/domain/test-cases";
 import { CaseTable } from "@/ui/case-table";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
@@ -21,12 +21,22 @@ export default async function TestCasesPage({
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
   const productId = readParam(params, "product");
+  const featureId = readParam(params, "feature");
   // One page of rows plus the matching count — never the whole table.
-  const [{ rows, total }, products] = await Promise.all([
-    listTestCases({ page, pageSize, query, productId: productId || undefined }),
-    listProductOptions()
+  const [{ rows, total }, products, features] = await Promise.all([
+    listTestCases({
+      page,
+      pageSize,
+      query,
+      productId: productId || undefined,
+      featureId: featureId || undefined
+    }),
+    listProductOptions(),
+    listFeatureOptions()
   ]);
   const productName = products.find((row) => row.id === productId)?.name;
+  const featureName = features.find((row) => row.id === featureId)?.name;
+  const scopeParts = [productName, featureName].filter(Boolean);
   const mayAuthor = auth.role !== QamsRole.QA_TESTER;
 
   return (
@@ -42,8 +52,8 @@ export default async function TestCasesPage({
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         {total} test case{total === 1 ? "" : "s"}
         {query ? ` matching “${query}”` : ""}
-        {productName ? ` in ${productName}` : ""}. Approved content is immutable — a material
-        change is a new Draft revision.
+        {scopeParts.length > 0 ? ` in ${scopeParts.join(" · ")}` : ""}. Approved content is
+        immutable — a material change is a new Draft revision.
       </p>
       <CaseTable
         rows={rows}
@@ -53,6 +63,7 @@ export default async function TestCasesPage({
         pathname="/test-cases"
         params={params}
         products={products}
+        features={features}
         // The empty state's whole job is naming the next step, so it has to name one
         // this viewer can actually take. Unconditionally it told a QA Tester to create a
         // draft (authors only) and to import the workbook (Lead only), with neither
