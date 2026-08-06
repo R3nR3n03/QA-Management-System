@@ -1285,6 +1285,16 @@ a {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+/* Says the numbers above are held in the browser rather than written — shown only while a
+   run is being worked, where that is the difference between a tally and a record. Sized
+   and toned like a hint: it qualifies the card, it is not a second headline. */
+.run-summary-note {
+  margin: var(--sp-3) 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
 /* A graded tally takes its result's ink. Reinforcement only — the word above the number
    already names the outcome, so this is never the sole channel, and it grades nothing
    the run did not already grade (no rate, no threshold). */

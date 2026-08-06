@@ -19,6 +19,7 @@ import { StepsDisclosure } from "@/ui/steps-disclosure";
 import { Stepper } from "@/ui/stepper";
 import { FinalizeForm } from "./FinalizeForm";
 import { ReassignForm } from "./ReassignForm";
+import { RunSummary } from "./RunSummary";
 import { StartForm } from "./StartForm";
 
 const RAIL: { state: ExecutionLifecycleState; label: string; icon: ReactNode }[] = [
@@ -148,8 +149,9 @@ export default async function ExecutionPage({
   const single = execution.cases.length === 1 ? execution.cases[0] : null;
   const caseByTestCaseId = new Map(execution.cases.map((row) => [row.testCaseId, row]));
 
-  // The tally. A count of what policy already graded — never a rate, a threshold or a
-  // judgement, which `docs/business-rules-and-validation.md:37-38` does not define.
+  // The counts behind the view strip below, off the PERSISTED results. The summary card
+  // has its own count (`RunSummary`) because it also has to speak for a run being worked,
+  // whose results are not persisted yet; the strip only ever renders on a run that is not.
   const countOf = (view: string) =>
     execution.cases.filter((covered) => matchesView(view, covered.result)).length;
   const graded = execution.cases.filter((covered) => covered.result !== null).length;
@@ -232,34 +234,15 @@ export default async function ExecutionPage({
           label="Execution lifecycle"
         />
 
-        <div className="run-summary">
-          <div className="run-summary-title">Result summary</div>
-          <dl className="run-stats">
-            <div className="run-stat">
-              <dt>Total</dt>
-              <dd>{execution.cases.length}</dd>
-            </div>
-            <div className="run-stat run-stat-pass">
-              <dt>Pass</dt>
-              <dd>{countOf(ExecutionOutcome.PASS)}</dd>
-            </div>
-            <div className="run-stat run-stat-fail">
-              <dt>Fail</dt>
-              <dd>{countOf(ExecutionOutcome.FAIL)}</dd>
-            </div>
-            <div className="run-stat run-stat-blocked">
-              <dt>Blocked</dt>
-              <dd>{countOf(ExecutionOutcome.BLOCKED)}</dd>
-            </div>
-            {/* Always, including at zero: a fixed set of columns means two runs read the
-                same shape side by side, and "Not graded 0" is the useful statement that
-                nothing was left ungraded — not a gap the reader has to interpret. */}
-            <div className="run-stat">
-              <dt>Not graded</dt>
-              <dd>{countOf("PENDING")}</dd>
-            </div>
-          </dl>
-        </div>
+        {/* The tally lives in a client component because on a run being worked the results
+            it counts are held in the browser, not on the server — see `RunSummary`. */}
+        <RunSummary
+          cases={execution.cases.map((covered) => ({
+            testCaseId: covered.testCaseId,
+            result: covered.result
+          }))}
+          draft={working ? { executionId: execution.id, version: execution.version } : null}
+        />
       </div>
 
       {working ? (
