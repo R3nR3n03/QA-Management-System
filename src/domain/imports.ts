@@ -1324,7 +1324,7 @@ export async function resolveImportRow(
 
   const row = await prisma.importRowReport.findUnique({ where: { id: rowReportId } });
   if (!row) throw new AppError(404, "REFERENCE_NOT_FOUND", "Import row not found.", "rowReportId");
-  if (row.outcome !== "RECONCILIATION_REQUIRED") {
+  if (row.outcome !== " RECONCILIATION_REQUIRED") {
     throw new AppError(422, "FORBIDDEN_TRANSITION", "Only reconciliation rows can be resolved.", "rowReportId");
   }
   if (row.resolvedAt) {
