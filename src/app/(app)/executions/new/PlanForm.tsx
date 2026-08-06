@@ -25,6 +25,8 @@ export type PlanCandidate = {
   priority: string;
   severity: string;
   productId: string;
+  featureId: string;
+  featureBusinessId: string;
   requirementId: string;
   requirementBusinessId: string;
   moduleName: string;
@@ -97,38 +99,52 @@ export function PlanForm({
   const [state, formAction, pending] = useActionState<FormState, FormData>(createExecutionAction, null);
   const [query, setQuery] = useState("");
   const [productId, setProductId] = useState("");
+  const [featureId, setFeatureId] = useState("");
   const [requirementId, setRequirementId] = useState("");
   const [onlySelected, setOnlySelected] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(preselect));
   const bad = (field: string) => fieldClass(state, field);
 
   /*
-   * Requirement options come from the candidates themselves, not a separate catalogue
-   * fetch — every case already carries its own requirement, so there is nothing a
-   * server round-trip would add. Scoped to the current product (or the whole set, with
-   * none chosen) for the same reason `page.tsx` only offers products with a candidate
+   * Feature and requirement options come from the candidates themselves, not a separate
+   * catalogue fetch — every case already carries its own hierarchy, so there is nothing
+   * a server round-trip would add. Each is scoped to whatever the broader facet(s) left
+   * (feature within the current product; requirement within the current product AND
+   * feature), for the same reason `page.tsx` only offers products with a candidate
    * behind them: an option that empties the list on selection reads as a broken filter.
    */
-  const requirementOptions = useMemo(() => {
+  const featureOptions = useMemo(() => {
     const scoped = productId === "" ? cases : cases.filter((testCase) => testCase.productId === productId);
     const byId = new Map<string, string>();
-    for (const testCase of scoped) byId.set(testCase.requirementId, testCase.requirementBusinessId);
+    for (const testCase of scoped) byId.set(testCase.featureId, testCase.featureBusinessId);
     return [...byId.entries()]
       .map(([id, businessId]) => ({ id, businessId }))
       .sort((a, b) => a.businessId.localeCompare(b.businessId));
   }, [cases, productId]);
 
+  const requirementOptions = useMemo(() => {
+    let scoped = productId === "" ? cases : cases.filter((testCase) => testCase.productId === productId);
+    if (featureId !== "") scoped = scoped.filter((testCase) => testCase.featureId === featureId);
+    const byId = new Map<string, string>();
+    for (const testCase of scoped) byId.set(testCase.requirementId, testCase.requirementBusinessId);
+    return [...byId.entries()]
+      .map(([id, businessId]) => ({ id, businessId }))
+      .sort((a, b) => a.businessId.localeCompare(b.businessId));
+  }, [cases, productId, featureId]);
+
   const matching = useMemo(() => {
     let pool = onlySelected ? cases.filter((testCase) => selected.has(testCase.id)) : cases;
-    // Product first: it is the broadest cut. Requirement narrows within whatever the
-    // product left — its own options are scoped the same way — and the needle
-    // searches within whatever both leave, rather than across the whole catalogue.
+    // Product first: it is the broadest cut. Feature narrows within whatever the
+    // product left, requirement narrows within whatever feature left — each one's own
+    // options are scoped the same way — and the needle searches within whatever all
+    // three leave, rather than across the whole catalogue.
     if (productId !== "") pool = pool.filter((testCase) => testCase.productId === productId);
+    if (featureId !== "") pool = pool.filter((testCase) => testCase.featureId === featureId);
     if (requirementId !== "") pool = pool.filter((testCase) => testCase.requirementId === requirementId);
     const needle = query.trim().toLowerCase();
     if (!needle) return pool;
     return pool.filter((testCase) => haystack(testCase).includes(needle));
-  }, [cases, query, productId, requirementId, onlySelected, selected]);
+  }, [cases, query, productId, featureId, requirementId, onlySelected, selected]);
 
   // What is actually rendered. Everything below keys off THIS, not `matching` — a
   // hidden input is what keeps an off-screen selection in the submitted body, so the
@@ -162,22 +178,26 @@ export function PlanForm({
     setOnlySelected(false);
     setQuery("");
     setProductId("");
+    setFeatureId("");
     setRequirementId("");
   };
 
   const productName = products.find((product) => product.id === productId)?.name;
+  const featureName = featureOptions.find((feature) => feature.id === featureId)?.businessId;
   const requirementName = requirementOptions.find((requirement) => requirement.id === requirementId)?.businessId;
-  const scopeLabel = [productName, requirementName].filter(Boolean).join(" · ");
+  const scopeLabel = [productName, featureName, requirementName].filter(Boolean).join(" · ");
 
   /*
    * A needle earns its place once the list is long enough to be worth narrowing; the
-   * product and requirement dropdowns earn theirs as soon as there is anything to
-   * offer, regardless of how many candidates are on screen. Different questions, so
-   * different conditions — and every option offered always has a candidate behind it
-   * (`page.tsx` for products; `requirementOptions` is built the same way).
+   * product, feature, and requirement dropdowns earn theirs as soon as there is
+   * anything to offer, regardless of how many candidates are on screen. Different
+   * questions, so different conditions — and every option offered always has a
+   * candidate behind it (`page.tsx` for products; `featureOptions`/`requirementOptions`
+   * are built the same way).
    */
   const showNeedle = cases.length > 5;
   const showProducts = products.length > 0;
+  const showFeatures = featureOptions.length > 0;
   const showRequirements = requirementOptions.length > 0;
 
   return (
@@ -207,7 +227,7 @@ export function PlanForm({
       <fieldset className={`form-section${state?.field === "testCaseIds" ? " form-section-bad" : ""}`}>
         <legend>Approved test cases</legend>
         <div className="stack">
-          {showNeedle || showProducts || showRequirements ? (
+          {showNeedle || showProducts || showFeatures || showRequirements ? (
             <div className="row">
               {showNeedle ? (
                 <FilterToolbar
@@ -228,10 +248,11 @@ export function PlanForm({
                   value={productId}
                   onChange={(event) => {
                     setProductId(event.target.value);
-                    // The requirement options are about to be rescoped to the new
-                    // product; a selection from the old scope could now point at a
-                    // requirement no other row shares, which would look like a
-                    // second, unexplained filter narrowing the list.
+                    // The feature and requirement options are about to be rescoped to
+                    // the new product; a selection from the old scope could now point at
+                    // a feature or requirement no other row shares, which would look
+                    // like a second, unexplained filter narrowing the list.
+                    setFeatureId("");
                     setRequirementId("");
                   }}
                   disabled={pending}
@@ -240,6 +261,28 @@ export function PlanForm({
                   {products.map((product) => (
                     <option key={product.id} value={product.id}>
                       {product.businessId} · {product.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {showFeatures ? (
+                <select
+                  className="select-filter"
+                  aria-label="Filter by feature"
+                  value={featureId}
+                  onChange={(event) => {
+                    setFeatureId(event.target.value);
+                    // Same reasoning as the product reset above, one level narrower:
+                    // the requirement options are about to be rescoped to the new
+                    // feature.
+                    setRequirementId("");
+                  }}
+                  disabled={pending}
+                >
+                  <option value="">All features</option>
+                  {featureOptions.map((feature) => (
+                    <option key={feature.id} value={feature.id}>
+                      {feature.businessId}
                     </option>
                   ))}
                 </select>
@@ -324,8 +367,9 @@ export function PlanForm({
               <div className="empty">
                 {/* Several different nothings, and confusing them wastes the reader's
                     time: an empty selection, a scope that excludes the selection, a
-                    product/requirement scope with no match, and a needle that matches
-                    nothing at all. Each names the filter that actually emptied the list. */}
+                    product/feature/requirement scope with no match, and a needle that
+                    matches nothing at all. Each names the filter that actually emptied
+                    the list. */}
                 {onlySelected && selected.size === 0 ? (
                   <p>Nothing is selected yet.</p>
                 ) : onlySelected ? (
@@ -343,7 +387,7 @@ export function PlanForm({
                 ) : (
                   <p>{scopeLabel || "This scope"} has no approved cases to plan.</p>
                 )}
-                {onlySelected || query !== "" || productId !== "" || requirementId !== "" ? (
+                {onlySelected || query !== "" || productId !== "" || featureId !== "" || requirementId !== "" ? (
                   <button type="button" className="btn btn-ghost btn-sm" onClick={showAll}>
                     Show all approved cases
                   </button>

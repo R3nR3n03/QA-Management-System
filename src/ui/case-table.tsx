@@ -48,7 +48,10 @@ export function CaseTable({
   pageKey = "page",
   products,
   productKey = "product",
-  productEmptyText = "No test case belongs to this product."
+  productEmptyText = "No test case belongs to this product.",
+  features,
+  featureKey = "feature",
+  featureEmptyText = "No test case belongs to this feature."
 }: {
   /** One page of rows, already fetched with `skip`/`take`. */
   rows: CaseRow[];
@@ -72,12 +75,22 @@ export function CaseTable({
    * in review is a screen arguing with the one next to it.
    */
   productEmptyText?: string;
+  /** Omit to leave the feature filter off this screen entirely. Independent of the
+      product filter — same convention as the picker's product/requirement facets, but
+      this screen is server-paged, not local state, so the two selects do not rescope
+      each other; picking a feature from a different product than the one selected
+      just empties the list, same as any other filter combination that matches nothing. */
+  features?: ProductOption[];
+  featureKey?: string;
+  /** Same reasoning as `productEmptyText`, one level narrower. */
+  featureEmptyText?: string;
 }) {
   const query = readParam(params, queryKey);
   const product = readParam(params, productKey);
+  const feature = readParam(params, featureKey);
   // A filter must survive matching few rows, or there is no way left to clear it — so an
   // ACTIVE filter of either kind keeps the controls on screen regardless of the count.
-  const filtered = query !== "" || product !== "";
+  const filtered = query !== "" || product !== "" || feature !== "";
   const showNeedle = filtered || total > 5;
   /*
    * The product dropdown is offered whenever there are products at all, matching
@@ -95,6 +108,7 @@ export function CaseTable({
    * place, and the catalogue decides whether the product filter does.
    */
   const showProducts = products !== undefined && products.length > 0;
+  const showFeatures = features !== undefined && features.length > 0;
 
   if (total === 0 && !filtered) {
     return (
@@ -106,7 +120,7 @@ export function CaseTable({
 
   return (
     <>
-      {showNeedle || showProducts ? (
+      {showNeedle || showProducts || showFeatures ? (
         <div className="row" style={{ marginBottom: "var(--sp-3)" }}>
           {showNeedle ? (
             <UrlFilterToolbar
@@ -128,24 +142,42 @@ export function CaseTable({
               pageKey={pageKey}
             />
           ) : null}
+          {showFeatures ? (
+            <UrlSelectFilter
+              options={features.map((row) => ({
+                value: row.id,
+                label: `${row.businessId} · ${row.name}`
+              }))}
+              label="Filter by feature"
+              allLabel="All features"
+              paramKey={featureKey}
+              pageKey={pageKey}
+            />
+          ) : null}
         </div>
       ) : null}
 
       <div className="card card-flush">
         {rows.length === 0 ? (
-          // Two filters can each empty the list, so the message has to name the one that
-          // did it — "nothing matches" with an empty needle reads as a bug. ListEmpty
-          // takes the third case (a page past the end) off this branch entirely.
+          // Three filters can each empty the list, so the message has to name the one
+          // (or two) that did it — "nothing matches" with an empty needle reads as a bug.
+          // ListEmpty takes the third case (a page past the end) off this branch entirely.
           <ListEmpty
             total={total}
             pathname={pathname}
             params={params}
             pageKey={pageKey}
-            noMatch={
-              query !== ""
-                ? `Nothing matches “${query}”${product !== "" ? " in this product" : ""}.`
-                : productEmptyText
-            }
+            noMatch={(() => {
+              const scopeNames = [product !== "" ? "this product" : null, feature !== "" ? "this feature" : null].filter(
+                (name): name is string => name !== null
+              );
+              if (query !== "") {
+                const scopeSuffix = scopeNames.length > 0 ? ` in ${scopeNames.join(" and ")}` : "";
+                return `Nothing matches “${query}”${scopeSuffix}.`;
+              }
+              if (product !== "" && feature !== "") return `No test case belongs to ${scopeNames.join(" and ")}.`;
+              return feature !== "" ? featureEmptyText : productEmptyText;
+            })()}
           />
         ) : (
           <ul className="row-list">

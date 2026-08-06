@@ -224,6 +224,40 @@ describe("ExecutionList", () => {
     expect(screen.queryByLabelText("Filter by product")).toBeNull();
   });
 
+  it("offers a feature filter alongside the product filter, and composes with the state chip", () => {
+    nav.search = "product=prod-1&feature=feat-1";
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(3)}
+        total={3}
+        page={1}
+        pathname="/executions"
+        params={{ product: "prod-1", feature: "feat-1" }}
+        products={[{ id: "prod-1", businessId: "PROD001", name: "Storefront" }]}
+        features={[{ id: "feat-1", businessId: "FEAT001", name: "Card payment" }]}
+      />
+    );
+
+    const select = screen.getByLabelText("Filter by feature") as HTMLSelectElement;
+    expect(select.value).toBe("feat-1");
+    expect(screen.getByRole("option", { name: "FEAT001 · Card payment" })).toBeTruthy();
+    // All three filters compose: narrowing by state must not silently drop the others.
+    expect(href("Finalized")).toBe("/executions?product=prod-1&feature=feat-1&state=FINALIZED");
+  });
+
+  it("leaves the feature filter off entirely when no features are passed", () => {
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(3)}
+        total={3}
+        page={1}
+        pathname="/executions"
+        params={{}}
+      />
+    );
+    expect(screen.queryByLabelText("Filter by feature")).toBeNull();
+  });
+
   it("separates an empty list from an empty filter result", () => {
     const { unmount } = render(
       <ExecutionList rows={[]} total={0} page={1} pathname="/executions" params={{}} />

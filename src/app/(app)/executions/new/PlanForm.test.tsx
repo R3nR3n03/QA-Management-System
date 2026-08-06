@@ -26,7 +26,10 @@ const pad = (n: number) => String(n).padStart(4, "0");
  * filters have something to separate that is neither the ID nor the title. Requirements
  * split further within each product — product-a's odds split into req-1/req-2, product-b's
  * evens into req-3/req-4 — so a requirement filter has something to narrow that a product
- * filter alone would not.
+ * filter alone would not. Feature sits one level of product-a/product-b here (one feature
+ * per product, matching the existing "Card payment"/"Autocomplete" split) — a dedicated
+ * `FEATURE_CASES` fixture below covers a product with more than one feature, since this
+ * shared fixture is also depended on by every other test in the file.
  */
 function makeCases(count: number) {
   return Array.from({ length: count }, (_, index) => {
@@ -40,6 +43,8 @@ function makeCases(count: number) {
       priority: odd ? "High" : "Low",
       severity: odd ? "Major" : "Minor",
       productId: odd ? "product-a" : "product-b",
+      featureId: odd ? "feature-1" : "feature-2",
+      featureBusinessId: odd ? "FEAT001" : "FEAT002",
       requirementId: `req-${requirementNumber}`,
       requirementBusinessId: `REQ00${requirementNumber}`,
       moduleName: odd ? "Checkout" : "Search",
@@ -47,6 +52,100 @@ function makeCases(count: number) {
     };
   });
 }
+
+/**
+ * product-a has two features here (unlike `makeCases`, which gives each product exactly
+ * one) — feature-1 with two requirements, feature-2 with one — so a feature filter has
+ * something to narrow within a product, and a requirement filter has something to narrow
+ * within a feature. product-b's single feature/requirement is there so a product switch
+ * has somewhere else to land.
+ */
+const FEATURE_CASES = [
+  {
+    id: "f-1",
+    businessId: "TC-FEAT-0001",
+    title: "Feature case 1",
+    priority: "High",
+    severity: "Major",
+    productId: "product-a",
+    featureId: "feature-1",
+    featureBusinessId: "FEAT001",
+    requirementId: "req-1",
+    requirementBusinessId: "REQ001",
+    moduleName: "Checkout",
+    featureName: "Card payment"
+  },
+  {
+    id: "f-2",
+    businessId: "TC-FEAT-0002",
+    title: "Feature case 2",
+    priority: "High",
+    severity: "Major",
+    productId: "product-a",
+    featureId: "feature-1",
+    featureBusinessId: "FEAT001",
+    requirementId: "req-2",
+    requirementBusinessId: "REQ002",
+    moduleName: "Checkout",
+    featureName: "Card payment"
+  },
+  {
+    id: "f-3",
+    businessId: "TC-FEAT-0003",
+    title: "Feature case 3",
+    priority: "High",
+    severity: "Major",
+    productId: "product-a",
+    featureId: "feature-2",
+    featureBusinessId: "FEAT002",
+    requirementId: "req-3",
+    requirementBusinessId: "REQ003",
+    moduleName: "Checkout",
+    featureName: "Card refund"
+  },
+  {
+    id: "f-4",
+    businessId: "TC-FEAT-0004",
+    title: "Feature case 4",
+    priority: "Low",
+    severity: "Minor",
+    productId: "product-b",
+    featureId: "feature-3",
+    featureBusinessId: "FEAT003",
+    requirementId: "req-4",
+    requirementBusinessId: "REQ004",
+    moduleName: "Search",
+    featureName: "Autocomplete"
+  },
+  {
+    id: "f-5",
+    businessId: "TC-FEAT-0005",
+    title: "Feature case 5",
+    priority: "Low",
+    severity: "Minor",
+    productId: "product-b",
+    featureId: "feature-3",
+    featureBusinessId: "FEAT003",
+    requirementId: "req-5",
+    requirementBusinessId: "REQ005",
+    moduleName: "Search",
+    featureName: "Autocomplete"
+  },
+  {
+    id: "f-6",
+    businessId: "TC-FEAT-0006",
+    title: "Feature case 6",
+    priority: "Low",
+    severity: "Minor",
+    productId: "product-b",
+    featureId: "feature-4",
+    featureBusinessId: "FEAT004",
+    requirementId: "req-6",
+    requirementBusinessId: "REQ006",
+    moduleName: "Search",
+    featureName: "Autocomplete"
+  }
+];
 
 const PRODUCTS = [
   { id: "product-a", businessId: "PROD001", name: "Storefront" },
@@ -70,6 +169,7 @@ function submittedIds(container: HTMLElement): string[] {
 
 const filterBox = () => screen.getByLabelText("Filter approved test cases");
 const productBox = () => screen.getByLabelText("Filter by product") as HTMLSelectElement;
+const featureBox = () => screen.getByLabelText("Filter by feature") as HTMLSelectElement;
 const requirementBox = () => screen.getByLabelText("Filter by requirement") as HTMLSelectElement;
 
 describe("PlanForm", () => {
@@ -393,6 +493,116 @@ describe("PlanForm", () => {
     fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
 
     expect(screen.getByText("Nothing matches “Autocomplete” in Storefront · REQ001.")).toBeTruthy();
+  });
+
+  it("offers a feature filter with no products prop at all", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    expect(screen.getByRole("option", { name: "FEAT001" })).toBeTruthy();
+    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
+    // feature-1 is every odd case: 1, 3, 5.
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+  });
+
+  it("keeps a selection the feature filter has scoped out of view", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0002/ }));
+    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
+
+    // Case 2 is feature-2, so it leaves the screen — but not the run.
+    expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0002/ })).toBeNull();
+    expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
+    expect(submittedIds(container)).toEqual(["case-2"]);
+  });
+
+  it("composes the feature filter with the needle", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+
+    fireEvent.change(filterBox(), { target: { value: "Candidate 5" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0005/ })).toBeTruthy();
+  });
+
+  /**
+   * product-a has two features (feature-1: two requirements, feature-2: one) and
+   * product-b has one — so this exercises both scoping steps at once: the product cut
+   * decides which features are worth offering, and the feature cut then decides which
+   * requirements are.
+   */
+  it("scopes feature options to the product, and requirement options to the feature", () => {
+    render(<PlanForm cases={FEATURE_CASES} testers={TESTERS} products={PRODUCTS} />);
+
+    expect(screen.getByRole("option", { name: "FEAT003" })).toBeTruthy();
+
+    fireEvent.change(productBox(), { target: { value: "product-a" } });
+    expect(screen.getByRole("option", { name: "FEAT001" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "FEAT002" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "FEAT003" })).toBeNull();
+
+    // Both of product-a's requirements are offered until a feature narrows further.
+    expect(screen.getByRole("option", { name: "REQ001" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "REQ003" })).toBeTruthy();
+
+    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
+    expect(screen.getByRole("option", { name: "REQ001" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "REQ002" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "REQ003" })).toBeNull();
+  });
+
+  it("resets the feature and requirement filters when the product changes underneath them", () => {
+    render(<PlanForm cases={FEATURE_CASES} testers={TESTERS} products={PRODUCTS} />);
+
+    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
+    fireEvent.change(requirementBox(), { target: { value: "req-2" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+
+    // feature-1/req-2 both belong to product-a; switching to product-b would otherwise
+    // combine three filters into a silent empty list with no explanation for any of them.
+    fireEvent.change(productBox(), { target: { value: "product-b" } });
+    expect(featureBox().value).toBe("");
+    expect(requirementBox().value).toBe("");
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    expect(screen.getByRole("checkbox", { name: /TC-FEAT-0004/ })).toBeTruthy();
+  });
+
+  it("resets the requirement filter when the feature changes underneath it", () => {
+    render(<PlanForm cases={FEATURE_CASES} testers={TESTERS} products={PRODUCTS} />);
+
+    fireEvent.change(requirementBox(), { target: { value: "req-2" } });
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+
+    // req-2 belongs to feature-1; switching to feature-2 would otherwise empty the list
+    // with no explanation, the same failure mode a product switch has to guard against.
+    fireEvent.change(featureBox(), { target: { value: "feature-2" } });
+    expect(requirementBox().value).toBe("");
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.getByRole("checkbox", { name: /TC-FEAT-0003/ })).toBeTruthy();
+  });
+
+  it("names the feature when its scope is what emptied the list", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
+    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
+
+    expect(screen.getByText("Nothing matches “Autocomplete” in FEAT001.")).toBeTruthy();
+  });
+
+  it("names product, feature, and requirement together when all three combine to empty the list", () => {
+    render(<PlanForm cases={FEATURE_CASES} testers={TESTERS} products={PRODUCTS} />);
+
+    fireEvent.change(productBox(), { target: { value: "product-a" } });
+    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
+    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
+    fireEvent.change(filterBox(), { target: { value: "nothing here" } });
+
+    expect(
+      screen.getByText("Nothing matches “nothing here” in Storefront · FEAT001 · REQ001.")
+    ).toBeTruthy();
   });
 
   /**

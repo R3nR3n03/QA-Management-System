@@ -299,6 +299,116 @@ describe("CaseTable", () => {
     expect(screen.getByText("Nothing matches “zzz” in this product.")).toBeTruthy();
   });
 
+  it("offers the feature filter independently of the product filter", () => {
+    render(
+      <CaseTable
+        rows={makeCaseRows(3)}
+        total={3}
+        page={1}
+        pathname="/test-cases"
+        params={{}}
+        emptyText="No cases."
+        features={[{ id: "feat-1", businessId: "FEAT001", name: "Card payment" }]}
+      />
+    );
+
+    expect(screen.getByLabelText("Filter by feature")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "FEAT001 · Card payment" })).toBeTruthy();
+  });
+
+  it("leaves the feature filter off entirely when no features are passed", () => {
+    render(
+      <CaseTable
+        rows={makeCaseRows(50)}
+        total={132}
+        page={1}
+        pathname="/test-cases"
+        params={{}}
+        emptyText="No cases."
+      />
+    );
+
+    expect(screen.queryByLabelText("Filter by feature")).toBeNull();
+  });
+
+  it("commits a chosen feature to the URL alongside an existing product filter", () => {
+    nav.search = "product=prod-1&page=4";
+    render(
+      <CaseTable
+        rows={makeCaseRows(50)}
+        total={132}
+        page={4}
+        pathname="/test-cases"
+        params={{ product: "prod-1", page: "4" }}
+        emptyText="No cases."
+        products={[{ id: "prod-1", businessId: "PROD001", name: "Storefront" }]}
+        features={[{ id: "feat-1", businessId: "FEAT001", name: "Card payment" }]}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Filter by feature"), {
+      target: { value: "feat-1" }
+    });
+
+    expect(nav.replace).toHaveBeenCalledWith("/test-cases?product=prod-1&feature=feat-1", {
+      scroll: false
+    });
+  });
+
+  it("keeps the controls on screen when the feature filter is what emptied the list", () => {
+    nav.search = "feature=feat-1";
+    render(
+      <CaseTable
+        rows={[]}
+        total={0}
+        page={1}
+        pathname="/test-cases"
+        params={{ feature: "feat-1" }}
+        emptyText="No test cases yet."
+        features={[{ id: "feat-1", businessId: "FEAT001", name: "Card payment" }]}
+      />
+    );
+
+    expect(screen.getByText("No test case belongs to this feature.")).toBeTruthy();
+    expect((screen.getByLabelText("Filter by feature") as HTMLSelectElement).value).toBe("feat-1");
+  });
+
+  it("names both filters when a product and a feature combine to empty the list, with no needle", () => {
+    nav.search = "product=prod-1&feature=feat-1";
+    render(
+      <CaseTable
+        rows={[]}
+        total={0}
+        page={1}
+        pathname="/test-cases"
+        params={{ product: "prod-1", feature: "feat-1" }}
+        emptyText="No test cases yet."
+        products={[{ id: "prod-1", businessId: "PROD001", name: "Storefront" }]}
+        features={[{ id: "feat-1", businessId: "FEAT001", name: "Card payment" }]}
+      />
+    );
+
+    expect(screen.getByText("No test case belongs to this product and this feature.")).toBeTruthy();
+  });
+
+  it("names both filters in the needle's empty message", () => {
+    nav.search = "q=zzz&product=prod-1&feature=feat-1";
+    render(
+      <CaseTable
+        rows={[]}
+        total={0}
+        page={1}
+        pathname="/test-cases"
+        params={{ q: "zzz", product: "prod-1", feature: "feat-1" }}
+        emptyText="No test cases yet."
+        products={[{ id: "prod-1", businessId: "PROD001", name: "Storefront" }]}
+        features={[{ id: "feat-1", businessId: "FEAT001", name: "Card payment" }]}
+      />
+    );
+
+    expect(screen.getByText("Nothing matches “zzz” in this product and this feature.")).toBeTruthy();
+  });
+
   it("seeds the filter box from the URL, so a shared link shows its own needle", () => {
     nav.search = "q=login";
     render(

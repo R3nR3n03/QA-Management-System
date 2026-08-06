@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ExecutionLifecycleState } from "@prisma/client";
-import { listProductOptions } from "@/domain/catalogue";
+import { listFeatureOptions, listProductOptions } from "@/domain/catalogue";
 import { listExecutionsWithCase } from "@/domain/executions";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
@@ -27,17 +27,22 @@ export default async function ExecutionsPage({
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
   const productId = readParam(params, "product");
-  const [{ rows, total }, products] = await Promise.all([
+  const featureId = readParam(params, "feature");
+  const [{ rows, total }, products, features] = await Promise.all([
     listExecutionsWithCase({
       page,
       pageSize,
       query,
       productId: productId || undefined,
+      featureId: featureId || undefined,
       states: stateFilter(readParam(params, "state"))
     }),
-    listProductOptions()
+    listProductOptions(),
+    listFeatureOptions()
   ]);
   const productName = products.find((row) => row.id === productId)?.name;
+  const featureName = features.find((row) => row.id === featureId)?.name;
+  const scopeParts = [productName, featureName].filter(Boolean);
 
   return (
     <>
@@ -50,10 +55,11 @@ export default async function ExecutionsPage({
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         {total} execution{total === 1 ? "" : "s"}
         {query ? ` matching “${query}”` : ""}
-        {/* "covering" not "in": a run belongs to no product of its own, it only reaches
-            one through the cases it covers, and a multi-case run can span two. */}
-        {productName ? ` covering ${productName}` : ""}. A finalized run is immutable; a rerun is
-        a new execution covering only the failed or blocked case(s).
+        {/* "covering" not "in": a run belongs to no product or feature of its own, it
+            only reaches one through the cases it covers, and a multi-case run can span
+            more than one of either. */}
+        {scopeParts.length > 0 ? ` covering ${scopeParts.join(" · ")}` : ""}. A finalized run is
+        immutable; a rerun is a new execution covering only the failed or blocked case(s).
       </p>
 
       <ExecutionList
@@ -80,6 +86,7 @@ export default async function ExecutionsPage({
         pathname="/executions"
         params={params}
         products={products}
+        features={features}
       />
     </>
   );
