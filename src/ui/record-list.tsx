@@ -130,7 +130,7 @@ export function ExecutionList({
 
   return (
     <>
-      <div className="row">
+      <div className="row" style={{ marginBottom: "var(--sp-3)" }}>
         {/* An active filter keeps the controls on screen however few rows match, or
             there would be no way left to clear it. */}
         {filtered || total > 5 ? (
@@ -167,11 +167,14 @@ export function ExecutionList({
             pageKey={pageKey}
           />
         ) : null}
-        <div className="cluster" role="group" aria-label="Filter by lifecycle state">
+        {/* Four mutually exclusive views over one list, so a segmented strip rather than
+            four buttons: the selected one is raised out of a shared trough instead of
+            being a filled button standing beside three outlined ones, which read as
+            "three things you can do" next to a needle and two dropdowns. */}
+        <div className="seg" role="group" aria-label="Filter by lifecycle state">
           {EXECUTION_STATE_FILTERS.map((option) => (
             <Link
               key={option.value}
-              className={option.value === activeState ? "btn btn-sm" : "btn btn-secondary btn-sm"}
               // Changing the state filter returns to page 1: staying on page 4 of a
               // now-shorter list would land on nothing.
               href={hrefWith(pathname, params, {

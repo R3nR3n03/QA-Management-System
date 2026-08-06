@@ -103,6 +103,12 @@ const TEXT: Pair[] = [
   { fg: "--pass", bg: "--pass-wash", where: ".state-pass chip" },
   { fg: "--fail", bg: "--fail-wash", where: ".state-fail chip" },
   { fg: "--blocked", bg: "--blocked-wash", where: ".state-blocked chip" },
+  // Status ink also renders bare on a card, without its wash behind it: the graded
+  // tallies in an execution's result summary. Held to 4.5:1 like any other number a
+  // reader is expected to read, not to the 3:1 the 21px value would be allowed.
+  { fg: "--pass", bg: "--surface", where: ".run-stat-pass dd" },
+  { fg: "--fail", bg: "--surface", where: ".run-stat-fail dd" },
+  { fg: "--blocked", bg: "--surface", where: ".run-stat-blocked dd" },
   { fg: "--ink", bg: "--fail-wash", where: ".notice strong", large: true }
 ];
 
