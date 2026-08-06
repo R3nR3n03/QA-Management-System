@@ -220,7 +220,7 @@ async function commitBatch(ctx: ImportContext, fn: (tx: Tx) => Promise<ReportRow
             errorCode: row.errorCode ?? null,
             recordId: row.recordId ?? null,
             details: row.details ?? null,
-            proposedValuesJson: row.proposedValues ?? null,
+            proposedValuesJson: row.proposedValues ?? Prisma.JsonNull,
             resolutionDecision: row.resolutionDecision ?? null,
             resolutionRationale: row.resolutionRationale ?? null,
             resolvedAt: null,
@@ -328,7 +328,12 @@ async function importProducts(ctx: ImportContext, data: ParsedSheet) {
                 valuesEqual(current.versionTag, row.values["Version"]) &&
                 valuesEqual(current.status, row.values["Status"])
             }
-          : null
+          : null,
+        proposedValues: {
+          Product: row.values["Product"],
+          Version: row.values["Version"],
+          Status: row.values["Status"]
+        }
       });
       seen.add(businessId);
       if (!recordDecision(spec.sheet, row.sourceRow, report, decision)) continue;
@@ -380,7 +385,8 @@ async function importModules(ctx: ImportContext, data: ParsedSheet) {
               }
             : current
               ? { id: current.id, unchanged: false }
-              : null
+              : null,
+        proposedValues: { Module: row.values["Module"], "Product ID": parentBusinessId }
       });
       seen.add(businessId);
       if (!recordDecision(spec.sheet, row.sourceRow, report, decision)) continue;
@@ -427,7 +433,8 @@ async function importFeatures(ctx: ImportContext, data: ParsedSheet) {
               }
             : current
               ? { id: current.id, unchanged: false }
-              : null
+              : null,
+        proposedValues: { Feature: row.values["Feature"], "Module ID": parentBusinessId }
       });
       seen.add(businessId);
       if (!recordDecision(spec.sheet, row.sourceRow, report, decision)) continue;
@@ -471,7 +478,8 @@ async function importRequirements(ctx: ImportContext, data: ParsedSheet) {
               }
             : current
               ? { id: current.id, unchanged: false }
-              : null
+              : null,
+        proposedValues: { Requirement: row.values["Requirement"], "Feature ID": parentBusinessId }
       });
       seen.add(businessId);
       if (!recordDecision(spec.sheet, row.sourceRow, report, decision)) continue;

@@ -20,7 +20,7 @@ import type { ErrorCode } from "@/lib/errors";
 export type RowDecision =
   | { kind: "REJECTED"; errorCode: ErrorCode; details: string }
   | { kind: "SKIPPED_UNCHANGED"; recordId: string; details?: string }
-  | { kind: "RECONCILIATION_REQUIRED"; recordId: string; details: string }
+  | { kind: "RECONCILIATION_REQUIRED"; recordId: string; details: string; proposedValues?: Record<string, string> }
   | { kind: "CREATE" };
 
 export type ExistingRecord = {
@@ -50,6 +50,8 @@ export type CatalogueRowInput = {
   missingParent?: MissingParent | null;
   /** The persisted record with this business ID, when one exists. */
   existing?: ExistingRecord | null;
+  /** The row's source values, echoed back on `RECONCILIATION_REQUIRED` so the QA Lead can review them. */
+  proposedValues?: Record<string, string>;
 };
 
 /**
@@ -103,7 +105,8 @@ export function decideCatalogueRow(input: CatalogueRowInput): RowDecision {
       : {
           kind: "RECONCILIATION_REQUIRED",
           recordId: input.existing.id,
-          details: `${input.entityLabel} "${input.businessId}" exists with different values; automatic overwrite is not permitted.`
+          details: `${input.entityLabel} "${input.businessId}" exists with different values; automatic overwrite is not permitted.`,
+          proposedValues: input.proposedValues
         };
   }
 

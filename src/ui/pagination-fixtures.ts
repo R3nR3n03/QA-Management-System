@@ -90,7 +90,12 @@ export function makeImportRows(count: number): ImportRowData[] {
       sourceRow: n,
       outcome: n % 2 === 0 ? "CREATED" : "REJECTED",
       errorCode: n % 2 === 0 ? null : "ID_INVALID",
-      details: `Detail ${n}`
+      details: `Detail ${n}`,
+      proposedValues: null,
+      resolutionDecision: null,
+      resolutionRationale: null,
+      resolvedAt: null,
+      resolvedBy: null
     };
   });
 }
