@@ -81,6 +81,7 @@ function ChildForm({
   parentField,
   parentLabel,
   parents,
+  lockedParent,
   submitLabel,
   onDone
 }: {
@@ -92,6 +93,13 @@ function ChildForm({
   parentField: string;
   parentLabel: string;
   parents: Parent[];
+  /**
+   * The parent, when the explorer's selection already decided it. Adding a feature to
+   * MOD004 should not open a dropdown of every module in the catalogue and ask which
+   * one — the answer is on screen and already chosen. Stated as read-only text plus a
+   * hidden input; the domain re-checks the parent exists either way.
+   */
+  lockedParent?: Parent;
   submitLabel: string;
   onDone: () => void;
 }) {
@@ -101,23 +109,36 @@ function ChildForm({
   return (
     <form action={formAction}>
       <FormNotice state={state} id={noticeId(CHILD_FORM_ID)} />
-      <label className={bad(parentField)}>
-        <span>{parentLabel}</span>
-        <select name={parentField} required defaultValue="" disabled={pending} autoFocus {...fieldProps(state, parentField, CHILD_FORM_ID)}>
-          <option value="" disabled>
-            Choose…
-          </option>
-          {parents.map((parent) => (
-            <option key={parent.id} value={parent.id}>
-              {parent.businessId} · {parent.label}
+      {lockedParent ? (
+        <>
+          <input type="hidden" name={parentField} value={lockedParent.id} />
+          <div className="field">
+            <span>{parentLabel}</span>
+            <p className="locked-parent">
+              <span className="bid">{lockedParent.businessId}</span> {lockedParent.label}
+            </p>
+          </div>
+        </>
+      ) : (
+        <label className={bad(parentField)}>
+          <span>{parentLabel}</span>
+          <select name={parentField} required defaultValue="" disabled={pending} autoFocus {...fieldProps(state, parentField, CHILD_FORM_ID)}>
+            <option value="" disabled>
+              Choose…
             </option>
-          ))}
-        </select>
-      </label>
+            {parents.map((parent) => (
+              <option key={parent.id} value={parent.id}>
+                {parent.businessId} · {parent.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="form-grid-2">
         <label className={bad("businessId")}>
           <span>{idLabel}</span>
-          <input name="businessId" placeholder={idPlaceholder} required disabled={pending} {...fieldProps(state, "businessId", CHILD_FORM_ID)} />
+          {/* Takes the focus when the parent select is not there to take it. */}
+          <input name="businessId" placeholder={idPlaceholder} required disabled={pending} autoFocus={Boolean(lockedParent)} {...fieldProps(state, "businessId", CHILD_FORM_ID)} />
         </label>
         <label className={bad(nameField)}>
           <span>{nameLabel}</span>
@@ -136,12 +157,15 @@ function AddModal({
   title,
   description,
   toastMessage,
+  primary = false,
   children
 }: {
   buttonLabel: string;
   title: string;
   description: string;
   toastMessage: string;
+  /** The screen's single call to action wears the filled treatment. */
+  primary?: boolean;
   children: (onDone: () => void) => React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -152,7 +176,11 @@ function AddModal({
   };
   return (
     <>
-      <button type="button" className="btn btn-secondary" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className={primary ? "btn" : "btn btn-secondary"}
+        onClick={() => setOpen(true)}
+      >
         <Plus size={14} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
         {buttonLabel}
       </button>
@@ -163,26 +191,40 @@ function AddModal({
   );
 }
 
-export function AddProductModal() {
+export function AddProductModal({ primary = false }: { primary?: boolean }) {
   return (
     <AddModal
-      buttonLabel="Add product"
+      buttonLabel="New product"
       title="Add product"
       description="A new top-level product in the catalogue hierarchy."
       toastMessage="Product added."
+      primary={primary}
     >
       {(onDone) => <ProductForm onDone={onDone} />}
     </AddModal>
   );
 }
 
-export function AddModuleModal({ products }: { products: Parent[] }) {
+export function AddModuleModal({
+  products,
+  lockedParent,
+  primary = false
+}: {
+  products: Parent[];
+  lockedParent?: Parent;
+  primary?: boolean;
+}) {
   return (
     <AddModal
-      buttonLabel="Add module"
+      buttonLabel={lockedParent ? `Add module to ${lockedParent.businessId}` : "Add module"}
       title="Add module"
-      description="A module inside one of the products."
+      description={
+        lockedParent
+          ? `A module inside ${lockedParent.businessId} ${lockedParent.label}.`
+          : "A module inside one of the products."
+      }
       toastMessage="Module added."
+      primary={primary}
     >
       {(onDone) => (
         <ChildForm
@@ -194,6 +236,7 @@ export function AddModuleModal({ products }: { products: Parent[] }) {
           parentField="productId"
           parentLabel="Product"
           parents={products}
+          lockedParent={lockedParent}
           submitLabel="Add module"
           onDone={onDone}
         />
@@ -202,13 +245,26 @@ export function AddModuleModal({ products }: { products: Parent[] }) {
   );
 }
 
-export function AddFeatureModal({ modules }: { modules: Parent[] }) {
+export function AddFeatureModal({
+  modules,
+  lockedParent,
+  primary = false
+}: {
+  modules: Parent[];
+  lockedParent?: Parent;
+  primary?: boolean;
+}) {
   return (
     <AddModal
-      buttonLabel="Add feature"
+      buttonLabel={lockedParent ? `Add feature to ${lockedParent.businessId}` : "Add feature"}
       title="Add feature"
-      description="A feature inside one of the modules."
+      description={
+        lockedParent
+          ? `A feature inside ${lockedParent.businessId} ${lockedParent.label}.`
+          : "A feature inside one of the modules."
+      }
       toastMessage="Feature added."
+      primary={primary}
     >
       {(onDone) => (
         <ChildForm
@@ -220,6 +276,7 @@ export function AddFeatureModal({ modules }: { modules: Parent[] }) {
           parentField="moduleId"
           parentLabel="Module"
           parents={modules}
+          lockedParent={lockedParent}
           submitLabel="Add feature"
           onDone={onDone}
         />
@@ -228,13 +285,26 @@ export function AddFeatureModal({ modules }: { modules: Parent[] }) {
   );
 }
 
-export function AddRequirementModal({ features }: { features: Parent[] }) {
+export function AddRequirementModal({
+  features,
+  lockedParent,
+  primary = false
+}: {
+  features: Parent[];
+  lockedParent?: Parent;
+  primary?: boolean;
+}) {
   return (
     <AddModal
-      buttonLabel="Add requirement"
+      buttonLabel={lockedParent ? `Add requirement to ${lockedParent.businessId}` : "Add requirement"}
       title="Add requirement"
-      description="A requirement under one of the features."
+      description={
+        lockedParent
+          ? `A requirement under ${lockedParent.businessId} ${lockedParent.label}.`
+          : "A requirement under one of the features."
+      }
       toastMessage="Requirement added."
+      primary={primary}
     >
       {(onDone) => (
         <ChildForm
@@ -246,10 +316,37 @@ export function AddRequirementModal({ features }: { features: Parent[] }) {
           parentField="featureId"
           parentLabel="Feature"
           parents={features}
+          lockedParent={lockedParent}
           submitLabel="Add requirement"
           onDone={onDone}
         />
       )}
     </AddModal>
   );
+}
+
+/**
+ * The screen's one call to action. What it creates follows the selection: nothing
+ * selected offers a product, a selected product offers a module inside it, and so on
+ * down to a requirement.
+ *
+ * Four permanent Add buttons made the reader choose WHICH before choosing WHAT, and every
+ * one of them then asked for a parent the screen already knew — a dropdown of every module
+ * in the catalogue, to add a feature to the module you were looking at.
+ */
+export function ContextualCreate({
+  selection,
+  options
+}: {
+  selection: { kind: "product" | "module" | "feature"; parent: Parent } | null;
+  options: { products: Parent[]; modules: Parent[]; features: Parent[] };
+}) {
+  if (selection === null) return <AddProductModal primary />;
+  if (selection.kind === "product") {
+    return <AddModuleModal products={options.products} lockedParent={selection.parent} primary />;
+  }
+  if (selection.kind === "module") {
+    return <AddFeatureModal modules={options.modules} lockedParent={selection.parent} primary />;
+  }
+  return <AddRequirementModal features={options.features} lockedParent={selection.parent} primary />;
 }

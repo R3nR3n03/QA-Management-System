@@ -2776,6 +2776,111 @@ dialog.modal::backdrop {
   padding-right: var(--sp-1);
 }
 
+/* The record's identity stays put while its children scroll under it — you never lose
+   track of which module you are inside halfway down a 40-feature list. Opaque, or the
+   rows show through as they pass. */
+.cat-detail-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--paper);
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.cat-detail-head .fact-grid {
+  margin-top: var(--sp-3);
+}
+
+.cat-child-head {
+  margin-bottom: var(--sp-2);
+}
+.cat-child-head > h3 {
+  margin: 0;
+}
+/* The total beside the heading, in the caption tone so the word stays the thing read. */
+.cat-child-count {
+  font-weight: 500;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A child row. `.list-row`'s padding and hover, but a fixed grid: these rows are compared
+   column to column rather than read as prose, so the business IDs must line up. */
+.cat-child {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line-soft);
+  transition: background var(--ease);
+}
+.cat-child:last-child {
+  border-bottom: none;
+}
+.cat-child:hover {
+  background: var(--accent-wash);
+}
+/* A requirement's label is a whole sentence. It wraps rather than truncating — unlike a
+   tree row, this is where there is width to actually read it — and `anywhere` is what
+   breaks a pasted URL instead of letting it push the grid past the panel. */
+.cat-child-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cat-child-time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Below the reading width the five columns stop being comparable; ID and label take the
+   first line, the rest wrap under it. */
+@media (max-width: 720px) {
+  .cat-child {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: var(--sp-2);
+  }
+  .cat-child-time {
+    grid-column: 1 / -1;
+  }
+}
+
+/* An empty state with room for an icon and a sentence about what the missing level is
+   FOR. `.empty` stays for the one-line inline cases. The action is deliberately absent:
+   the header's contextual button already offers exactly it, and two primary buttons
+   competing for the same click is worse than one. */
+.empty-rich {
+  padding: var(--sp-7) var(--sp-5);
+  text-align: center;
+}
+.empty-rich > svg {
+  color: var(--ink-3);
+  /* Present, not decoration — the sentence is the message. */
+  opacity: 0.45;
+  margin-bottom: var(--sp-3);
+}
+.empty-rich > h3 {
+  margin-bottom: var(--sp-1);
+}
+.empty-rich > p {
+  max-width: 46ch;
+  margin: 0 auto;
+  color: var(--ink-3);
+}
+
+/* A parent the selection already decided, shown instead of a dropdown of every candidate.
+   Reads as a stated fact rather than a disabled control, because it is not a choice being
+   withheld — it is a question the screen already answered. */
+.locked-parent {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
 /* ---------- responsive ---------- */
 
 /* Tablet: one column. The explorer would be under 260px here, which is narrower than the

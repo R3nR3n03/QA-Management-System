@@ -809,9 +809,15 @@ Five commits, each of which builds, typechecks, lints and leaves the screen work
 |---|---|---|---|
 | 1 | `feat: read the catalogue as a tree` — `listCatalogueTree`, `catalogueTotals`, the three detail getters, `selection.ts` + its test. Screen unchanged. | `src/domain/catalogue.ts`, `selection.ts` | Low — additive |
 | 2 | `feat: two-pane frame and tree` — CSS blocks, `CatalogueExplorer`, `TreeNode`, mouse only. Detail panel renders the four old lists inside it. | `globals.css`, new components | Medium — layout |
-| 3 | `feat: detail panel per selection` — record header, child lists, five empty states. The four stacked tables come out. | `page.tsx`, `DetailPanel` | Medium — this is the cutover |
-| 4 | `feat: contextual create` — one CTA, `lockedParent` on the existing forms. | `CatalogueForms.tsx`, `ContextualCreate` | Low |
-| 5 | `feat: keyboard navigation and search` — roving tabindex, the ARIA tree contract, `q` wired through, shortcuts. **Rewrite the stale `listProducts` comment** (§0.6). | explorer components, `catalogue.ts` | Low |
+| 3 | `feat: detail panel per selection` — record header, child lists, five empty states, **and the contextual CTA**. The four stacked tables come out. | `page.tsx`, `DetailPanel`, `CatalogueForms.tsx` | Medium — this is the cutover |
+| 4 | `feat: keyboard navigation and search` — roving tabindex, the ARIA tree contract, the search box wired to `q`, shortcuts. | explorer components | Low |
+
+**Amended during delivery.** Commits 3 and 4 were merged. Removing the four stacked
+sections also removes the four `Add` buttons attached to them, so shipping the cutover
+without the contextual CTA would have left one commit on the branch where nothing in the
+catalogue can be created. Every commit has to be a working screen, so the CTA moved
+forward. The stale `listProducts` comment (§0.6) was corrected in commit 1 instead of
+commit 5 — that is the commit that made it false.
 
 **Tests.** `selection.test.ts` (pure parse/serialise, following `navigation.test.ts`), and a
 `CatalogueExplorer.test.tsx` under `@testing-library/react` covering arrow-key movement,
