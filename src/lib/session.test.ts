@@ -45,6 +45,24 @@ describe("sessionCookieOptions", () => {
     expect(sessionCookieOptions({}).secure).toBe(false);
   });
 
+  /**
+   * `next start` forces NODE_ENV=production even with no TLS in front of it, which is
+   * exactly today's "prod" per PRODUCTION-READINESS-2026-07-31.md D1 (no deployment
+   * pipeline exists). Without this override a Secure cookie set over plain http is
+   * silently dropped by the browser, and every post-login navigation looks signed out.
+   */
+  it("SESSION_COOKIE_SECURE=false overrides the production default, and nothing else does", () => {
+    expect(sessionCookieOptions({ NODE_ENV: "production", SESSION_COOKIE_SECURE: "false" }).secure).toBe(
+      false
+    );
+    expect(sessionCookieOptions({ NODE_ENV: "production", SESSION_COOKIE_SECURE: "true" }).secure).toBe(
+      true
+    );
+    expect(sessionCookieOptions({ NODE_ENV: "development", SESSION_COOKIE_SECURE: "false" }).secure).toBe(
+      false
+    );
+  });
+
   it("defaults to the 12 hour TTL, and tracks it when configured", () => {
     expect(sessionCookieOptions({}).maxAge).toBe(43200);
     // The cookie must not outlive the token it carries, so both read the same TTL.
