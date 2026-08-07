@@ -2651,16 +2651,30 @@ dialog.modal::backdrop {
   padding: 0;
 }
 
-/* A tree row. A real link, so middle-click, Back, and rendering before hydration all
+/* A tree row: the chevron and the node link side by side, both real links.
+
+   Two targets, because expanding a branch and selecting a record are two intentions. One
+   link doing both is what made the tree read as broken — see the note on `.cat-twist-btn`
+   below, and `OPEN_PARAM` in selection.ts. */
+.cat-row {
+  display: flex;
+  align-items: center;
+  /* One indent step per level, set inline by the component. On the row rather than the
+     link, so the chevron sits in the gutter the indent opens up — as it does in a file
+     explorer — instead of the label being pushed out of line with it. */
+  padding-left: calc(var(--cat-level, 0) * var(--tree-indent));
+}
+
+/* The node link. A real link, so middle-click, Back, and rendering before hydration all
    work — the selection is a place, not component state (see selection.ts). */
 .cat-node {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   min-height: var(--tree-row-h);
   padding: 0 var(--sp-2);
-  /* One indent step per level, set inline by the component. */
-  padding-left: calc(var(--sp-2) + var(--cat-level, 0) * var(--tree-indent));
   border-radius: var(--radius-sm);
   color: var(--ink-2);
   text-decoration: none;
@@ -2689,35 +2703,54 @@ dialog.modal::backdrop {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* The chevron is part of the row link, not a control beside it.
+/* The chevron: its own link, beside the row rather than inside it.
 
-   Not a separate button, because there is nothing separate for it to do: a branch's
-   children are fetched only when it opens (that lazy fetch is what lets this screen hold
-   a catalogue with 900 features), so opening one is a navigation, and navigating to a node
-   is selecting it. A chevron wired to its own handler would either duplicate the row or
-   sit there inert. The row is therefore a toggle — it selects and opens, and clicking the
-   node that is already both returns to its parent, which closes it. `aria-expanded` on the
-   row states which way it will go, and this rotates to match. A link inside a link would
-   also be invalid HTML, so the one-target design is the only correct one anyway. */
-.cat-twist {
+   A branch's children are fetched only when it opens (that lazy fetch is what lets this
+   screen hold a catalogue with 900 features), so opening one IS a navigation — but to
+   `?open=…`, not to `?sel=…`. Folding the two into one link, as this screen first did,
+   meant a node that was already selected and open had nowhere left to point except its
+   own parent, so a second click on a product cleared the selection and collapsed the
+   tree: clicking a product twice opened it and shut it, and only one branch could be
+   open at a time. `aria-expanded` on the row states which way this will go, and the
+   chevron rotates to match.
+
+   A sibling and not a child because an <a> inside an <a> is invalid HTML; `.cat-row` is
+   the flex box that puts the two on one line. */
+.cat-twist-btn {
   flex: none;
   display: grid;
   place-items: center;
   width: 20px;
   height: 20px;
+  border-radius: var(--radius-sm);
   color: var(--ink-3);
-  transition: transform var(--ease), color var(--ease);
+  text-decoration: none;
+  transition: background var(--ease), color var(--ease);
 }
-.cat-node:hover .cat-twist {
+.cat-twist-btn:hover {
+  background: var(--accent-wash);
   color: var(--ink);
+}
+/* Same inset ring as the row, for the same reason: the explorer's `overflow: hidden`
+   would shave an outward offset off against the panel's rounded edge. */
+.cat-twist-btn:focus-visible {
+  outline-offset: -2px;
+}
+.cat-row:hover .cat-twist-btn {
+  color: var(--ink);
+}
+.cat-twist {
+  transition: transform var(--ease);
 }
 .cat-twist-open {
   transform: rotate(90deg);
 }
-/* A feature has no children in the tree — requirements are rows in its detail panel — so
-   it gets the chevron's width and no chevron, keeping every label on one vertical line. */
-.cat-twist-leaf {
-  visibility: hidden;
+/* A requirement is a leaf, and so is any row with nothing under it. It takes the chevron's
+   width and no chevron, keeping every label on one vertical line. */
+.cat-twist-spacer {
+  flex: none;
+  width: 20px;
+  height: 20px;
 }
 
 .cat-node-id {

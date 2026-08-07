@@ -12,9 +12,9 @@ import { TreeKeyboard } from "./TreeKeyboard";
  * the contract gets the same behaviour, and a change to either side that breaks the
  * contract fails here.
  *
- * The two adaptations to the WAI-ARIA pattern are what most needs pinning down: opening a
- * branch is a navigation in this tree, so `→` on a closed node ACTIVATES the row rather
- * than expanding it locally, and `←` on an open one does the same to reach its parent.
+ * The adaptation to the WAI-ARIA pattern is what most needs pinning down: opening a branch
+ * is a navigation in this tree, so `→` and `←` follow the row's CHEVRON link — never the
+ * row's own link, which would move the selection as a side effect of looking around.
  */
 
 /**
@@ -49,7 +49,10 @@ const NODES: Array<{
 // carry a branch that only the test environment can take.
 HTMLElement.prototype.scrollIntoView = () => {};
 
+/** Rows whose own link was followed — i.e. the selection moved. */
 let clicks: string[] = [];
+/** Branches whose chevron link was followed — i.e. the tree opened or closed. */
+let twists: string[] = [];
 
 function Fixture({ selected }: { selected?: string }) {
   return (
@@ -58,24 +61,40 @@ function Fixture({ selected }: { selected?: string }) {
         {NODES.map((node) => (
           <li role="none" key={node.bid}>
             {/* Flat markup: the controller reads aria-level and document order, never
-                the nesting. Real nesting is tested through the component that renders it. */}
-            <a
-              role="treeitem"
-              href={`/catalogue?sel=${node.bid}`}
-              aria-level={node.level}
-              aria-selected={selected === node.bid}
-              aria-expanded={node.expanded}
-              tabIndex={selected === node.bid ? 0 : -1}
-              data-node-id={node.bid}
-              data-bid={node.bid}
-              data-name={node.name}
-              onClick={(event) => {
-                event.preventDefault();
-                clicks.push(node.bid);
-              }}
-            >
-              {node.bid} {node.name}
-            </a>
+                the nesting. Real nesting is tested through the component that renders it.
+                The `.cat-row` wrapper IS part of the contract, though — it is how the
+                controller finds a row's chevron from the row itself. */}
+            <div className="cat-row">
+              {node.expanded === undefined ? null : (
+                <a
+                  className="cat-twist-btn"
+                  href={`/catalogue?open=${node.bid}`}
+                  tabIndex={-1}
+                  aria-label={`${node.expanded ? "Collapse" : "Expand"} ${node.bid}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    twists.push(node.bid);
+                  }}
+                />
+              )}
+              <a
+                role="treeitem"
+                href={`/catalogue?sel=${node.bid}`}
+                aria-level={node.level}
+                aria-selected={selected === node.bid}
+                aria-expanded={node.expanded}
+                tabIndex={selected === node.bid ? 0 : -1}
+                data-node-id={node.bid}
+                data-bid={node.bid}
+                data-name={node.name}
+                onClick={(event) => {
+                  event.preventDefault();
+                  clicks.push(node.bid);
+                }}
+              >
+                {node.bid} {node.name}
+              </a>
+            </div>
           </li>
         ))}
       </ul>
@@ -95,6 +114,7 @@ function press(from: string, key: string, init: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   clicks = [];
+  twists = [];
 });
 afterEach(cleanup);
 
@@ -140,12 +160,15 @@ describe("moving through the tree", () => {
 });
 
 describe("expanding and collapsing", () => {
-  // The first adaptation: a closed branch has not been fetched, so opening it is a
-  // navigation — the same one Enter performs.
-  it("activates a closed node on ArrowRight", () => {
+  // The adaptation: a closed branch has not been fetched, so opening it is a navigation —
+  // but to the chevron's `?open=`, NOT to the row's `?sel=`. Following the row here is the
+  // bug this screen shipped with: `→` was then indistinguishable from Enter, and every
+  // expansion dragged the selection along with it.
+  it("follows the chevron, not the row, on ArrowRight at a closed node", () => {
     render(<Fixture />);
     press("MOD001", "ArrowRight");
-    expect(clicks).toEqual(["MOD001"]);
+    expect(twists).toEqual(["MOD001"]);
+    expect(clicks).toEqual([]);
   });
 
   // On an open node it is a pure focus move, exactly as the pattern says.
@@ -153,6 +176,7 @@ describe("expanding and collapsing", () => {
     render(<Fixture />);
     press("MOD002", "ArrowRight");
     expect(focusedId()).toBe("FEAT001");
+    expect(twists).toEqual([]);
     expect(clicks).toEqual([]);
   });
 
@@ -160,21 +184,25 @@ describe("expanding and collapsing", () => {
     render(<Fixture />);
     press("REQ001", "ArrowRight");
     expect(focusedId()).toBe("REQ001");
+    expect(twists).toEqual([]);
     expect(clicks).toEqual([]);
   });
 
-  // The second adaptation: closing a branch means selecting its parent, because that is
-  // the state "closed" corresponds to in a tree whose shape follows the URL.
-  it("activates an open node on ArrowLeft, to close it", () => {
+  // Closing a branch is the chevron again. It used to select the PARENT, because "closed"
+  // and "the parent is selected" were the same state; they are not any more, and `←` must
+  // not move the selection to look around.
+  it("follows the chevron, not the row, on ArrowLeft at an open node", () => {
     render(<Fixture />);
     press("FEAT001", "ArrowLeft");
-    expect(clicks).toEqual(["FEAT001"]);
+    expect(twists).toEqual(["FEAT001"]);
+    expect(clicks).toEqual([]);
   });
 
   it("moves to the parent from a closed node or a leaf", () => {
     render(<Fixture />);
     press("FEAT002", "ArrowLeft");
     expect(focusedId()).toBe("MOD002");
+    expect(twists).toEqual([]);
     expect(clicks).toEqual([]);
 
     press("REQ001", "ArrowLeft");

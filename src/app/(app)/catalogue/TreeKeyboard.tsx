@@ -15,16 +15,20 @@ import { useEffect, useRef } from "react";
  * instead and break the panel's independent scroll. Events still bubble through an element
  * that generates no box.
  *
- * ## Two adaptations to the ARIA pattern, both forced by lazy loading
+ * ## One adaptation to the ARIA pattern, forced by lazy loading
  *
- * A branch's children are fetched only when it opens, so opening one is a navigation.
- * That collapses two of the pattern's keys onto the same action:
+ * A branch's children are fetched only when it opens, so opening one is a navigation —
+ * `→` and `←` follow the row's chevron link (`?open=…`) rather than setting a flag:
  *
- * - **`→` on a closed node** navigates to it, which opens it — the same thing `Enter`
- *   does. On an OPEN node it moves focus to the first child, as the pattern says.
- * - **`←` on an open node** navigates to its parent, which closes it. Focus stays where it
- *   was, which is what the pattern asks for; the selection moves because in this tree
- *   "closed" and "the parent is selected" are the same state.
+ * - **`→` on a closed node** opens it. On an OPEN node it moves focus to the first child,
+ *   as the pattern says.
+ * - **`←` on an open node** closes it; on a closed one it moves to the parent row. Focus
+ *   stays put in both cases, which is what the pattern asks for.
+ *
+ * Neither key moves the SELECTION any more. They used to, because expanding and selecting
+ * were one link; `→` was therefore indistinguishable from `Enter`, and `←` selected the
+ * parent as a side effect of closing a branch. Now `Enter` and `Space` choose a record and
+ * the arrows only look around — see `OPEN_PARAM` in `selection.ts`.
  *
  * - **`*` (expand all siblings) is not implemented.** Every expansion here is a server
  *   round trip, so expanding eight siblings would be eight navigations. A key that cannot
@@ -122,6 +126,19 @@ export function TreeKeyboard({ children }: { children: React.ReactNode }) {
       current.click();
     };
 
+    /**
+     * Follow the row's CHEVRON link, which opens or closes the branch and touches nothing
+     * else. Focus returns to this same row afterwards — the effect above restores it by
+     * node id, and the row is still there whichever way the branch went.
+     */
+    const toggleBranch = () => {
+      const twist = current.parentElement?.querySelector<HTMLElement>(".cat-twist-btn");
+      if (!twist) return;
+      event.preventDefault();
+      focusAfterRender.current = "tree";
+      twist.click();
+    };
+
     switch (event.key) {
       case "ArrowDown":
         // Collapsed branches are not rendered at all, so document order IS visible order.
@@ -134,12 +151,12 @@ export function TreeKeyboard({ children }: { children: React.ReactNode }) {
         return go(items[items.length - 1]);
 
       case "ArrowRight":
-        if (expanded === "false") return activate("tree");
+        if (expanded === "false") return toggleBranch();
         // An open node's first child is simply the next row.
         if (expanded === "true") return go(items[index + 1]);
         return; // a leaf has nowhere to go
       case "ArrowLeft":
-        if (expanded === "true") return activate("tree");
+        if (expanded === "true") return toggleBranch();
         return go(findParent(items, index, level));
 
       case "Enter":
