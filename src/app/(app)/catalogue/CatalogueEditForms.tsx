@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import { Pencil } from "lucide-react";
 import { FormNotice } from "@/ui/notice";
 import { Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
@@ -14,26 +15,32 @@ import {
 } from "./actions";
 
 /**
- * Editing for the four catalogue levels. Each `.list-row` carries an Edit button
- * that opens a modal pre-filled with the current values — hidden `id` + `version`
- * travel with it, so a concurrent edit surfaces as the VERSION_CONFLICT copy rather
- * than a silent overwrite. On success the modal closes, the list revalidates, and a
- * toast confirms. Business IDs and parent links are deliberately absent: both are
- * immutable (`docs/data-model.md`). QA_LEAD gating is enforced in the domain.
+ * Editing for the four catalogue levels. Each control is a button that opens a modal
+ * pre-filled with the current values — hidden `id` + `version` travel with it, so a
+ * concurrent edit surfaces as the VERSION_CONFLICT copy rather than a silent overwrite.
+ * On success the modal closes, the screen revalidates, and a toast confirms. Business IDs
+ * and parent links are deliberately absent: both are immutable (`docs/data-model.md`).
+ * QA_LEAD gating is enforced in the domain.
+ *
+ * These were `Editable*Row` components that rendered a `.list-row` around their own Edit
+ * button. The explorer needs the same control in two places with different geometry —
+ * beside the record header, and inside a child row — so the control is now just the
+ * button and its modal, and the caller owns the row. The modal machinery, the version
+ * pair and the toast are untouched; only the wrapper went.
  */
 
 type FieldSpec = { name: string; label: string; defaultValue: string; options?: string[] };
 
 const FORM_ID = "edit-catalogue";
 
-function EditableRow({
+function EditControl({
   action,
   id,
   version,
   entity,
   recordLabel,
   fields,
-  children
+  compact = false
 }: {
   action: (prev: FormState, formData: FormData) => Promise<FormState>;
   id: string;
@@ -41,15 +48,16 @@ function EditableRow({
   entity: string;
   recordLabel: string;
   fields: FieldSpec[];
-  children: React.ReactNode;
+  /** Row-level placement: ghost and small, so a column of them does not shout. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, null);
   const toast = useToast();
   const wasPending = useRef(false);
 
-  // Close the modal after a successful save (state is null only then); the page
-  // revalidates and the row re-renders with the new values and version.
+  // Close the modal after a successful save (state is null only then); the screen
+  // revalidates and the record re-renders with the new values and version.
   useEffect(() => {
     if (wasPending.current && !pending && state === null && open) {
       setOpen(false);
@@ -61,10 +69,17 @@ function EditableRow({
   const bad = (field: string) => fieldClass(state, field);
 
   return (
-    <div className="list-row">
-      {children}
-      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(true)}>
+    <>
+      <button
+        type="button"
+        className={compact ? "btn btn-ghost btn-sm" : "btn btn-secondary"}
+        onClick={() => setOpen(true)}
+      >
+        <Pencil size={13} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
         Edit
+        {/* The column of row-level buttons all read "Edit"; this is what tells a screen
+            reader which record each one belongs to. */}
+        {compact ? <span className="sr-only"> {recordLabel}</span> : null}
       </button>
 
       <Modal
@@ -98,18 +113,18 @@ function EditableRow({
           </button>
         </form>
       </Modal>
-    </div>
+    </>
   );
 }
 
-export function EditableProductRow({
+export function EditProductButton({
   id,
   version,
   businessId,
   name,
   versionTag,
   status,
-  children
+  compact
 }: {
   id: string;
   version: number;
@@ -117,103 +132,99 @@ export function EditableProductRow({
   name: string;
   versionTag: string;
   status: string;
-  children: React.ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <EditableRow
+    <EditControl
       action={updateProductAction}
       id={id}
       version={version}
       entity="Product"
       recordLabel={businessId}
+      compact={compact}
       fields={[
         { name: "name", label: "Name", defaultValue: name },
         { name: "versionTag", label: "Version", defaultValue: versionTag },
         { name: "status", label: "Status", defaultValue: status, options: ["Active", "Inactive"] }
       ]}
-    >
-      {children}
-    </EditableRow>
+    />
   );
 }
 
-export function EditableModuleRow({
+export function EditModuleButton({
   id,
   version,
   businessId,
   name,
-  children
+  compact
 }: {
   id: string;
   version: number;
   businessId: string;
   name: string;
-  children: React.ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <EditableRow
+    <EditControl
       action={updateModuleAction}
       id={id}
       version={version}
       entity="Module"
       recordLabel={businessId}
+      compact={compact}
       fields={[{ name: "name", label: "Name", defaultValue: name }]}
-    >
-      {children}
-    </EditableRow>
+    />
   );
 }
 
-export function EditableFeatureRow({
+export function EditFeatureButton({
   id,
   version,
   businessId,
   name,
-  children
+  compact
 }: {
   id: string;
   version: number;
   businessId: string;
   name: string;
-  children: React.ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <EditableRow
+    <EditControl
       action={updateFeatureAction}
       id={id}
       version={version}
       entity="Feature"
       recordLabel={businessId}
+      compact={compact}
       fields={[{ name: "name", label: "Name", defaultValue: name }]}
-    >
-      {children}
-    </EditableRow>
+    />
   );
 }
 
-export function EditableRequirementRow({
+export function EditRequirementButton({
   id,
   version,
   businessId,
   statement,
-  children
+  compact
 }: {
   id: string;
   version: number;
   businessId: string;
   statement: string;
-  children: React.ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <EditableRow
+    <EditControl
       action={updateRequirementAction}
       id={id}
       version={version}
       entity="Requirement"
       recordLabel={businessId}
+      compact={compact}
       fields={[{ name: "statement", label: "Statement", defaultValue: statement }]}
-    >
-      {children}
-    </EditableRow>
+    />
   );
 }
