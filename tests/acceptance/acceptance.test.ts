@@ -10,7 +10,14 @@ import { createTestCase, replaceSteps, submitTestCase, approveTestCase, updateTe
 import { createExecution, startExecution, finalizeExecution, executionHistory, updateExecution } from "@/domain/executions";
 import { createDefect, transitionDefect } from "@/domain/defects";
 import { createRtmLink, dashboardSnapshot } from "@/domain/traceability";
-import { createControlledValue, createUser, setUserActive, updateUserProfile, updateUserRole } from "@/domain/admin";
+import {
+  createControlledValue,
+  createUser,
+  resetUserPassword,
+  setUserActive,
+  updateUserProfile,
+  updateUserRole
+} from "@/domain/admin";
 import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { createTestCaseSchema } from "@/lib/request-schemas/test-cases";
@@ -918,6 +925,63 @@ describe("User administration", () => {
       403,
       "UNAUTHORIZED"
     );
+  });
+
+  it("a non-lead cannot reset a password: 403", async () => {
+    const person = await prisma.user.findUnique({ where: { email: "renamed.person@acceptance.local" } });
+    await expectAppError(
+      resetUserPassword(person!.id, { newPassword: "long-enough-pw", version: person!.version, ...actorInput(tester) }),
+      403,
+      "UNAUTHORIZED"
+    );
+  });
+
+  it("a QA Lead cannot reset their own password this way: 422, and no change is written", async () => {
+    const self = await prisma.user.findUnique({ where: { id: lead.userId } });
+    await expectAppError(
+      resetUserPassword(lead.userId, { newPassword: "long-enough-pw", version: self!.version, ...actorInput(lead) }),
+      422,
+      "FORBIDDEN_TRANSITION"
+    );
+    const unchanged = await prisma.user.findUnique({ where: { id: lead.userId } });
+    expect(unchanged?.passwordHash).toBe(self?.passwordHash);
+    expect(unchanged?.version).toBe(self!.version);
+  });
+
+  it("too short a new password is refused with 422", async () => {
+    const person = await prisma.user.findUnique({ where: { email: "renamed.person@acceptance.local" } });
+    await expectAppError(
+      resetUserPassword(person!.id, { newPassword: "seven77", version: person!.version, ...actorInput(lead) }),
+      422,
+      "ID_INVALID"
+    );
+  });
+
+  it("resetting a password rotates the hash without any current password, revokes every session, and is audited without credential material", async () => {
+    const { verifyPassword } = await import("@/lib/password");
+    const { isSessionRevoked } = await import("@/lib/session");
+    const person = await prisma.user.findUnique({ where: { email: "renamed.person@acceptance.local" } });
+    const beforeReset = Date.now() - 1;
+
+    const updated = await resetUserPassword(person!.id, {
+      newPassword: "reset-by-lead-1",
+      version: person!.version,
+      ...actorInput(lead)
+    });
+    expect(updated.version).toBe(person!.version + 1);
+
+    const after = await prisma.user.findUnique({ where: { id: person!.id } });
+    expect(verifyPassword("reset-by-lead-1", after!.passwordHash)).toBe(true);
+    // A session issued before the reset is dead — however many the account held.
+    expect(isSessionRevoked(beforeReset, after!.sessionsValidFrom)).toBe(true);
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: "USER_PASSWORD_RESET", entityId: person!.id }
+    });
+    expect(audit?.actorId).toBe(lead.userId);
+    const payload = JSON.stringify(audit?.beforeAfterJson);
+    expect(payload).not.toContain("reset-by-lead-1");
+    expect(payload).not.toContain(after!.passwordHash);
   });
 
   it("self-deactivation is refused with 422, and no change is written", async () => {

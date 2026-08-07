@@ -375,3 +375,80 @@ export async function setUserActive(
     return updated;
   }));
 }
+
+/**
+ * Reset another person's password. User management is a QA-Lead capability
+ * (`roles-workflows.md:16`); this is its credential-recovery counterpart to
+ * `changeOwnPassword` (`src/domain/auth.ts`) for the case that function cannot
+ * cover — a person who cannot supply their OWN current password at all. The new
+ * password is chosen by the QA Lead and communicated out of band, the same
+ * convention `createUser` already establishes for an account's initial password.
+ *
+ * **No self-reset.** The target is always someone other than the caller — self-service
+ * exists for a QA Lead's own credential, and it verifies the current password, which
+ * this path deliberately does not. Mirrors `setUserActive`'s self-deactivation guard.
+ *
+ * Session note: identical mechanism to `changeOwnPassword`, `sessionsValidFrom` is
+ * stamped in the same transaction as the new hash, so every session the target holds —
+ * however many devices, however old — stops working on its very next request
+ * (`src/lib/session.ts`). Unlike the self-service path, no cookie is reissued here: the
+ * caller's own session is untouched, because the caller and the target are never the
+ * same person.
+ */
+export async function resetUserPassword(
+  id: string,
+  input: { newPassword: string; version?: number; actorId: string; actorRole: QamsRole; requestId: string }
+) {
+  ensureRole([...RoleSets.canAdmin], input.actorRole);
+  if (id === input.actorId) {
+    throw new AppError(
+      422,
+      "FORBIDDEN_TRANSITION",
+      "Use your account settings to change your own password.",
+      "newPassword"
+    );
+  }
+  requireNonBlank(input.newPassword, "newPassword", "A new password is required.");
+  if (input.newPassword.length < MIN_PASSWORD_LENGTH) {
+    throw new AppError(
+      422,
+      "ID_INVALID",
+      `The new password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      "newPassword"
+    );
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { ...USER_RESPONSE_SELECT }
+  });
+  if (!user) throw new AppError(404, "REFERENCE_NOT_FOUND", "User not found.", "id");
+  const expectedVersion = ensureVersion(user.version, input.version);
+
+  const passwordHash = hashPassword(input.newPassword);
+
+  return withVersionCheck(() => prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id, version: expectedVersion },
+      data: {
+        passwordHash,
+        sessionsValidFrom: new Date(),
+        version: { increment: 1 },
+        updatedBy: input.actorId
+      },
+      select: { ...USER_RESPONSE_SELECT }
+    });
+    await appendAudit(tx, {
+      actorId: input.actorId,
+      action: "USER_PASSWORD_RESET",
+      entityType: "User",
+      entityId: id,
+      requestId: input.requestId,
+      // Deliberately narrow, same as `changeOwnPassword`'s own audit event: no
+      // password, no hash, nothing derivable — data-model.md:38 bars credential
+      // material from the audit log as well as from responses.
+      beforeAfterJson: { after: { credentialRotated: true, sessionsRevoked: true } }
+    });
+    return updated;
+  }));
+}
