@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { FormNotice } from "@/ui/notice";
 import { ConfirmDialog, Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
@@ -38,6 +39,7 @@ export function EditPersonForm({
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const toast = useToast();
+  const router = useRouter();
   const [profileState, profileAction, profilePending] = useActionState<FormState, FormData>(
     updateUserProfileAction,
     null
@@ -77,13 +79,21 @@ export function EditPersonForm({
 
   // Clear the password field once the reset succeeds, so it never lingers in the DOM —
   // same reasoning as ChangePasswordForm.
+  //
+  // The refresh is this screen's, not the action's. Every other action here redirects and
+  // gets a fresh render out of the navigation, but this one has a confirmation to show and a
+  // redirect would throw it away (`./actions.ts`), so the reset's own `version` bump is
+  // picked up from here instead — leave it out and the next save in this still-open modal
+  // posts a stale version and is refused. Running in the router's transition rather than the
+  // action's is exactly what keeps the returned state from being stranded.
   useEffect(() => {
     if (wasPasswordPending.current && !passwordPending && passwordState?.success) {
       passwordFormRef.current?.reset();
       toast("Password reset.");
+      router.refresh();
     }
     wasPasswordPending.current = passwordPending;
-  }, [passwordPending, passwordState, toast]);
+  }, [passwordPending, passwordState, toast, router]);
 
   const bad = (field: string) => fieldClass(profileState, field);
   const pending = profilePending || activePending || passwordPending;

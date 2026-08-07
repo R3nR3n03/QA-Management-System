@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { createControlledValue, updateControlledValue } from "@/domain/admin";
 import type { ControlledCatalogue } from "@/lib/controlled-value-catalogues";
-import { failState, runAction, type FormState } from "@/ui/action";
+import { failState, refreshScreen, runAction, type FormState } from "@/ui/action";
+
+/**
+ * Both actions are submitted from the controlled-values screen and leave the viewer on it,
+ * so each ends in `refreshScreen`: a revalidate-only action never commits its refresh, so a
+ * value deactivated here stayed on screen as active until a manual reload — on the one
+ * screen where that reads as "the toggle did nothing" (see `src/ui/action.ts`).
+ */
 
 export async function createControlledValueAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const result = await runAction((actor) =>
@@ -20,7 +27,7 @@ export async function createControlledValueAction(_prev: FormState, formData: Fo
 
   if (!result.ok) return failState(result);
   revalidatePath("/admin/controlled-values");
-  return null;
+  return refreshScreen("/admin/controlled-values");
 }
 
 export async function toggleControlledValueAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -36,5 +43,5 @@ export async function toggleControlledValueAction(_prev: FormState, formData: Fo
 
   if (!result.ok) return failState(result);
   revalidatePath("/admin/controlled-values");
-  return null;
+  return refreshScreen("/admin/controlled-values");
 }

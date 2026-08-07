@@ -4,8 +4,19 @@ import { Fragment, useActionState, useState, type FormEvent } from "react";
 import { CheckCircle2, ChevronRight, Circle } from "lucide-react";
 import { Modal } from "@/ui/modal";
 import { FormNotice } from "@/ui/notice";
+import { StepsDisclosure, type CaseStep } from "@/ui/steps-disclosure";
+import { FilterToolbar } from "@/ui/toolbar";
 import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { finalizeExecutionAction, type FormState } from "./actions";
+import {
+  DRAFT_PREFIX,
+  EMPTY_RESULT,
+  OUTCOMES,
+  draftResults,
+  useDraftRaw,
+  writeDraft,
+  type CaseResult
+} from "./finalize-draft";
 
 const FORM_ID = "finalize-execution";
 const CASE_FORM_ID = "finalize-case";
@@ -14,29 +25,10 @@ export type FinalizeCase = {
   testCaseId: string;
   businessId: string;
   title: string;
+  /** The steps this case specifies — what the tester is grading against. */
+  steps: CaseStep[];
   /** Open defects already raised against this case — link targets for a Fail. */
   openDefects: Array<{ id: string; businessId: string; summary: string }>;
-};
-
-/** One case's result, held client-side until the whole run is finalized. */
-type CaseResult = {
-  result: string;
-  actualResult: string;
-  blockReason: string;
-  defectId: string;
-  defectSummary: string;
-  defectPriority: string;
-  defectSeverity: string;
-};
-
-const EMPTY_RESULT: CaseResult = {
-  result: "",
-  actualResult: "",
-  blockReason: "",
-  defectId: "",
-  defectSummary: "",
-  defectPriority: "",
-  defectSeverity: ""
 };
 
 /* Outcome badges are spelled out here rather than imported from `@/ui/chips`, which
@@ -48,9 +40,6 @@ const OUTCOME_TONE: Record<string, string> = {
   FAIL: "state state-fail",
   BLOCKED: "state state-blocked"
 };
-
-/** The three outcomes, in the order they are offered. */
-const OUTCOMES = ["PASS", "FAIL", "BLOCKED"] as const;
 
 /**
  * Finalizing is the only irreversible step a tester takes: a finalized execution
@@ -69,6 +58,17 @@ const OUTCOMES = ["PASS", "FAIL", "BLOCKED"] as const;
  * That is also why nothing here is a nested `<form>` inside the outer one: the dialog's
  * controls live outside it entirely, and only the hidden mirrors of saved results are
  * part of the submitted body.
+ *
+ * ## Why this owns both columns
+ *
+ * The one `<form>` spans the record's whole two-column layout, so this component renders
+ * `.detail-cols` rather than sitting inside the page's aside. The cases being recorded
+ * are the work, and they were being worked in a 340px rail while the same six cases sat
+ * unusably read-only across the main column — the run's covered cases listed twice, with
+ * the copy you could act on in the narrower half. Now the wide column IS the working
+ * list and the rail is the commit panel: count, progress, consequence, submit.
+ *
+ * The form cannot be split across columns the page owns, hence the inversion.
  *
  * ## What this costs
  *
@@ -95,16 +95,41 @@ export function FinalizeForm({
     finalizeExecutionAction,
     null
   );
-  const [recorded, setRecorded] = useState<Record<string, CaseResult>>({});
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<CaseResult>(EMPTY_RESULT);
   const [draftError, setDraftError] = useState<string | null>(null);
+  const [needle, setNeedle] = useState("");
+  /* Whether anything was recorded on THIS visit, which is what tells a restored draft
+     apart from a fresh one. Set from the save handler — an event, not an effect. */
+  const [recordedHere, setRecordedHere] = useState(false);
+
+  const storageKey = `${DRAFT_PREFIX}${executionId}`;
+  const storedRaw = useDraftRaw(storageKey);
+  const recorded = draftResults(
+    storedRaw,
+    version,
+    cases.map((covered) => covered.testCaseId)
+  );
 
   const openIndex = openId === null ? -1 : cases.findIndex((row) => row.testCaseId === openId);
   const openCase = openIndex >= 0 ? cases[openIndex] : null;
 
   const recordedCount = cases.filter((covered) => recorded[covered.testCaseId]).length;
   const allRecorded = recordedCount === cases.length;
+
+  /* The needle narrows what is SHOWN, never what is submitted: the hidden inputs below
+     iterate `cases`, because the server has to see the whole covered set to reject a
+     partial run. Offered only past the point a list stops being scannable — the same
+     >5 rule the record lists use. */
+  const trimmedNeedle = needle.trim().toLowerCase();
+  const shownCases =
+    trimmedNeedle === ""
+      ? cases
+      : cases.filter(
+          (covered) =>
+            covered.businessId.toLowerCase().includes(trimmedNeedle) ||
+            covered.title.toLowerCase().includes(trimmedNeedle)
+        );
 
   // A rejected submit names one field (the FormState contract). Reopen the case that
   // owns it, so the error is never behind a closed dialog. This is a state adjustment
@@ -160,7 +185,13 @@ export function FinalizeForm({
       return;
     }
     setDraftError(null);
-    setRecorded((prev) => ({ ...prev, [openCase.testCaseId]: draft }));
+    // Straight to the store, which is the single copy of the draft — there is no
+    // `useState` mirror to keep in step, so there is nothing to get out of step.
+    writeDraft(storageKey, {
+      version,
+      recorded: { ...recorded, [openCase.testCaseId]: draft }
+    });
+    setRecordedHere(true);
     setOpenId(null);
   };
 
@@ -169,7 +200,7 @@ export function FinalizeForm({
 
   return (
     <>
-      <form action={formAction}>
+      <form action={formAction} className="detail-cols">
         <input type="hidden" name="executionId" value={executionId} />
         <input type="hidden" name="version" value={version} />
 
@@ -211,87 +242,162 @@ export function FinalizeForm({
           );
         })}
 
-        <FormNotice state={state} id={noticeId(FORM_ID)} />
-
-        <p className="muted" style={{ marginBottom: "var(--sp-2)" }}>
-          {recordedCount} of {cases.length} case{cases.length === 1 ? "" : "s"} recorded.
-        </p>
-
-        {/* The count is the accessible fact; this is the same fact at a glance, so it is
-            hidden from assistive tech rather than read out twice. Only worth drawing for
-            a run with something to progress through — a one-case bar is either 0% or
-            100%, which the sentence above already said. */}
-        {cases.length > 1 ? (
-          <div className="progress" aria-hidden>
-            <div
-              className="progress-fill"
-              style={{ width: `${(recordedCount / cases.length) * 100}%` }}
-            />
+        <div>
+          <div className="row" style={{ marginBottom: "var(--sp-3)" }}>
+            <h2 style={{ margin: 0, flex: 1 }}>Covered cases ({cases.length})</h2>
+            {/* The same >5 rule the record lists use. Controlled, not URL-backed: the
+                unsaved results live in this component, so a navigation would lose them. */}
+            {cases.length > 5 ? (
+              <FilterToolbar
+                value={needle}
+                onChange={setNeedle}
+                placeholder="Search cases…"
+                label="Search covered cases"
+                disabled={pending}
+              />
+            ) : null}
           </div>
-        ) : null}
 
-        <ul className="case-picker">
-          {cases.map((covered) => {
-            const saved = recorded[covered.testCaseId];
-            const isErrored = errorCaseId === covered.testCaseId;
-            return (
-              <li key={covered.testCaseId}>
-                <button
-                  type="button"
-                  className={isErrored ? "case-pick case-pick-bad" : "case-pick"}
-                  onClick={() => openForCase(covered.testCaseId)}
-                  disabled={pending}
-                  aria-haspopup="dialog"
-                >
-                  <span
-                    className={saved ? "case-pick-mark case-pick-mark-done" : "case-pick-mark"}
-                    aria-hidden
-                  >
-                    {saved ? <CheckCircle2 size={16} /> : <Circle size={16} />}
-                  </span>
-                  <span className="row-main">
-                    <span className="bid">{covered.businessId}</span>
-                    <span className="row-title">{covered.title}</span>
-                    {/* What was actually recorded, on the row that recorded it. Finalizing
-                        is irreversible, so the last look before committing should be a
-                        review of the evidence — not a list of ticks that requires
-                        reopening every case to remember what each one says. */}
-                    {saved?.actualResult ? (
-                      <span className="case-pick-said">{saved.actualResult}</span>
-                    ) : null}
-                  </span>
-                  {/* The tone lookup is guarded: an unexpected value would otherwise
-                      render `class="undefined"`, an unstyled span where a result chip
-                      belongs. The import screens already guard the same lookup. */}
-                  {saved ? (
-                    <span className={OUTCOME_TONE[saved.result] ?? "state"}>
-                      {OUTCOME_LABEL[saved.result] ?? saved.result}
-                    </span>
-                  ) : (
-                    <span className="muted">Not recorded</span>
-                  )}
-                  <ChevronRight size={14} aria-hidden />
+          <div className="card card-flush">
+            {shownCases.length === 0 ? (
+              <div className="empty">
+                <p>No covered case matches &ldquo;{needle.trim()}&rdquo;.</p>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNeedle("")}>
+                  Clear the search
                 </button>
-              </li>
-            );
-          })}
-        </ul>
+              </div>
+            ) : (
+              <ul className="row-list">
+                {shownCases.map((covered) => {
+                  const saved = recorded[covered.testCaseId];
+                  const isErrored = errorCaseId === covered.testCaseId;
+                  return (
+                    <li key={covered.testCaseId} className="case-line">
+                      <button
+                        type="button"
+                        className={isErrored ? "case-open case-open-bad" : "case-open"}
+                        onClick={() => openForCase(covered.testCaseId)}
+                        disabled={pending}
+                        aria-haspopup="dialog"
+                      >
+                        <span className="case-item-head">
+                          <span
+                            className={saved ? "case-item-mark case-item-mark-done" : "case-item-mark"}
+                            aria-hidden
+                          >
+                            {saved ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                          </span>
+                          <span className="row-main">
+                            <span className="cluster">
+                              <span className="bid">{covered.businessId}</span>
+                              {/* The size of the job this row represents, readable without
+                                  opening it. The steps themselves are the disclosure
+                                  below — outside the button, because a <details> nested
+                                  in one is interactive content inside interactive
+                                  content, which no browser resolves sensibly. */}
+                              <span className="muted">
+                                {covered.steps.length} step
+                                {covered.steps.length === 1 ? "" : "s"}
+                              </span>
+                            </span>
+                            <span className="row-title">{covered.title}</span>
+                            {/* What was actually recorded, on the row that recorded it.
+                                Finalizing is irreversible, so the last look before
+                                committing should be a review of the evidence — not a list
+                                of ticks that requires reopening every case to remember
+                                what each one says. */}
+                            {saved?.actualResult ? (
+                              <span className="case-pick-said">{saved.actualResult}</span>
+                            ) : null}
+                          </span>
+                          {/* The tone lookup is guarded: an unexpected value would otherwise
+                              render `class="undefined"`, an unstyled span where a result chip
+                              belongs. The import screens already guard the same lookup. */}
+                          {saved ? (
+                            <span className={OUTCOME_TONE[saved.result] ?? "state"}>
+                              {OUTCOME_LABEL[saved.result] ?? saved.result}
+                            </span>
+                          ) : (
+                            <span className="muted">Not recorded</span>
+                          )}
+                          <ChevronRight size={14} aria-hidden />
+                        </span>
+                      </button>
+                      {/* Readable without committing to opening the dialog: scanning the
+                          steps is how a tester decides which case to pick up next. */}
+                      <StepsDisclosure steps={covered.steps} />
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
 
-        <p className="why" style={{ marginBottom: "var(--sp-4)" }}>
-          <strong>Finalizing can&rsquo;t be undone.</strong> Every case gets its result in this one
-          submit, a finalized execution never returns to In Progress, and this writes a permanent
-          history entry per case. If any case needs repeating, that is a new execution covering the
-          failed or blocked case(s).
-        </p>
+        <aside>
+          <div className="card">
+            <h3>Finalize</h3>
 
-        <button className="btn" type="submit" disabled={pending || !allRecorded}>
-          {pending ? "Finalizing…" : "Finalize this run"}
-        </button>
-        {!allRecorded ? (
-          <p className="hint" style={{ marginTop: "var(--sp-2)" }}>
-            Record every case first — a run finalizes whole or not at all.
-          </p>
-        ) : null}
+            <FormNotice state={state} id={noticeId(FORM_ID)} />
+
+            {/* A restored draft has to announce itself. "3 of 6 recorded" on a page the
+                viewer has just opened otherwise reads as someone else's work, or as a
+                run that has already written something. Calm, not red — nothing failed. */}
+            {!recordedHere && recordedCount > 0 ? (
+              <div className="notice notice-advisory" role="status">
+                <strong>Picked up where you left off</strong>
+                <span>
+                  {recordedCount} result{recordedCount === 1 ? "" : "s"} you recorded earlier{" "}
+                  {recordedCount === 1 ? "is" : "are"} still held here. Nothing has been submitted
+                  yet.
+                </span>
+              </div>
+            ) : null}
+
+            <p className="muted" style={{ marginBottom: "var(--sp-2)" }}>
+              {recordedCount} of {cases.length} case{cases.length === 1 ? "" : "s"} recorded.
+            </p>
+
+            {/* The count is the accessible fact; this is the same fact at a glance, so it is
+                hidden from assistive tech rather than read out twice. Only worth drawing for
+                a run with something to progress through — a one-case bar is either 0% or
+                100%, which the sentence above already said. */}
+            {cases.length > 1 ? (
+              <div className="progress" aria-hidden>
+                <div
+                  className="progress-fill"
+                  style={{ width: `${(recordedCount / cases.length) * 100}%` }}
+                />
+              </div>
+            ) : null}
+
+            <p className="why" style={{ marginBottom: "var(--sp-4)" }}>
+              <strong>Finalizing can&rsquo;t be undone.</strong> Every case gets its result in this
+              one submit, a finalized execution never returns to In Progress, and this writes a
+              permanent history entry per case. If any case needs repeating, that is a new
+              execution covering the failed or blocked case(s).
+            </p>
+
+            <button className="btn" type="submit" disabled={pending || !allRecorded}>
+              {pending ? "Finalizing…" : "Finalize this run"}
+            </button>
+            {!allRecorded ? (
+              <p className="hint" style={{ marginTop: "var(--sp-2)" }}>
+                Record every case first — a run finalizes whole or not at all.
+              </p>
+            ) : null}
+            {/* Says where the half-finished run actually is, so nobody has to discover the
+                boundary the hard way. It survives a reload and a trip to another screen;
+                it does not survive closing the tab, and it is not on the server, because
+                a per-case result cannot be written before the run is finalized. */}
+            {recordedCount > 0 ? (
+              <p className="hint" style={{ marginTop: "var(--sp-2)" }}>
+                Results you record are kept in this browser tab until you finalize — they
+                survive a reload, but not closing the tab.
+              </p>
+            ) : null}
+          </div>
+        </aside>
       </form>
 
       <Modal
@@ -326,6 +432,13 @@ export function FinalizeForm({
                 <span>{draftError}</span>
               </div>
             ) : null}
+
+            {/* The spec being graded, above the grade and open by default — the task
+                order is read the steps, then say what happened. A tester was expected to
+                record a result here having last seen the steps on another screen. */}
+            <div className="case-steps-dialog">
+              <StepsDisclosure steps={openCase.steps} open />
+            </div>
 
             {/* Three fixed options, so they are shown rather than hidden behind a menu:
                 the result is the decision the whole dialog exists for, and a <select>

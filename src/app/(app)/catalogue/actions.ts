@@ -11,9 +11,18 @@ import {
   updateProduct,
   updateRequirement
 } from "@/domain/catalogue";
-import { failState, runAction, type FormState } from "@/ui/action";
+import { failState, refreshScreen, runAction, type FormState } from "@/ui/action";
 
-/** Catalogue creation and editing, QA-Lead-gated in the domain services. */
+/**
+ * Catalogue creation and editing, QA-Lead-gated in the domain services.
+ *
+ * Every one of these is submitted from the catalogue screen and leaves the viewer on it, so
+ * each ends in `refreshScreen` rather than `return null`: a revalidate-only action never
+ * commits its refresh, which left a renamed product reading its old name behind a button
+ * stuck on "Saving…" (see `src/ui/action.ts`). `refreshScreen` returns to the URL the form
+ * was submitted from, so the four lists keep the page each of them was on — the bare
+ * `/catalogue` fallback would have paged them all back to the top.
+ */
 
 export async function createProductAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const field = (name: string) => String(formData.get(name) ?? "");
@@ -25,7 +34,7 @@ export async function createProductAction(_prev: FormState, formData: FormData):
   );
   if (!result.ok) return failState(result);
   revalidatePath("/catalogue");
-  return null;
+  return refreshScreen("/catalogue");
 }
 
 export async function createModuleAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -35,7 +44,7 @@ export async function createModuleAction(_prev: FormState, formData: FormData): 
   );
   if (!result.ok) return failState(result);
   revalidatePath("/catalogue");
-  return null;
+  return refreshScreen("/catalogue");
 }
 
 export async function createFeatureAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -45,7 +54,7 @@ export async function createFeatureAction(_prev: FormState, formData: FormData):
   );
   if (!result.ok) return failState(result);
   revalidatePath("/catalogue");
-  return null;
+  return refreshScreen("/catalogue");
 }
 
 export async function createRequirementAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -58,7 +67,7 @@ export async function createRequirementAction(_prev: FormState, formData: FormDa
   );
   if (!result.ok) return failState(result);
   revalidatePath("/catalogue");
-  return null;
+  return refreshScreen("/catalogue");
 }
 
 // Edits carry the hidden id + version pair; a stale version surfaces as the
@@ -81,7 +90,7 @@ export async function updateProductAction(_prev: FormState, formData: FormData):
   );
   if (!result.ok) return failState(result);
   revalidatePath("/catalogue");
-  return null;
+  return refreshScreen("/catalogue");
 }
 
 export async function updateModuleAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -91,7 +100,7 @@ export async function updateModuleAction(_prev: FormState, formData: FormData): 
   );
   if (!result.ok) return failState(result);
   revalidatePath("/catalogue");
-  return null;
+  return refreshScreen("/catalogue");
 }
 
 export async function updateFeatureAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -101,7 +110,7 @@ export async function updateFeatureAction(_prev: FormState, formData: FormData):
   );
   if (!result.ok) return failState(result);
   revalidatePath("/catalogue");
-  return null;
+  return refreshScreen("/catalogue");
 }
 
 export async function updateRequirementAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -115,5 +124,5 @@ export async function updateRequirementAction(_prev: FormState, formData: FormDa
   );
   if (!result.ok) return failState(result);
   revalidatePath("/catalogue");
-  return null;
+  return refreshScreen("/catalogue");
 }

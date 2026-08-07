@@ -1134,6 +1134,436 @@ a {
   white-space: nowrap;
 }
 
+/* An icon may stand in for the dot. Decorative in both variants — the stage's name is
+   in the label beside it — but it is what makes a stage readable at a glance in the
+   cards variant, where the tile has room for one. */
+.stepper .step-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-ctl);
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+.stepper li.step-done .step-icon {
+  color: var(--accent-2);
+}
+.stepper li[aria-current="step"] .step-icon {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+/* The cards variant: one tile per stage instead of one segment. Same list, same
+   aria-current, same sr-only "(complete)" — only the geometry changes, so a screen
+   reader hears no difference between an execution's rail and a test case's.
+   `.stepper.stepper-cards` rather than `.stepper-cards` alone: the two blocks would
+   otherwise tie on specificity and be settled by source order. */
+.stepper.stepper-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--sp-3);
+  margin: 0;
+}
+.stepper.stepper-cards li {
+  flex: initial;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.stepper.stepper-cards li[aria-current="step"] {
+  border-color: var(--accent-2);
+  box-shadow: var(--elev-1);
+}
+/* The stage name is a small caption over the timestamp here, not the other way round:
+   on a tile the moment is the thing being looked up, and the three stage names are
+   already known to anyone reading the screen. */
+.stepper.stepper-cards .step-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.stepper.stepper-cards .step-hint {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+/* A stage still ahead states that in words ("Not yet") rather than leaving the line out,
+   which on a tile reads as a rendering fault. It keeps caption weight, so a reached
+   stage's timestamp is still the emphasized thing on the row of cards. */
+.stepper.stepper-cards li:not([aria-current="step"]):not(.step-done) .step-hint {
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+/* ---------- run header: lifecycle and tally ---------- */
+
+/* A detail screen's h1 is its business ID, and the chips that qualify it belong on the
+   same line. The cluster stands in for the h1 and takes the room the h1 would, so the
+   header's actions still sit right. */
+.page-head > .cluster {
+  flex: 1;
+}
+/* Mono, because it is a business ID and people compare these character by character
+   (`.bid`'s rule, at h1 size). A shade smaller than the sans h1: at 26px the monospace
+   face reads noticeably larger than the same number in the sans, and the negative
+   tracking an h1 carries closes up a string that is meant to be read one glyph at a
+   time. */
+.run-id {
+  font-family: var(--mono);
+  font-size: 24px;
+  letter-spacing: 0;
+  margin: 0;
+}
+/* What the run covers, under its ID. Not an h2: it is a restatement of the subject, not
+   the heading of a section, and an h2 here would break the outline before "Covered
+   cases" ever gets to open one. */
+.run-lede {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: var(--sp-3) 0 var(--sp-1);
+}
+
+/* Where the run got to, and how its cases graded, side by side above the record. Both
+   are questions a reader arrives with, so neither belongs in a rail below the fold. */
+.run-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+  gap: var(--sp-4);
+  align-items: stretch;
+  margin-bottom: var(--sp-5);
+}
+@media (max-width: 900px) {
+  .run-head {
+    grid-template-columns: 1fr;
+  }
+}
+
+.run-summary {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--sp-3) var(--sp-4);
+  box-shadow: var(--elev-1);
+}
+.run-summary-title {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-3);
+  margin-bottom: var(--sp-2);
+}
+/* A definition list, not a row of divs: each number is the value OF the word above it,
+   and a screen reader should be able to say which. */
+.run-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+}
+.run-stat {
+  min-width: 0;
+}
+.run-stat dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.run-stat dd {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+/* Says the numbers above are held in the browser rather than written — shown only while a
+   run is being worked, where that is the difference between a tally and a record. Sized
+   and toned like a hint: it qualifies the card, it is not a second headline. */
+.run-summary-note {
+  margin: var(--sp-3) 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+/* A graded tally takes its result's ink. Reinforcement only — the word above the number
+   already names the outcome, so this is never the sole channel, and it grades nothing
+   the run did not already grade (no rate, no threshold). */
+.run-stat-pass dd {
+  color: var(--pass);
+}
+.run-stat-fail dd {
+  color: var(--fail);
+}
+.run-stat-blocked dd {
+  color: var(--blocked);
+}
+
+/* ---------- segmented filter ---------- */
+
+/* A small, fixed set of mutually exclusive views over one list: lifecycle state on the
+   executions list, per-case outcome on a run. Real links carrying `aria-current`, never
+   buttons — the view lives in the query string, so each segment is a PLACE: linkable,
+   middle-clickable, and working before hydration. Reach for it only when the options are
+   few and countable; anything longer stays a <select> (`.select-filter`). */
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+}
+.seg a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: background var(--ease), color var(--ease);
+}
+.seg a:hover {
+  color: var(--ink);
+  background: var(--surface);
+}
+/* The selected segment is raised out of the trough rather than merely tinted, so the
+   choice survives greyscale — the same rule the chips follow. */
+.seg a[aria-current] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--elev-1);
+}
+/* The tally beside a segment's word. Tabular so the strip does not jitter between 9 and
+   10, and dimmed so the word stays the thing being read. */
+.seg-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.seg a[aria-current] .seg-count {
+  color: var(--ink-2);
+}
+
+/* ---------- covered cases on a run ---------- */
+
+/* A covered case as a record row that opens. The head is what a reader scans — ID,
+   title, graded outcome — and everything the run RECORDED about that case (its steps,
+   the actual result, a block reason) folds underneath it.
+   This was a full <section> with its own h2 per case, which put an eleven-case run's
+   evidence eleven headings apart and repeated all eleven again in the 340px rail. */
+.case-item {
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--line-soft);
+  transition: background var(--ease);
+}
+.case-item:last-child {
+  border-bottom: none;
+}
+.case-item:hover {
+  background: var(--accent-wash);
+}
+/* The graded outcome as a stripe down the row's edge, so a column of results reads as a
+   shape before it reads as words. Reinforcement only — the chip on the row already
+   carries the word, and an ungraded row simply has no stripe rather than a grey one
+   competing with the three that mean something. */
+.case-item[data-outcome="PASS"] {
+  box-shadow: inset 3px 0 0 var(--pass);
+}
+.case-item[data-outcome="FAIL"] {
+  box-shadow: inset 3px 0 0 var(--fail);
+}
+.case-item[data-outcome="BLOCKED"] {
+  box-shadow: inset 3px 0 0 var(--blocked);
+}
+.case-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.case-item-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink-3);
+}
+.case-item-mark-done {
+  color: var(--pass);
+}
+
+/* The same row, as the control that opens its result dialog — the working list on an
+   In Progress run. A real <button>, so focus, Enter/Space and the announced role come
+   free, and `aria-haspopup="dialog"` says what the click will do before it happens.
+   Borderless like `.list-row`: it is a row in a list, not a standalone control, and its
+   affordance is the hover wash, the separator and the chevron. */
+/* The separator lives on the <li>, not the button, because the row is TWO elements: the
+   button that opens the result dialog and the steps disclosure beneath it. A <details>
+   cannot go inside the button — interactive content nested in interactive content — so
+   they are siblings, and the row's edge has to belong to what contains them both. */
+.case-line {
+  border-bottom: 1px solid var(--line-soft);
+}
+.case-line:last-child {
+  border-bottom: none;
+}
+.case-line > .case-steps {
+  margin: 0;
+  padding: 0 var(--sp-5) var(--sp-3);
+}
+.case-open {
+  display: block;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: none;
+  border: none;
+  padding: var(--sp-3) var(--sp-5);
+  cursor: pointer;
+  transition: background var(--ease);
+}
+.case-open:hover:not(:disabled) {
+  background: var(--accent-wash);
+}
+.case-open:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+/* The case owning the field the server rejected — the dialog reopens on it, and this
+   keeps it marked once the dialog is dismissed. */
+.case-open-bad {
+  background: var(--fail-wash);
+  box-shadow: inset 3px 0 0 var(--fail);
+}
+/* What the run recorded for this case. Body ink, not caption ink: it is the answer to
+   "what happened", which is the reason the row exists. */
+.case-said {
+  margin: var(--sp-2) 0 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  max-width: 68ch;
+}
+.case-steps {
+  margin-top: var(--sp-2);
+}
+.case-steps > summary {
+  display: inline-block;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.case-steps > summary:hover {
+  color: var(--accent);
+}
+.case-steps ol {
+  margin: var(--sp-2) 0 0;
+  padding-left: var(--sp-5);
+}
+.case-steps li {
+  margin-bottom: var(--sp-3);
+}
+.case-step-expected {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+/* The same disclosure inside the result dialog, where it is open by default: the steps
+   are what the result is being graded against, so they are read before the grade. */
+.case-steps-dialog {
+  margin-bottom: var(--sp-4);
+}
+.case-steps-dialog .case-steps {
+  margin-top: 0;
+}
+
+/* ---------- run history ---------- */
+
+/* The append-only grading record, oldest first. Rows, not a table: three short facts in
+   a 340px rail. Capped in height and scrolled rather than truncated — a long run's
+   history must stay reachable without a "show more" that hides the append-only claim. */
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+/* Drawn as a timeline: a dot per entry on a connecting rail. The connector is what says
+   these are one ordered sequence rather than a set of unrelated rows — which is the
+   append-only claim made visible. Row rules would fight it, so there are none. */
+.history-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-2) 0 var(--sp-2) var(--sp-5);
+}
+.history-row::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 15px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent-2);
+}
+/* The rail between one entry and the next. Stops at the last entry: a line running off
+   the end would promise a row that is not there. */
+.history-row::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 22px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--line);
+}
+.history-row:last-child::after {
+  display: none;
+}
+.history-row time {
+  margin-left: auto;
+}
+
+/* ---------- fact grid ---------- */
+
+/* Two or three short labelled facts about a record, set apart from the prose around
+   them: "Finalized on", "Executed by". A <dl>, so each value is announced as the value
+   of its label. Not a KPI tile — these are attributes, not measurements, so they take
+   body size and the inset surface rather than the 30px numeral. */
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-ctl);
+}
+.fact-grid dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.fact-grid dd {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
 /* ---------- data table ---------- */
 
 /* Semantic table for homogeneous, multi-column data (import reports). Record rows
@@ -1324,6 +1754,149 @@ a {
   gap: var(--sp-3);
   flex-wrap: wrap;
   margin-bottom: var(--sp-6);
+}
+
+/* ---------- my work queue ---------- */
+
+/* A page header whose title carries a subtitle. `.page-head` aligns its children on the
+   BASELINE so an action button sits with the h1; a title and its lede have to travel
+   together as one block instead, or the button lines up with the second line. */
+.page-head-text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.page-head-text > h1,
+.page-head-text > h2 {
+  margin-bottom: 2px;
+}
+.page-head-text > p:last-child {
+  margin-bottom: 0;
+}
+
+.work-card {
+  margin-bottom: var(--sp-6);
+}
+
+/* The queue's own header strip: which slice of the queue is on screen (tabs), how to
+   narrow it (the needle), and how much of it there is. Inside the card rather than up in
+   the page header, because all three govern this list and nothing else on the screen. */
+.work-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line-soft);
+}
+/* The bar's right end: the tally and the control that brings it up to date. Pushed over
+   by `margin-left: auto` so it stays anchored right however many filters sit to its
+   left, and kept as one unit so the two never wrap apart from each other. */
+.work-bar-end {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+/* Tabular so the tally does not jitter between 9 and 10 runs as the list is filtered. */
+.work-bar-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The refresh control while its transition is in flight. `prefers-reduced-motion` already
+   flattens the duration globally, and the button also announces "Refreshing…". */
+.icon-btn[data-busy] svg {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The screen-level search sits in the page header, which aligns its children on the
+   BASELINE for the h1 — a bordered control has to be centred instead. */
+.page-head > .list-toolbar {
+  align-self: center;
+  margin-bottom: 0;
+}
+
+/* A queue row: state mark, the record, when it last moved, and the one thing to do with
+   it. The mark and the button never shrink — the title column absorbs the width. */
+.work-row {
+  gap: var(--sp-3);
+}
+.work-cta {
+  flex: none;
+}
+/* The graded outcome as a stripe down the finalized row's edge, the same reinforcement
+   `.case-item` uses: a column of results reads as a shape before it reads as words, and
+   the chip on the row still carries the word. */
+.work-row[data-outcome="PASS"] {
+  box-shadow: inset 3px 0 0 var(--pass);
+}
+.work-row[data-outcome="FAIL"] {
+  box-shadow: inset 3px 0 0 var(--fail);
+}
+.work-row[data-outcome="BLOCKED"] {
+  box-shadow: inset 3px 0 0 var(--blocked);
+}
+
+/* The state marker on a row. Decorative on purpose — `aria-hidden`, because the chip
+   beside it already says the state in words; this only gives the eye something to land
+   on when scanning a column of otherwise identical rows. */
+.work-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.work-mark[data-tone="progress"] {
+  background: var(--accent-wash);
+  border-color: var(--accent-2);
+  color: var(--accent);
+}
+.work-mark[data-tone="done"] {
+  background: var(--pass-wash);
+  border-color: var(--pass);
+  color: var(--pass);
+}
+
+.work-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  white-space: nowrap;
+}
+
+.work-done {
+  margin-bottom: var(--sp-6);
+}
+.work-done-head {
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.work-done-note {
+  margin-top: var(--sp-3);
+}
+
+/* Narrow: the timestamp drops to its own line under the record rather than squeezing the
+   title into a two-word column, and the action stays beside the row it acts on. */
+@media (max-width: 720px) {
+  .work-when {
+    flex: 1 1 100%;
+    order: 3;
+  }
+  .work-cta {
+    order: 4;
+  }
 }
 
 /* ---------- modal dialogs ---------- */
