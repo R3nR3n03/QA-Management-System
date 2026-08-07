@@ -1,15 +1,24 @@
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import {
+  catalogueTotals,
+  getFeatureDetail,
+  getModuleDetail,
+  getProductDetail,
   listCatalogueOptions,
+  listCatalogueTree,
   listFeatures,
   listModules,
   listProducts,
-  listRequirements
+  listRequirements,
+  type CatalogueDetail
 } from "@/domain/catalogue";
-import { readPage, type ListSearchParams } from "@/ui/list-params";
+import { AppError } from "@/lib/errors";
+import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
 import { Pager } from "@/ui/pager";
 import { requireSession } from "@/ui/session";
+import { CatalogueTree } from "./CatalogueTree";
+import { readSelection, type Selection } from "./selection";
 import {
   AddFeatureModal,
   AddModuleModal,
@@ -26,14 +35,44 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * The Product → Module → Feature → Requirement hierarchy. Creation and editing are
- * QA-Lead-gated in the domain (an escalated policy choice — implementation audit
- * §6.1). Adding and editing happen in modals; business IDs and parent links are
- * immutable.
+ * The selected record, or `null`.
  *
- * Four independent lists on one screen, so each owns its own page key
- * (`?products=2&modules=3`) and `hrefWith` carries the other three along untouched —
- * paging one section must not reset the rest.
+ * A 404 is swallowed on purpose. `?sel=m:MOD404` is a well-formed selection of a record
+ * that does not exist — a stale bookmark, or a link to something since renamed — and the
+ * right answer is the overview, not a crashed screen. `parseSelection` has already refused
+ * anything that could never be a business ID, so this only catches "valid shape, no such
+ * row". Any other failure is a real fault and still propagates.
+ */
+async function loadDetail(
+  selection: Selection | null,
+  requirementPage: number
+): Promise<CatalogueDetail | null> {
+  if (!selection) return null;
+  try {
+    if (selection.kind === "product") return await getProductDetail(selection.businessId);
+    if (selection.kind === "module") return await getModuleDetail(selection.businessId);
+    return await getFeatureDetail(selection.businessId, { page: requirementPage });
+  } catch (error) {
+    if (error instanceof AppError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/**
+ * The Product → Module → Feature → Requirement hierarchy, as a master-detail explorer:
+ * the tree on the left, the selected record and its children on the right. Creation and
+ * editing are QA-Lead-gated in the domain (an escalated policy choice — implementation
+ * audit §6.1); both happen in modals, and business IDs and parent links are immutable.
+ *
+ * Selection lives in the query string rather than component state, because every server
+ * action here ends in `refreshScreen` and so returns to the URL it was submitted from —
+ * see `selection.ts` for the full reasoning. Which branches of the tree are open follows
+ * from the selection's ancestry, which is why the detail is resolved first: its `path`
+ * carries the row ids the tree opens by.
+ *
+ * The four stacked lists below are on their way out (`CATALOGUE-EXPLORER-REDESIGN.md`
+ * § 12, commit 3). They are inside the detail panel for now so the screen keeps working
+ * while the frame and the tree are proven.
  */
 export default async function CataloguePage({
   searchParams
@@ -53,7 +92,19 @@ export default async function CataloguePage({
     requirements: readPage(params, "requirements")
   };
 
-  const [products, modules, features, requirements, options] = await Promise.all([
+  const selection = readSelection(params);
+  const needle = readParam(params, "q");
+  // Sequential, not parallel: the tree opens branches by row id, and the detail is what
+  // resolves a selected feature's module and product to ids.
+  const detail = await loadDetail(selection, readPage(params, "req"));
+
+  const [totals, tree, products, modules, features, requirements, options] = await Promise.all([
+    catalogueTotals(),
+    listCatalogueTree({
+      q: needle,
+      openProductId: detail?.path.productId,
+      openModuleId: detail?.path.moduleId ?? undefined
+    }),
     listProducts({ page: pages.products }),
     listModules({ page: pages.modules }),
     listFeatures({ page: pages.features }),
@@ -79,14 +130,42 @@ export default async function CataloguePage({
 
   const empty = <div className="empty"><p>None yet.</p></div>;
 
-  return (
-    <>
-      <h1>Catalogue</h1>
-      <p className="muted" style={{ marginBottom: "var(--sp-5)" }}>
-        {products.total} products · {modules.total} modules · {features.total} features ·{" "}
-        {requirements.total} requirements
-      </p>
+  const stat = (label: string, value: number) => (
+    <div className="cat-stat">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
 
+  return (
+    <div className="cat-screen">
+      <div className="cat-head">
+        <div className="page-head">
+          <div className="page-head-text">
+            <h1>Catalogue</h1>
+            <p className="muted">Product → Module → Feature → Requirement</p>
+          </div>
+        </div>
+        <dl className="cat-stats">
+          {stat("Products", totals.products)}
+          {stat("Modules", totals.modules)}
+          {stat("Features", totals.features)}
+          {stat("Requirements", totals.requirements)}
+        </dl>
+      </div>
+
+      <div className="cat">
+        <nav className="cat-explorer" aria-label="Catalogue browser">
+          {tree.products.length === 0 ? (
+            <p className="cat-tree-note">
+              {needle === "" ? "No products yet." : `Nothing matches “${needle}”.`}
+            </p>
+          ) : (
+            <CatalogueTree tree={tree} selected={selection} params={params} />
+          )}
+        </nav>
+
+        <div className="cat-detail">
       {/* Rows stay server-rendered (they carry server-action edit forms) and are now the
           page the database returned, not the whole table sliced in the browser. */}
       {section(
@@ -213,6 +292,8 @@ export default async function CataloguePage({
           </>
         )
       )}
-    </>
+        </div>
+      </div>
+    </div>
   );
 }

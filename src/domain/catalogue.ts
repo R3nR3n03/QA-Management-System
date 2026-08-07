@@ -303,8 +303,15 @@ export type CatalogueDetail = {
   version: number;
   updatedAt: Date;
   updatedByName: string | null;
-  /** Ancestors, outermost first. Empty for a product. */
+  /** Ancestors, outermost first. Empty for a product. Business IDs, because the
+   *  breadcrumb links with them (`?sel=p:PROD001`). */
   trail: Array<{ kind: "product" | "module"; businessId: string; name: string }>;
+  /**
+   * The same ancestry as `trail`, but as row ids — which is what `listCatalogueTree`
+   * opens branches by. Selecting a feature has to expand its module AND its product, and
+   * the tree cannot derive that from a business ID without a second lookup.
+   */
+  path: { productId: string; moduleId: string | null };
   product: { businessId: string; name: string; versionTag: string; status: string };
   /** Rollups for the header. `null` where the level has no such number. */
   stats: { modules: number | null; features: number | null; requirements: number };
@@ -363,6 +370,7 @@ export async function getProductDetail(businessId: string): Promise<CatalogueDet
     updatedAt: product.updatedAt,
     updatedByName,
     trail: [],
+    path: { productId: product.id, moduleId: null },
     product: {
       businessId: product.businessId,
       name: product.name,
@@ -422,6 +430,7 @@ export async function getModuleDetail(businessId: string): Promise<CatalogueDeta
     trail: [
       { kind: "product", businessId: moduleRow.product.businessId, name: moduleRow.product.name }
     ],
+    path: { productId: moduleRow.productId, moduleId: moduleRow.id },
     product: {
       businessId: moduleRow.product.businessId,
       name: moduleRow.product.name,
@@ -488,6 +497,7 @@ export async function getFeatureDetail(
       { kind: "product", businessId: product.businessId, name: product.name },
       { kind: "module", businessId: feature.module.businessId, name: feature.module.name }
     ],
+    path: { productId: product.id, moduleId: feature.moduleId },
     product: {
       businessId: product.businessId,
       name: product.name,

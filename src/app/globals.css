@@ -2529,3 +2529,281 @@ dialog.modal::backdrop {
     padding: var(--sp-4);
   }
 }
+
+/* ---------- catalogue explorer ---------- */
+
+/* A master-detail hierarchy browser: a tree of Product → Module → Feature on the left,
+   the selected record and its children on the right. Replaces four stacked, independently
+   paged tables whose relationship to one another was invisible.
+   Rationale and wireframes: CATALOGUE-EXPLORER-REDESIGN.md.
+
+   Every selector in this section is `.cat`-prefixed and nothing above it is edited, so
+   the block cannot reach another screen. The one exception is the `:has()` rule directly
+   below, which by construction only matches a page containing the explorer. */
+
+/* The reading measure is for prose and record lists. This screen is neither: at 1040px
+   the detail panel is ~667px, which is not enough for a feature row to carry its code,
+   name, count and timestamp without wrapping. `:has()` scopes the opt-out to this page —
+   no other screen can match it, and none of them change. */
+.shell-main:has(.cat-screen) {
+  max-width: none;
+}
+
+/* Header, then two panels that fill what is left of the viewport and scroll inside
+   themselves. Height comes from the flex column rather than a hard-coded header offset:
+   the header's height varies with the stat cards wrapping, and a `calc(100dvh - 190px)`
+   would be wrong at every width but one. */
+.cat-screen {
+  --tree-indent: 18px;
+  --tree-row-h: 34px;
+  --explorer-w: 300px;
+  display: flex;
+  flex-direction: column;
+  /* dvh, not vh: on a phone the retracting browser chrome would otherwise leave the last
+     row permanently under the fold. Minus the shell's own padding, top and bottom. */
+  min-height: calc(100dvh - var(--sp-6) * 2);
+}
+
+.cat-head {
+  flex: none;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* Opaque: rows scroll under this in the short-viewport fallback where the page itself
+     scrolls, and a translucent header would let them show through. */
+  background: var(--paper);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+
+/* The four totals, compact. Not `.kpi-grid`: its 170px tiles and 32px bottom margin are
+   tuned for the dashboard, where the tiles ARE the page. Here they qualify a heading and
+   must not push the tree below the fold. A <dl>, so each number is announced as the value
+   of its word — the same reasoning as `.run-stats`. */
+.cat-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 0;
+  max-width: 560px;
+}
+.cat-stat {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+}
+.cat-stat dt {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.cat-stat dd {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.cat {
+  flex: 1;
+  display: grid;
+  grid-template-columns: clamp(260px, 28%, var(--explorer-w)) minmax(0, 1fr);
+  gap: var(--sp-5);
+  padding-top: var(--sp-4);
+  /* Lets the panels scroll instead of the grid growing to fit its tallest child. */
+  min-height: 0;
+}
+
+/* ---------- explorer panel ---------- */
+
+/* Deliberately NOT the application rail's treatment. The rail is --surface-2, square, with
+   a right border; this is a bordered, radiused card sitting inside the content area. Two
+   columns of links side by side, and a reader must never have to work out which one is the
+   application's navigation. */
+.cat-explorer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* The scroll container. `overscroll-behavior: contain` stops a flick at the end of the
+   tree from scrolling the page behind it — the rule `.pick-list` already uses. */
+.cat-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-2);
+}
+.cat-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* A tree row. A real link, so middle-click, Back, and rendering before hydration all
+   work — the selection is a place, not component state (see selection.ts). */
+.cat-node {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--tree-row-h);
+  padding: 0 var(--sp-2);
+  /* One indent step per level, set inline by the component. */
+  padding-left: calc(var(--sp-2) + var(--cat-level, 0) * var(--tree-indent));
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 13.5px;
+  transition: background var(--ease), color var(--ease);
+}
+.cat-node:hover {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+/* Selection is never colour alone: the row also takes a left stripe and 600 weight, so it
+   survives greyscale and low vision. Same rule the `.seg` segments and the status chips
+   follow. */
+.cat-node[aria-selected="true"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The chevron is part of the row link, not a control beside it.
+
+   Not a separate button, because there is nothing separate for it to do: a branch's
+   children are fetched only when it opens (that lazy fetch is what lets this screen hold
+   a catalogue with 900 features), so opening one is a navigation, and navigating to a node
+   is selecting it. A chevron wired to its own handler would either duplicate the row or
+   sit there inert. The row is therefore a toggle — it selects and opens, and clicking the
+   node that is already both returns to its parent, which closes it. `aria-expanded` on the
+   row states which way it will go, and this rotates to match. A link inside a link would
+   also be invalid HTML, so the one-target design is the only correct one anyway. */
+.cat-twist {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--ink-3);
+  transition: transform var(--ease), color var(--ease);
+}
+.cat-node:hover .cat-twist {
+  color: var(--ink);
+}
+.cat-twist-open {
+  transform: rotate(90deg);
+}
+/* A feature has no children in the tree — requirements are rows in its detail panel — so
+   it gets the chevron's width and no chevron, keeping every label on one vertical line. */
+.cat-twist-leaf {
+  visibility: hidden;
+}
+
+.cat-node-id {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: var(--ink-3);
+}
+.cat-node[aria-selected="true"] .cat-node-id {
+  color: var(--accent-2);
+}
+/* Truncates rather than wrapping: a tree row is a fixed-height scan target, and the full
+   name is on the `title` attribute and in the detail header. */
+.cat-node-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Right-aligned child count. Tabular, so a column of them does not jitter between 9 and
+   10. The number answers "how big is this?" before anyone has to click. */
+.cat-count {
+  flex: none;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+/* An empty branch states it quietly instead of reading as a badge that failed to load. */
+.cat-count[data-zero] {
+  background: transparent;
+  opacity: 0.55;
+}
+
+/* The needle, and what it matched. */
+.cat-explorer > .list-toolbar {
+  margin: var(--sp-3) var(--sp-3) 0;
+  /* The 360px cap is for a page-level filter; here the panel is already the constraint. */
+  max-width: none;
+}
+.cat-tree-note {
+  flex: none;
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3) 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* ---------- detail panel ---------- */
+
+.cat-detail {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The panel is the scroll container, so it owns the gutter its own content needs. */
+  padding-right: var(--sp-1);
+}
+
+/* ---------- responsive ---------- */
+
+/* Tablet: one column. The explorer would be under 260px here, which is narrower than the
+   deepest indented label it has to hold. */
+@media (max-width: 1099px) {
+  .cat {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cat-explorer {
+    max-height: 50vh;
+  }
+  .cat-detail {
+    overflow-y: visible;
+  }
+}
+
+/* Phone: the rail is already a top bar at this width (see above), so pinning the screen to
+   the viewport would leave the panels a few hundred pixels tall. Everything scrolls with
+   the page instead, and the header stops sticking because there is no inner scroll for it
+   to stick over. */
+@media (max-width: 760px) {
+  .cat-screen {
+    min-height: 0;
+  }
+  .cat-head {
+    position: static;
+  }
+  .cat-explorer {
+    max-height: 60vh;
+  }
+}
