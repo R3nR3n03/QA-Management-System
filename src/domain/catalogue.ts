@@ -14,7 +14,8 @@ import {
   type CatalogueTree,
   type FeatureRow,
   type ModuleRow,
-  type NodeRow
+  type NodeRow,
+  type RequirementRow
 } from "./catalogue-tree";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
@@ -143,10 +144,13 @@ export async function catalogueTotals() {
  * Two modes, one return shape.
  *
  * **Browsing** (no needle) is lazy: every product with its module count, then the modules
- * of the one open product, then the features of the one open module. A catalogue with 40
- * products and 900 features costs 40 rows plus one branch — not 900. This is what the
- * redesign means by "virtualization-ready": the depth of the fetch follows the depth of
- * what is actually open.
+ * of the one open product, then the features of the one open module, then the requirements
+ * of the one open feature. A catalogue with 40 products and 900 features costs 40 rows plus
+ * one branch per level — not 900. This is what the redesign means by
+ * "virtualization-ready": the depth of the fetch follows the depth of what is actually open.
+ *
+ * That laziness is what makes a fourth level affordable. Requirements outnumber the other
+ * three several times over, and at most ONE feature's worth is ever fetched.
  *
  * **Searching** fetches the whole spine (three light queries of three columns) and filters
  * it in `narrowToMatches`, because a match has to be shown under its real ancestors and
@@ -154,14 +158,15 @@ export async function catalogueTotals() {
  * That is the same volume `listCatalogueOptions` already pulls on every load of the
  * current screen, so it is not a new cost.
  *
- * Requirements are matched too, but they are not tree nodes: a requirement hit comes back
- * as its feature. Only their `featureId` is selected, so a needle matching a thousand
- * requirements still returns a handful of ids.
+ * Requirements are the exception in search too: only the matching rows are fetched, and
+ * only those appear. A feature that matched by name shows closed with its count rather
+ * than unfolding everything it owns — see `narrowToMatches`.
  */
 export async function listCatalogueTree(options: {
   q?: string;
   openProductId?: string;
   openModuleId?: string;
+  openFeatureId?: string;
 } = {}): Promise<CatalogueTree> {
   const needle = (options.q ?? "").trim();
 
@@ -206,16 +211,40 @@ export async function listCatalogueTree(options: {
       })
     : [];
 
+  // One feature's requirements, and only when that feature is open. This is the level
+  // that would flood the tree if it were ever fetched wholesale.
+  const requirements: RequirementRow[] = options.openFeatureId
+    ? (
+        await prisma.requirement.findMany({
+          where: { featureId: options.openFeatureId },
+          select: { id: true, businessId: true, statement: true, featureId: true },
+          orderBy: BY_BUSINESS_ID
+        })
+      ).map(asRequirementRow)
+    : [];
+
   return assembleTree({
     products,
     modules,
     features,
+    requirements,
     moduleCounts: countsFrom(moduleCountRows, "productId"),
     featureCounts: countsFrom(featureCountRows, "moduleId"),
     requirementCounts: countsFrom(requirementCountRows, "featureId"),
     openProductIds: options.openProductId ? new Set([options.openProductId]) : new Set(),
-    openModuleIds: options.openModuleId ? new Set([options.openModuleId]) : new Set()
+    openModuleIds: options.openModuleId ? new Set([options.openModuleId]) : new Set(),
+    openFeatureIds: options.openFeatureId ? new Set([options.openFeatureId]) : new Set()
   });
+}
+
+/** A requirement's statement is its label, so the tree sees one row shape at every level. */
+function asRequirementRow(row: {
+  id: string;
+  businessId: string;
+  statement: string;
+  featureId: string;
+}): RequirementRow {
+  return { id: row.id, businessId: row.businessId, name: row.statement, featureId: row.featureId };
 }
 
 async function searchCatalogueTree(needle: string): Promise<CatalogueTree> {
@@ -229,10 +258,12 @@ async function searchCatalogueTree(needle: string): Promise<CatalogueTree> {
       select: { ...OPTION_SELECT, moduleId: true },
       orderBy: BY_BUSINESS_ID
     }),
+    // Only the hits, and this time the whole row — a matching requirement is its own node
+    // in the tree now, not a pointer to the feature above it.
     prisma.requirement.findMany({
       where: containsAny(needle, ["businessId", "statement"]),
-      select: { featureId: true },
-      distinct: ["featureId"]
+      select: { id: true, businessId: true, statement: true, featureId: true },
+      orderBy: BY_BUSINESS_ID
     })
   ]);
 
@@ -241,11 +272,13 @@ async function searchCatalogueTree(needle: string): Promise<CatalogueTree> {
     modules,
     features,
     needle,
-    featureIdsFromRequirements: new Set(requirementHits.map((row) => row.featureId))
+    matchedRequirements: requirementHits.map(asRequirementRow)
   });
 
   // Requirement counts are the one number the narrowed rows cannot supply themselves —
-  // and only for the features that survived, which is a bounded set.
+  // and only for the features that survived, which is a bounded set. This is the FULL
+  // count for the feature, not the matching one: the badge sits beside a feature the
+  // viewer can open, and it has to say how much is in there.
   const requirementCountRows = narrowed.features.length
     ? await prisma.requirement.groupBy({
         by: ["featureId"],
@@ -258,6 +291,7 @@ async function searchCatalogueTree(needle: string): Promise<CatalogueTree> {
     products: narrowed.products,
     modules: narrowed.modules,
     features: narrowed.features,
+    requirements: narrowed.requirements,
     // In search mode a badge counts MATCHING children, not every child — the tree is
     // showing a filtered catalogue and the numbers have to describe what is on screen.
     moduleCounts: countByParent(narrowed.modules, (m) => m.productId),
@@ -265,6 +299,7 @@ async function searchCatalogueTree(needle: string): Promise<CatalogueTree> {
     requirementCounts: countsFrom(requirementCountRows, "featureId"),
     openProductIds: narrowed.openProductIds,
     openModuleIds: narrowed.openModuleIds,
+    openFeatureIds: narrowed.openFeatureIds,
     matchCount: narrowed.matchCount
   });
 }
@@ -295,9 +330,10 @@ export type DetailChild = {
  *   models; adding one is a `docs/data-model.md` change, not a screen change.
  */
 export type CatalogueDetail = {
-  kind: "product" | "module" | "feature";
+  kind: "product" | "module" | "feature" | "requirement";
   id: string;
   businessId: string;
+  /** The record's name — for a requirement, its statement. */
   title: string;
   /** The optimistic-lock counter, not a release version. Shown as "record version". */
   version: number;
@@ -305,17 +341,18 @@ export type CatalogueDetail = {
   updatedByName: string | null;
   /** Ancestors, outermost first. Empty for a product. Business IDs, because the
    *  breadcrumb links with them (`?sel=p:PROD001`). */
-  trail: Array<{ kind: "product" | "module"; businessId: string; name: string }>;
+  trail: Array<{ kind: "product" | "module" | "feature"; businessId: string; name: string }>;
   /**
    * The same ancestry as `trail`, but as row ids — which is what `listCatalogueTree`
    * opens branches by. Selecting a feature has to expand its module AND its product, and
    * the tree cannot derive that from a business ID without a second lookup.
    */
-  path: { productId: string; moduleId: string | null };
+  path: { productId: string; moduleId: string | null; featureId: string | null };
   product: { businessId: string; name: string; versionTag: string; status: string };
   /** Rollups for the header. `null` where the level has no such number. */
-  stats: { modules: number | null; features: number | null; requirements: number };
-  childKind: "module" | "feature" | "requirement";
+  stats: { modules: number | null; features: number | null; requirements: number | null };
+  /** `null` for a requirement, which is a leaf and has no child list. */
+  childKind: "module" | "feature" | "requirement" | null;
   children: DetailChild[];
   /** Children BEFORE paging. Only a feature's requirement list is paged. */
   childTotal: number;
@@ -370,7 +407,7 @@ export async function getProductDetail(businessId: string): Promise<CatalogueDet
     updatedAt: product.updatedAt,
     updatedByName,
     trail: [],
-    path: { productId: product.id, moduleId: null },
+    path: { productId: product.id, moduleId: null, featureId: null },
     product: {
       businessId: product.businessId,
       name: product.name,
@@ -430,7 +467,7 @@ export async function getModuleDetail(businessId: string): Promise<CatalogueDeta
     trail: [
       { kind: "product", businessId: moduleRow.product.businessId, name: moduleRow.product.name }
     ],
-    path: { productId: moduleRow.productId, moduleId: moduleRow.id },
+    path: { productId: moduleRow.productId, moduleId: moduleRow.id, featureId: null },
     product: {
       businessId: moduleRow.product.businessId,
       name: moduleRow.product.name,
@@ -497,7 +534,7 @@ export async function getFeatureDetail(
       { kind: "product", businessId: product.businessId, name: product.name },
       { kind: "module", businessId: feature.module.businessId, name: feature.module.name }
     ],
-    path: { productId: product.id, moduleId: feature.moduleId },
+    path: { productId: product.id, moduleId: feature.moduleId, featureId: feature.id },
     product: {
       businessId: product.businessId,
       name: product.name,
@@ -515,6 +552,54 @@ export async function getFeatureDetail(
       updatedAt: row.updatedAt
     })),
     childTotal: requirements.total
+  };
+}
+
+/**
+ * A requirement: the leaf of the hierarchy.
+ *
+ * The only detail with no child list — nothing hangs off a requirement in the catalogue.
+ * Its `title` is its statement, which is a sentence rather than a name, so the panel is
+ * where it is actually readable; a 300px tree row can only truncate it.
+ */
+export async function getRequirementDetail(businessId: string): Promise<CatalogueDetail> {
+  const requirement = await prisma.requirement.findUnique({
+    where: { businessId },
+    include: { feature: { include: { module: { include: { product: true } } } } }
+  });
+  if (!requirement) {
+    throw new AppError(404, "REFERENCE_NOT_FOUND", "Requirement not found.", "businessId");
+  }
+
+  const { feature } = requirement;
+  const moduleRow = feature.module;
+  const { product } = moduleRow;
+  const updatedByName = await displayNameOf(requirement.updatedBy);
+
+  return {
+    kind: "requirement",
+    id: requirement.id,
+    businessId: requirement.businessId,
+    title: requirement.statement,
+    version: requirement.version,
+    updatedAt: requirement.updatedAt,
+    updatedByName,
+    trail: [
+      { kind: "product", businessId: product.businessId, name: product.name },
+      { kind: "module", businessId: moduleRow.businessId, name: moduleRow.name },
+      { kind: "feature", businessId: feature.businessId, name: feature.name }
+    ],
+    path: { productId: product.id, moduleId: moduleRow.id, featureId: feature.id },
+    product: {
+      businessId: product.businessId,
+      name: product.name,
+      versionTag: product.versionTag,
+      status: product.status
+    },
+    stats: { modules: null, features: null, requirements: null },
+    childKind: null,
+    children: [],
+    childTotal: 0
   };
 }
 

@@ -12,8 +12,17 @@
 export type NodeRow = { id: string; businessId: string; name: string };
 export type ModuleRow = NodeRow & { productId: string };
 export type FeatureRow = NodeRow & { moduleId: string };
+/** A requirement's `name` is its statement — mapped at the query, so every level of the
+ *  tree has one shape and `nodeMatches` needs no special case. */
+export type RequirementRow = NodeRow & { featureId: string };
 
-export type TreeFeature = NodeRow & { requirementCount: number };
+/** The leaf. Nothing hangs off a requirement, so it carries no count. */
+export type TreeRequirement = NodeRow;
+
+export type TreeFeature = NodeRow & {
+  requirementCount: number;
+  requirements: TreeRequirement[] | null;
+};
 
 export type TreeModule = NodeRow & {
   featureCount: number;
@@ -79,11 +88,14 @@ export type AssembleInput = {
   modules: readonly ModuleRow[];
   /** Features of the open modules only, in browse mode. */
   features: readonly FeatureRow[];
+  /** Requirements of the open features only, in browse mode. */
+  requirements: readonly RequirementRow[];
   moduleCounts: ReadonlyMap<string, number>;
   featureCounts: ReadonlyMap<string, number>;
   requirementCounts: ReadonlyMap<string, number>;
   openProductIds: ReadonlySet<string>;
   openModuleIds: ReadonlySet<string>;
+  openFeatureIds: ReadonlySet<string>;
   matchCount?: number | null;
 };
 
@@ -98,6 +110,7 @@ export type AssembleInput = {
 export function assembleTree(input: AssembleInput): CatalogueTree {
   const modulesByProduct = groupBy(input.modules, (m) => m.productId);
   const featuresByModule = groupBy(input.features, (f) => f.moduleId);
+  const requirementsByFeature = groupBy(input.requirements, (r) => r.featureId);
 
   const products = input.products.map((product) => ({
     id: product.id,
@@ -115,7 +128,14 @@ export function assembleTree(input: AssembleInput): CatalogueTree {
                 id: feature.id,
                 businessId: feature.businessId,
                 name: feature.name,
-                requirementCount: input.requirementCounts.get(feature.id) ?? 0
+                requirementCount: input.requirementCounts.get(feature.id) ?? 0,
+                requirements: input.openFeatureIds.has(feature.id)
+                  ? (requirementsByFeature.get(feature.id) ?? []).map((requirement) => ({
+                      id: requirement.id,
+                      businessId: requirement.businessId,
+                      name: requirement.name
+                    }))
+                  : null
               }))
             : null
         }))
@@ -132,18 +152,24 @@ export type NarrowInput = {
   features: readonly FeatureRow[];
   needle: string;
   /**
-   * Features owning a requirement that matched. Requirements are not tree nodes and there
-   * are far too many to fetch, so the database answers this one and hands back feature ids.
+   * The requirements that MATCHED, already selected by the database.
+   *
+   * Unlike the three levels above, these are not the whole table. Requirements outnumber
+   * everything else several times over, so search fetches only the hits — and only the
+   * hits are shown. A feature that matched by its own name appears closed, with its count,
+   * rather than unfolding every requirement it owns; see the expansion rule below.
    */
-  featureIdsFromRequirements?: ReadonlySet<string>;
+  matchedRequirements?: readonly RequirementRow[];
 };
 
 export type NarrowResult = {
   products: NodeRow[];
   modules: ModuleRow[];
   features: FeatureRow[];
+  requirements: RequirementRow[];
   openProductIds: Set<string>;
   openModuleIds: Set<string>;
+  openFeatureIds: Set<string>;
   matchCount: number;
 };
 
@@ -159,13 +185,21 @@ export type NarrowResult = {
  * Everything reachable is expanded: a search result behind a closed chevron is a search
  * result nobody finds.
  *
+ * **The requirement level is the one exception, in both directions.** A matched product
+ * keeps every module and a matched module every feature, but a matched FEATURE does not
+ * unfold its requirements — it shows closed, with its count. Requirements outnumber the
+ * other three levels several times over, and searching a common word would otherwise
+ * empty most of the table into a 300px column. So: requirements appear when they
+ * themselves matched, and a feature expands only because something inside it did.
+ *
  * Search fetches every product, module and feature rather than resolving ancestors with
  * recursive queries. That is three light queries of three columns each — precisely what
  * `listCatalogueOptions` already does on every load of the current screen, so this is no
- * new cost, and it keeps the matching rules here where they can be tested.
+ * new cost, and it keeps the matching rules here where they can be tested. Requirements
+ * are the exception again: only the matching rows are fetched.
  */
 export function narrowToMatches(input: NarrowInput): NarrowResult {
-  const fromRequirements = input.featureIdsFromRequirements ?? new Set<string>();
+  const matchedRequirements = input.matchedRequirements ?? [];
 
   const matchedProducts = new Set(
     input.products.filter((p) => nodeMatches(p, input.needle)).map((p) => p.id)
@@ -174,27 +208,33 @@ export function narrowToMatches(input: NarrowInput): NarrowResult {
     input.modules.filter((m) => nodeMatches(m, input.needle)).map((m) => m.id)
   );
   const matchedFeatures = new Set(
-    input.features
-      .filter((f) => nodeMatches(f, input.needle) || fromRequirements.has(f.id))
-      .map((f) => f.id)
+    input.features.filter((f) => nodeMatches(f, input.needle)).map((f) => f.id)
   );
 
   // Nodes that earned their place directly, before ancestors and descendants are added.
-  // A matched product does not make its 40 features "matches", and a feature reached
-  // through several matching requirements is still one row.
-  const matchCount = matchedProducts.size + matchedModules.size + matchedFeatures.size;
+  // A matched product does not make its 40 features "matches". A requirement is its own
+  // row now, so it counts as itself rather than as the feature it hangs under.
+  const matchCount =
+    matchedProducts.size + matchedModules.size + matchedFeatures.size + matchedRequirements.length;
 
   // Downward: a matched product keeps every module, and a matched module every feature.
+  // Deliberately stops there — a matched feature does not keep its requirements.
   const keptModules = input.modules.filter(
     (m) => matchedModules.has(m.id) || matchedProducts.has(m.productId)
   );
   const keptModuleIds = new Set(keptModules.map((m) => m.id));
 
+  // Upward: a matched requirement drags its feature in, a kept feature its module, and a
+  // kept module its product.
+  const featuresFromRequirements = new Set(matchedRequirements.map((r) => r.featureId));
+
   const keptFeatures = input.features.filter(
-    (f) => matchedFeatures.has(f.id) || keptModuleIds.has(f.moduleId)
+    (f) =>
+      matchedFeatures.has(f.id) ||
+      keptModuleIds.has(f.moduleId) ||
+      featuresFromRequirements.has(f.id)
   );
 
-  // Upward: a matched feature drags its module in, and any kept module its product.
   const moduleById = new Map(input.modules.map((m) => [m.id, m]));
   const ancestorModules = new Set<string>();
   for (const feature of keptFeatures) ancestorModules.add(feature.moduleId);
@@ -211,14 +251,19 @@ export function narrowToMatches(input: NarrowInput): NarrowResult {
   }
 
   const finalFeatures = keptFeatures.filter((f) => finalModuleIds.has(f.moduleId));
+  const finalFeatureIds = new Set(finalFeatures.map((f) => f.id));
+  const finalRequirements = matchedRequirements.filter((r) => finalFeatureIds.has(r.featureId));
 
   return {
     products: input.products.filter((p) => productIds.has(p.id)),
     modules: finalModules,
     features: finalFeatures,
+    requirements: finalRequirements,
     // Everything that survived is open: see the note above.
     openProductIds: productIds,
     openModuleIds: finalModuleIds,
+    // ...except a feature, which opens only because a requirement inside it matched.
+    openFeatureIds: new Set(finalRequirements.map((r) => r.featureId)),
     matchCount
   };
 }

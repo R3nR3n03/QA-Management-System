@@ -87,19 +87,30 @@ be cramped. **The catalogue screen must opt out of the cap** (section 6, `.shell
 ### The hierarchy, and where each level lives
 
 ```
-Product        PROD001      → tree node (root)        · detail: modules + rollup
-└── Module     MOD001       → tree node (level 2)     · detail: features + rollup
+Product         PROD001     → tree node (level 1)     · detail: modules + rollup
+└── Module      MOD001      → tree node (level 2)     · detail: features + rollup
     └── Feature FEAT001     → tree node (level 3)     · detail: requirements
-        └── Requirement REQ001                        → LEAF. Never a tree node.
+        └── Requirement REQ001  → tree node (level 4) · detail: the statement. LEAF.
 ```
 
-**Requirements are deliberately not in the tree.** They are the highest-cardinality level
-(one feature carries five to fifty), and their identity is a *statement* — a sentence, not a
-name. A sentence does not fit a 273px tree row, and putting fifty of them under every feature
-turns the explorer back into the scrolling problem it exists to solve. Requirements are rows in
-the Feature detail panel, where there is width to read them.
+> **Reversed during delivery (QA Lead, on review of commit 3).** This section originally
+> argued that requirements should *not* be tree nodes: highest cardinality, and a statement
+> is a sentence rather than a name, so fifty of them under every feature would reintroduce
+> the scrolling the explorer exists to remove. The QA Lead wanted the fourth level. The
+> objection was real, so it is answered by two rules rather than waved away:
+>
+> 1. **Browsing loads one feature's requirements at a time.** The fetch already followed
+>    what was open; that now extends one level deeper. At most one feature's worth is ever
+>    in the tree, whatever the catalogue's size.
+> 2. **Searching shows only requirements that themselves matched.** The downward sweep
+>    stops at features — a matched feature shows *closed*, with its count, rather than
+>    unfolding everything it owns. Without this, searching a common word would empty the
+>    largest table in the catalogue into a 300px column.
+>
+> Statements still truncate in the tree and are read in full in the detail panel, which is
+> what the panel is for.
 
-This also fixes the brief's worst symptom directly: the orphaned Requirements table disappears,
+Either way this fixes the brief's worst symptom: the orphaned Requirements table disappears,
 and every requirement is now reachable only *through* its feature — which is the relationship
 the screen is supposed to teach.
 
@@ -112,9 +123,13 @@ Everything on this screen is a **place**, not component state:
 /catalogue?sel=p:PROD001                    → product selected
 /catalogue?sel=m:MOD001                     → module selected
 /catalogue?sel=f:FEAT001                    → feature selected
+/catalogue?sel=r:REQ001                     → requirement selected (leaf)
 /catalogue?sel=f:FEAT001&q=login            → …filtered
-/catalogue?sel=m:MOD001&req=2               → …requirement list, page 2
+/catalogue?sel=f:FEAT001&req=2              → …requirement list, page 2
 ```
+
+`r:` for requirements, not `q:` — `q` is the search needle, and two meanings for one letter
+in the same URL is a trap someone eventually falls into.
 
 Four reasons this is not negotiable in this codebase:
 
@@ -133,14 +148,19 @@ already the human-facing identifier, and readable in a pasted link.
 
 | Selection | Tree | Detail panel |
 |---|---|---|
-| none | products + module counts | overview: 4 stat cards, "recently updated" |
+| none | products + module counts | overview: 4 stat cards |
 | product | + that product's modules | module rows (code, name, feature count, updated) |
 | module | + that module's features | feature rows (code, name, requirement count, updated) |
-| feature | + siblings, feature marked | requirement rows (code, statement, updated) — paged |
+| feature | + that feature's requirements | requirement rows (code, statement, updated) — paged |
+| requirement | + siblings, requirement marked | the statement. No child list — it is the leaf. |
 
-**Only the open branch loads children.** A catalogue with 40 products and 900 features fetches
-40 rows plus one branch, not 900. This is the lazy-loading requirement, satisfied by the server
-component rather than by client fetching.
+**Only the open branch loads children, at every level.** A catalogue with 40 products and 900
+features fetches 40 rows plus one branch per level, not 900. This is the lazy-loading
+requirement, satisfied by the server component rather than by client fetching — and it is what
+makes the requirement level affordable.
+
+Selecting a requirement offers **another requirement under the same feature**, not a child:
+nothing hangs off a requirement, and a sibling is what someone writing requirements wants next.
 
 ---
 

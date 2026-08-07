@@ -29,11 +29,14 @@ const CHILD_NOUN = {
   requirement: { one: "requirement", many: "requirements" }
 } as const;
 
-/** The child level is selectable in the tree, except for requirements. */
-const CHILD_SELECTION: Record<string, SelectionKind | null> = {
+/** The child level, once it is known to exist. A requirement has none. */
+type ChildKind = "module" | "feature" | "requirement";
+
+/** Every child level is selectable in the tree now that requirements are nodes. */
+const CHILD_SELECTION: Record<ChildKind, SelectionKind> = {
   module: "module",
   feature: "feature",
-  requirement: null
+  requirement: "requirement"
 };
 
 export function DetailPanel({
@@ -58,11 +61,16 @@ export function DetailPanel({
   return (
     <>
       <RecordHeader detail={detail} params={params} />
-      <ChildSection
-        detail={detail}
-        params={params}
-        requirementPage={requirementPage}
-      />
+      {/* A requirement is a leaf: nothing hangs off it, so there is no child section
+          rather than an empty one claiming something is missing. */}
+      {detail.childKind === null ? null : (
+        <ChildSection
+          detail={detail}
+          childKind={detail.childKind}
+          params={params}
+          requirementPage={requirementPage}
+        />
+      )}
     </>
   );
 }
@@ -119,7 +127,9 @@ function RecordHeader({
         {detail.stats.features !== null ? (
           <Fact label="Features" value={detail.stats.features} />
         ) : null}
-        <Fact label="Requirements" value={detail.stats.requirements} />
+        {detail.stats.requirements !== null ? (
+          <Fact label="Requirements" value={detail.stats.requirements} />
+        ) : null}
         {/* The optimistic-lock counter, not a release number — named so nobody reads it
             as one beside the product version two cells to the left. */}
         <Fact label="Record version" value={detail.version} />
@@ -163,12 +173,22 @@ function EditFor({ detail }: { detail: CatalogueDetail }) {
       />
     );
   }
+  if (detail.kind === "feature") {
+    return (
+      <EditFeatureButton
+        id={detail.id}
+        version={detail.version}
+        businessId={detail.businessId}
+        name={detail.title}
+      />
+    );
+  }
   return (
-    <EditFeatureButton
+    <EditRequirementButton
       id={detail.id}
       version={detail.version}
       businessId={detail.businessId}
-      name={detail.title}
+      statement={detail.title}
     />
   );
 }
@@ -177,15 +197,17 @@ function EditFor({ detail }: { detail: CatalogueDetail }) {
 
 function ChildSection({
   detail,
+  childKind,
   params,
   requirementPage
 }: {
   detail: CatalogueDetail;
+  childKind: ChildKind;
   params: ListSearchParams | undefined;
   requirementPage: number;
 }) {
-  const noun = CHILD_NOUN[detail.childKind];
-  const paged = detail.childKind === "requirement";
+  const noun = CHILD_NOUN[childKind];
+  const paged = childKind === "requirement";
 
   return (
     <section aria-label={`${noun.many} of ${detail.businessId}`}>
@@ -206,20 +228,15 @@ function ChildSection({
               pathname="/catalogue"
               params={params}
               pageKey="req"
-              noMatch={<EmptyChild detail={detail} />}
+              noMatch={<EmptyChild detail={detail} childKind={childKind} />}
             />
           ) : (
-            <EmptyChild detail={detail} />
+            <EmptyChild detail={detail} childKind={childKind} />
           )
         ) : (
           <ul className="row-list">
             {detail.children.map((child) => (
-              <ChildRow
-                key={child.id}
-                child={child}
-                childKind={detail.childKind}
-                params={params}
-              />
+              <ChildRow key={child.id} child={child} childKind={childKind} params={params} />
             ))}
           </ul>
         )}
@@ -245,7 +262,7 @@ function ChildRow({
   params
 }: {
   child: DetailChild;
-  childKind: CatalogueDetail["childKind"];
+  childKind: ChildKind;
   params: ListSearchParams | undefined;
 }) {
   const kind = CHILD_SELECTION[childKind];
@@ -288,13 +305,7 @@ function ChildRow({
   );
 }
 
-function EditChild({
-  child,
-  childKind
-}: {
-  child: DetailChild;
-  childKind: CatalogueDetail["childKind"];
-}) {
+function EditChild({ child, childKind }: { child: DetailChild; childKind: ChildKind }) {
   if (childKind === "module") {
     return (
       <EditModuleButton
@@ -335,8 +346,8 @@ function EditChild({
  * to the header's contextual button — which already offers exactly this, so repeating it
  * here would put two primary buttons on screen competing for the same click.
  */
-function EmptyChild({ detail }: { detail: CatalogueDetail }) {
-  if (detail.childKind === "module") {
+function EmptyChild({ detail, childKind }: { detail: CatalogueDetail; childKind: ChildKind }) {
+  if (childKind === "module") {
     return (
       <Rich
         icon={<Package size={40} aria-hidden />}
@@ -345,7 +356,7 @@ function EmptyChild({ detail }: { detail: CatalogueDetail }) {
       />
     );
   }
-  if (detail.childKind === "feature") {
+  if (childKind === "feature") {
     return (
       <Rich
         icon={<Component size={40} aria-hidden />}

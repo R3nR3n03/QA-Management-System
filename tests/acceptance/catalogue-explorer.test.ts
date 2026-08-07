@@ -11,6 +11,7 @@ import {
   getFeatureDetail,
   getModuleDetail,
   getProductDetail,
+  getRequirementDetail,
   listCatalogueTree
 } from "@/domain/catalogue";
 
@@ -111,7 +112,7 @@ beforeAll(async () => {
   );
 });
 
-const idOf = async (table: "product" | "module" | "feature", businessId: string) => {
+const idOf = async (table: "product" | "module" | "feature" | "requirement", businessId: string) => {
   const row = await (prisma[table] as { findUniqueOrThrow: (a: unknown) => Promise<{ id: string }> })
     .findUniqueOrThrow({ where: { businessId }, select: { id: true } });
   return row.id;
@@ -171,6 +172,31 @@ describe("listCatalogueTree — browsing", () => {
     });
     expect(tree.products[0].modules?.find((m) => m.businessId === "MOD001")?.features).toEqual([]);
   });
+
+  // The fourth level, and the reason it is affordable: one feature's requirements at a
+  // time, never the table.
+  it("loads the open feature's requirements and leaves its sibling closed", async () => {
+    const tree = await listCatalogueTree({
+      openProductId: await idOf("product", "PROD001"),
+      openModuleId: await idOf("module", "MOD002"),
+      openFeatureId: await idOf("feature", "FEAT001")
+    });
+    const [cardCapture, threeDS] = tree.products[0].modules?.[1].features ?? [];
+
+    expect(cardCapture.requirements?.map((r) => r.businessId)).toEqual(["REQ001", "REQ002"]);
+    // Labelled by statement — a requirement has no name of its own.
+    expect(cardCapture.requirements?.[0].name).toBe("A card number is validated before capture");
+    expect(threeDS.requirements).toBeNull();
+  });
+
+  it("reports an opened feature with no requirements as empty", async () => {
+    const tree = await listCatalogueTree({
+      openProductId: await idOf("product", "PROD002"),
+      openModuleId: await idOf("module", "MOD003"),
+      openFeatureId: await idOf("feature", "FEAT003")
+    });
+    expect(tree.products[1].modules?.[0].features?.[0].requirements).toEqual([]);
+  });
 });
 
 describe("listCatalogueTree — searching", () => {
@@ -189,14 +215,35 @@ describe("listCatalogueTree — searching", () => {
     expect(tree.products.map((p) => p.businessId)).toEqual(["PROD001", "PROD002"]);
   });
 
-  // Requirements are searchable but are not tree nodes: the hit surfaces as its feature.
-  it("surfaces a requirement match as its feature", async () => {
+  // A matched requirement is its own node, under its real ancestors, with the feature
+  // opened to reveal it.
+  it("shows a matched requirement under its opened feature", async () => {
     const tree = await listCatalogueTree({ q: "expired card" });
 
     expect(tree.products.map((p) => p.businessId)).toEqual(["PROD001"]);
-    expect(tree.products[0].modules?.[0].features?.map((f) => f.businessId)).toEqual(["FEAT001"]);
-    // One row appeared, so the announcement says one. matchCount counts what is on screen,
-    // not how many requirements hit — saying "0 match" over a drawn tree is a contradiction.
+    const feature = tree.products[0].modules?.[0].features?.[0];
+    expect(feature?.businessId).toBe("FEAT001");
+    expect(feature?.requirements?.map((r) => r.businessId)).toEqual(["REQ002"]);
+    // The badge still reports everything in the feature, not just the match shown.
+    expect(feature?.requirementCount).toBe(2);
+    expect(tree.matchCount).toBe(1);
+  });
+
+  // The exception that keeps a fourth level affordable: the downward sweep stops at
+  // features, so a common needle cannot empty the requirement table into the tree.
+  it("does not unfold the requirements of a feature matched by name", async () => {
+    const tree = await listCatalogueTree({ q: "Card capture" });
+    const feature = tree.products[0].modules?.[0].features?.[0];
+    expect(feature?.businessId).toBe("FEAT001");
+    expect(feature?.requirements).toBeNull();
+    expect(feature?.requirementCount).toBe(2);
+  });
+
+  it("matches a requirement by its business ID too", async () => {
+    const tree = await listCatalogueTree({ q: "REQ003" });
+    expect(tree.products[0].modules?.[0].features?.[0].requirements?.map((r) => r.businessId)).toEqual([
+      "REQ003"
+    ]);
     expect(tree.matchCount).toBe(1);
   });
 
@@ -333,5 +380,56 @@ describe("getFeatureDetail", () => {
 
   it("is a 404 for an unknown feature", async () => {
     await expect(getFeatureDetail("FEAT999")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("getRequirementDetail", () => {
+  it("returns the leaf, with its whole ancestor chain", async () => {
+    const detail = await getRequirementDetail("REQ002");
+
+    expect(detail.kind).toBe("requirement");
+    // The statement IS the title — a requirement has no name.
+    expect(detail.title).toBe("An expired card is refused");
+    expect(detail.trail.map((t) => t.businessId)).toEqual(["PROD001", "MOD002", "FEAT001"]);
+    expect(detail.trail.map((t) => t.kind)).toEqual(["product", "module", "feature"]);
+  });
+
+  // Nothing hangs off a requirement. null childKind is what tells the panel to render no
+  // child section at all, rather than an empty one implying something is missing.
+  it("has no children and no rollups", async () => {
+    const detail = await getRequirementDetail("REQ002");
+    expect(detail.childKind).toBeNull();
+    expect(detail.children).toEqual([]);
+    expect(detail.childTotal).toBe(0);
+    expect(detail.stats).toEqual({ modules: null, features: null, requirements: null });
+  });
+
+  // path is what the tree opens branches by; a selected requirement must expand all
+  // three levels above it or it cannot be seen.
+  it("carries the ancestor row ids the tree opens by", async () => {
+    const detail = await getRequirementDetail("REQ002");
+    expect(detail.path.productId).toBe(await idOf("product", "PROD001"));
+    expect(detail.path.moduleId).toBe(await idOf("module", "MOD002"));
+    expect(detail.path.featureId).toBe(await idOf("feature", "FEAT001"));
+  });
+
+  // Selecting a feature must open it too, or its requirements never appear in the tree.
+  it("a feature opens its own branch", async () => {
+    const detail = await getFeatureDetail("FEAT001");
+    expect(detail.path.featureId).toBe(await idOf("feature", "FEAT001"));
+  });
+
+  it("inherits the product's version and status", async () => {
+    const detail = await getRequirementDetail("REQ002");
+    expect(detail.product.versionTag).toBe("2.1");
+    expect(detail.product.status).toBe("Active");
+    expect(detail.updatedByName).toBe(LEAD_NAME);
+  });
+
+  it("is a 404 for an unknown requirement", async () => {
+    await expect(getRequirementDetail("REQ999")).rejects.toMatchObject({
+      status: 404,
+      code: "REFERENCE_NOT_FOUND"
+    });
   });
 });

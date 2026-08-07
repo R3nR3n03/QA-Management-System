@@ -8,10 +8,11 @@ import {
 } from "./selection";
 
 describe("parseSelection", () => {
-  it("reads each of the three selectable kinds", () => {
+  it("reads each of the four selectable kinds", () => {
     expect(parseSelection("p:PROD001")).toEqual({ kind: "product", businessId: "PROD001" });
     expect(parseSelection("m:MOD004")).toEqual({ kind: "module", businessId: "MOD004" });
     expect(parseSelection("f:FEAT012")).toEqual({ kind: "feature", businessId: "FEAT012" });
+    expect(parseSelection("r:REQ007")).toEqual({ kind: "requirement", businessId: "REQ007" });
   });
 
   it("accepts a lower-case URL", () => {
@@ -27,10 +28,10 @@ describe("parseSelection", () => {
     expect(parseSelection("f:FEAT1")).toBeNull();
     expect(parseSelection("m:MOD0001")).toBeNull();
     expect(parseSelection("m:MOD00A")).toBeNull();
+    expect(parseSelection("r:FEAT001")).toBeNull();
   });
 
   it("rejects anything that is not a known kind", () => {
-    expect(parseSelection("r:REQ001")).toBeNull();
     expect(parseSelection("x:MOD001")).toBeNull();
     expect(parseSelection("MOD001")).toBeNull();
     expect(parseSelection(":MOD001")).toBeNull();
@@ -41,16 +42,16 @@ describe("parseSelection", () => {
     expect(parseSelection("")).toBeNull();
   });
 
-  // Requirements are rows in a feature's panel, never tree nodes, so they are not a
-  // selectable kind — and a URL claiming otherwise must not half-work.
-  it("does not accept a requirement as a selection", () => {
+  // `q` is the search needle. Reusing that letter as a selection prefix would put two
+  // meanings for it in one URL, so requirements take `r`.
+  it("does not treat the needle's letter as a kind", () => {
     expect(parseSelection("q:REQ001")).toBeNull();
   });
 });
 
 describe("selectionParam", () => {
   it("round-trips every kind", () => {
-    for (const raw of ["p:PROD001", "m:MOD004", "f:FEAT012"]) {
+    for (const raw of ["p:PROD001", "m:MOD004", "f:FEAT012", "r:REQ007"]) {
       const parsed = parseSelection(raw);
       expect(parsed).not.toBeNull();
       expect(selectionParam(parsed!)).toBe(raw);

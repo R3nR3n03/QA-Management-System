@@ -1,20 +1,21 @@
 import Link from "next/link";
-import { ChevronRight, Component, Folder, Package } from "lucide-react";
+import { ChevronRight, CircleDot, Component, Folder, Package } from "lucide-react";
 import type { CatalogueTree as Tree } from "@/domain/catalogue-tree";
 import type { ListSearchParams } from "@/ui/list-params";
 import { isSelected, selectionHref, type Selection, type SelectionKind } from "./selection";
 
 /**
- * The hierarchy as a tree: Product → Module → Feature, with a child count on every row.
+ * The hierarchy as a tree: Product → Module → Feature → Requirement, with a child count
+ * on every row that has children.
  *
  * A server component. There is no state to hold — which branches are open follows from
  * what is selected, and what is selected lives in the query string (`selection.ts`) — so
  * this ships no JavaScript and works before hydration. Keyboard navigation turns it into
  * a client island later; nothing here has to move for that.
  *
- * Requirements are absent by design. They are the highest-cardinality level and their
- * label is a sentence, so they are rows in a feature's detail panel where there is width
- * to read them. `CATALOGUE-EXPLORER-REDESIGN.md` § 1.
+ * The requirement level is affordable only because the fetch is lazy: at most one
+ * feature's worth is ever loaded (`listCatalogueTree`). Their labels are sentences, so
+ * they truncate here and are read in full in the detail panel.
  *
  * ## The ARIA contract
  *
@@ -29,7 +30,8 @@ import { isSelected, selectionHref, type Selection, type SelectionKind } from ".
 const ICON_BY_KIND = {
   product: Package,
   module: Folder,
-  feature: Component
+  feature: Component,
+  requirement: CircleDot
 } as const;
 
 export function CatalogueTree({
@@ -83,11 +85,28 @@ export function CatalogueTree({
                   businessId={feature.businessId}
                   name={feature.name}
                   count={feature.requirementCount}
-                  open={null}
+                  open={feature.requirements !== null}
                   selected={selected}
                   params={params}
                   parent={{ kind: "module", businessId: moduleRow.businessId }}
-                />
+                >
+                  {feature.requirements?.map((requirement, requirementIndex) => (
+                    <TreeNode
+                      key={requirement.id}
+                      kind="requirement"
+                      level={4}
+                      position={requirementIndex + 1}
+                      setSize={feature.requirements?.length ?? 0}
+                      businessId={requirement.businessId}
+                      name={requirement.name}
+                      count={null}
+                      open={null}
+                      selected={selected}
+                      params={params}
+                      parent={{ kind: "feature", businessId: feature.businessId }}
+                    />
+                  ))}
+                </TreeNode>
               ))}
             </TreeNode>
           ))}
@@ -117,8 +136,9 @@ function TreeNode({
   setSize: number;
   businessId: string;
   name: string;
-  count: number;
-  /** `null` for a level that cannot expand — a feature. */
+  /** `null` for a leaf, which has nothing to count. */
+  count: number | null;
+  /** `null` for a level that cannot expand — a requirement. */
   open: boolean | null;
   selected: Selection | null;
   params: ListSearchParams | undefined;
@@ -165,10 +185,12 @@ function TreeNode({
         <span className="cat-node-label">{name}</span>
         {/* The count is the row's own answer to "how big is this?", so it is read as part
             of the row rather than announced as a bare number after the name. */}
-        <span className="cat-count" data-zero={count === 0 ? "" : undefined}>
-          <span className="sr-only">{childWord(kind, count)}</span>
-          <span aria-hidden>{count}</span>
-        </span>
+        {count === null ? null : (
+          <span className="cat-count" data-zero={count === 0 ? "" : undefined}>
+            <span className="sr-only">{childWord(kind, count)}</span>
+            <span aria-hidden>{count}</span>
+          </span>
+        )}
       </Link>
       {children ? <ul role="group">{children}</ul> : null}
     </li>
@@ -176,7 +198,6 @@ function TreeNode({
 }
 
 function childWord(kind: SelectionKind, count: number): string {
-  const noun =
-    kind === "product" ? "module" : kind === "module" ? "feature" : "requirement";
+  const noun = kind === "product" ? "module" : kind === "module" ? "feature" : "requirement";
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }

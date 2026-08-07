@@ -22,31 +22,34 @@
 import { BUSINESS_ID_PATTERNS } from "@/lib/business-ids";
 import { hrefWith, readParam, type ListSearchParams } from "@/ui/list-params";
 
-/** Requirements are deliberately absent: they are rows in a feature's detail panel, not
- *  tree nodes. See `CATALOGUE-EXPLORER-REDESIGN.md` § 1 for why. */
-export type SelectionKind = "product" | "module" | "feature";
+/** All four levels of the hierarchy are selectable. */
+export type SelectionKind = "product" | "module" | "feature" | "requirement";
 
 export type Selection = { kind: SelectionKind; businessId: string };
 
 export const SELECTION_PARAM = "sel";
 
-/** One letter each, so the URL stays short enough to read at a glance. */
+/** One letter each, so the URL stays short enough to read at a glance. `r`, not `q` — the
+ *  needle already owns `q`, and two meanings for one letter in one URL is a trap. */
 const KIND_BY_PREFIX: Record<string, SelectionKind> = {
   p: "product",
   m: "module",
-  f: "feature"
+  f: "feature",
+  r: "requirement"
 };
 
 const PREFIX_BY_KIND: Record<SelectionKind, string> = {
   product: "p",
   module: "m",
-  feature: "f"
+  feature: "f",
+  requirement: "r"
 };
 
 const PATTERN_BY_KIND: Record<SelectionKind, RegExp> = {
   product: BUSINESS_ID_PATTERNS.product,
   module: BUSINESS_ID_PATTERNS.module,
-  feature: BUSINESS_ID_PATTERNS.feature
+  feature: BUSINESS_ID_PATTERNS.feature,
+  requirement: BUSINESS_ID_PATTERNS.requirement
 };
 
 /**

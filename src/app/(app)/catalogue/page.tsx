@@ -5,6 +5,7 @@ import {
   getFeatureDetail,
   getModuleDetail,
   getProductDetail,
+  getRequirementDetail,
   listCatalogueOptions,
   listCatalogueTree,
   type CatalogueDetail
@@ -37,7 +38,10 @@ async function loadDetail(
   try {
     if (selection.kind === "product") return await getProductDetail(selection.businessId);
     if (selection.kind === "module") return await getModuleDetail(selection.businessId);
-    return await getFeatureDetail(selection.businessId, { page: requirementPage });
+    if (selection.kind === "feature") {
+      return await getFeatureDetail(selection.businessId, { page: requirementPage });
+    }
+    return await getRequirementDetail(selection.businessId);
   } catch (error) {
     if (error instanceof AppError && error.status === 404) return null;
     throw error;
@@ -91,7 +95,8 @@ export default async function CataloguePage({
     listCatalogueTree({
       q: needle,
       openProductId: detail?.path.productId,
-      openModuleId: detail?.path.moduleId ?? undefined
+      openModuleId: detail?.path.moduleId ?? undefined,
+      openFeatureId: detail?.path.featureId ?? undefined
     }),
     // The create dialogs still need every possible parent for the case where nothing is
     // selected and no parent is implied — three columns each, not whole records.
@@ -104,6 +109,34 @@ export default async function CataloguePage({
     label: row.name
   });
 
+  /**
+   * What the header's one button will create, and inside what.
+   *
+   * For the first three levels the selected record IS the parent. A requirement has
+   * nothing beneath it, so selecting one offers a sibling instead — another requirement
+   * under the same feature, which is what someone writing requirements actually wants
+   * next. The feature's id comes from `path`; its label from the breadcrumb trail.
+   */
+  const featureCrumb = detail?.trail.find((step) => step.kind === "feature");
+  const createUnder =
+    detail === null
+      ? null
+      : detail.kind === "requirement"
+        ? featureCrumb && detail.path.featureId
+          ? {
+              kind: "feature" as const,
+              parent: {
+                id: detail.path.featureId,
+                businessId: featureCrumb.businessId,
+                label: featureCrumb.name
+              }
+            }
+          : null
+        : {
+            kind: detail.kind,
+            parent: { id: detail.id, businessId: detail.businessId, label: detail.title }
+          };
+
   return (
     <div className="cat-screen">
       <div className="cat-head">
@@ -114,14 +147,7 @@ export default async function CataloguePage({
           </div>
           {/* One call to action, and what it creates follows the selection. */}
           <ContextualCreate
-            selection={
-              detail === null
-                ? null
-                : {
-                    kind: detail.kind,
-                    parent: { id: detail.id, businessId: detail.businessId, label: detail.title }
-                  }
-            }
+            selection={createUnder}
             options={{
               products: options.products.map(asParent),
               modules: options.modules.map(asParent),
