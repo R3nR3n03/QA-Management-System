@@ -8,6 +8,7 @@ import {
   getRequirementDetail,
   listCatalogueOptions,
   listCatalogueTree,
+  resolveOpenIds,
   type CatalogueDetail
 } from "@/domain/catalogue";
 import { AppError } from "@/lib/errors";
@@ -17,7 +18,7 @@ import { CatalogueSearch } from "./CatalogueSearch";
 import { CatalogueTree } from "./CatalogueTree";
 import { ContextualCreate } from "./CatalogueForms";
 import { DetailPanel } from "./DetailPanel";
-import { readSelection, type Selection } from "./selection";
+import { readOpenSet, readSelection, type Selection } from "./selection";
 
 export const dynamic = "force-dynamic";
 
@@ -86,17 +87,33 @@ export default async function CataloguePage({
   const needle = readParam(params, "q");
   const requirementPage = readPage(params, "req");
 
-  // Sequential, not parallel: the tree opens branches by row id, and the detail is what
-  // resolves a selected feature's module and product to ids.
-  const detail = await loadDetail(selection, requirementPage);
+  // Before the tree, not beside it: the tree opens branches by row id, and these two are
+  // what resolve business IDs to them — the detail for the selected record's ancestors,
+  // `resolveOpenIds` for the branches the viewer expanded. Independent of each other, so
+  // they still run together.
+  const [detail, opened] = await Promise.all([
+    loadDetail(selection, requirementPage),
+    resolveOpenIds([...readOpenSet(params)])
+  ]);
+
+  /**
+   * The selected record's ancestors are open whether or not `?open=` names them.
+   *
+   * `?open=` is what the viewer expanded by hand; this is the branch the selection is
+   * sitting in. Without it a link or a bookmark to `?sel=f:FEAT012` would land on a
+   * collapsed tree with the selected row nowhere on it. Selecting reveals; it no longer
+   * COLLAPSES anything, which is the half of the old behaviour that was the bug.
+   */
+  const withAncestors = (ids: string[], ancestor: string | null | undefined) =>
+    ancestor ? [...new Set([...ids, ancestor])] : ids;
 
   const [totals, tree, options] = await Promise.all([
     catalogueTotals(),
     listCatalogueTree({
       q: needle,
-      openProductId: detail?.path.productId,
-      openModuleId: detail?.path.moduleId ?? undefined,
-      openFeatureId: detail?.path.featureId ?? undefined
+      openProductIds: withAncestors(opened.productIds, detail?.path.productId),
+      openModuleIds: withAncestors(opened.moduleIds, detail?.path.moduleId),
+      openFeatureIds: withAncestors(opened.featureIds, detail?.path.featureId)
     }),
     // The create dialogs still need every possible parent for the case where nothing is
     // selected and no parent is implied — three columns each, not whole records.

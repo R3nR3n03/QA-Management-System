@@ -164,22 +164,37 @@ export async function catalogueTotals() {
  */
 export async function listCatalogueTree(options: {
   q?: string;
+  /** A single open branch per level — the shape the acceptance tests drive. */
   openProductId?: string;
   openModuleId?: string;
   openFeatureId?: string;
+  /**
+   * Every open branch per level, which is what the screen passes.
+   *
+   * Plural because expansion is no longer derived from one selected record's ancestor
+   * path: the viewer expands branches independently of what is selected, so any number
+   * can be open at once. Unioned with the singular options above.
+   */
+  openProductIds?: readonly string[];
+  openModuleIds?: readonly string[];
+  openFeatureIds?: readonly string[];
 } = {}): Promise<CatalogueTree> {
   const needle = (options.q ?? "").trim();
 
   if (needle !== "") return searchCatalogueTree(needle);
+
+  const openProducts = union(options.openProductIds, options.openProductId);
+  const openModules = union(options.openModuleIds, options.openModuleId);
+  const openFeatures = union(options.openFeatureIds, options.openFeatureId);
 
   const [products, moduleCountRows] = await Promise.all([
     prisma.product.findMany({ select: OPTION_SELECT, orderBy: BY_BUSINESS_ID }),
     prisma.module.groupBy({ by: ["productId"], _count: { _all: true } })
   ]);
 
-  const modules: ModuleRow[] = options.openProductId
+  const modules: ModuleRow[] = openProducts.size
     ? await prisma.module.findMany({
-        where: { productId: options.openProductId },
+        where: { productId: { in: [...openProducts] } },
         select: { ...OPTION_SELECT, productId: true },
         orderBy: BY_BUSINESS_ID
       })
@@ -195,9 +210,9 @@ export async function listCatalogueTree(options: {
       })
     : [];
 
-  const features: FeatureRow[] = options.openModuleId
+  const features: FeatureRow[] = openModules.size
     ? await prisma.feature.findMany({
-        where: { moduleId: options.openModuleId },
+        where: { moduleId: { in: [...openModules] } },
         select: { ...OPTION_SELECT, moduleId: true },
         orderBy: BY_BUSINESS_ID
       })
@@ -211,12 +226,13 @@ export async function listCatalogueTree(options: {
       })
     : [];
 
-  // One feature's requirements, and only when that feature is open. This is the level
-  // that would flood the tree if it were ever fetched wholesale.
-  const requirements: RequirementRow[] = options.openFeatureId
+  // The requirements of the open features, and only those. This is the level that would
+  // flood the tree if it were ever fetched wholesale, so it stays bounded by what the
+  // viewer has actually opened — and `MAX_OPEN_NODES` bounds that in turn.
+  const requirements: RequirementRow[] = openFeatures.size
     ? (
         await prisma.requirement.findMany({
-          where: { featureId: options.openFeatureId },
+          where: { featureId: { in: [...openFeatures] } },
           select: { id: true, businessId: true, statement: true, featureId: true },
           orderBy: BY_BUSINESS_ID
         })
@@ -231,10 +247,59 @@ export async function listCatalogueTree(options: {
     moduleCounts: countsFrom(moduleCountRows, "productId"),
     featureCounts: countsFrom(featureCountRows, "moduleId"),
     requirementCounts: countsFrom(requirementCountRows, "featureId"),
-    openProductIds: options.openProductId ? new Set([options.openProductId]) : new Set(),
-    openModuleIds: options.openModuleId ? new Set([options.openModuleId]) : new Set(),
-    openFeatureIds: options.openFeatureId ? new Set([options.openFeatureId]) : new Set()
+    openProductIds: openProducts,
+    openModuleIds: openModules,
+    openFeatureIds: openFeatures
   });
+}
+
+/** The plural option and the singular one as one set, ignoring blanks. */
+function union(many: readonly string[] | undefined, one: string | undefined): Set<string> {
+  const out = new Set<string>(many ?? []);
+  if (one) out.add(one);
+  out.delete("");
+  return out;
+}
+
+/**
+ * The row ids behind a set of business IDs, split by level.
+ *
+ * The tree opens branches by row id; the URL carries business IDs, because those are what
+ * a person reads and pastes (`selection.ts`). This is the one lookup between them. IDs are
+ * sorted into levels by their own format first, so each query asks only for rows that
+ * could match — three indexed `IN` lookups on a `@unique` column, and none at all for a
+ * level nothing is open at.
+ *
+ * Unknown IDs simply return nothing. A stale `?open=MOD999` is a branch that is not there
+ * any more, which is a tree with one fewer branch open — not an error.
+ */
+export async function resolveOpenIds(businessIds: readonly string[]): Promise<{
+  productIds: string[];
+  moduleIds: string[];
+  featureIds: string[];
+}> {
+  const forLevel = (pattern: RegExp) => businessIds.filter((id) => pattern.test(id));
+  const productBids = forLevel(BUSINESS_ID_PATTERNS.product);
+  const moduleBids = forLevel(BUSINESS_ID_PATTERNS.module);
+  const featureBids = forLevel(BUSINESS_ID_PATTERNS.feature);
+
+  const idsOf = async (
+    model: { findMany: (args: unknown) => Promise<Array<{ id: string }>> },
+    bids: string[]
+  ) =>
+    bids.length
+      ? (await model.findMany({ where: { businessId: { in: bids } }, select: { id: true } })).map(
+          (row) => row.id
+        )
+      : [];
+
+  const [productIds, moduleIds, featureIds] = await Promise.all([
+    idsOf(prisma.product as never, productBids),
+    idsOf(prisma.module as never, moduleBids),
+    idsOf(prisma.feature as never, featureBids)
+  ]);
+
+  return { productIds, moduleIds, featureIds };
 }
 
 /** A requirement's statement is its label, so the tree sees one row shape at every level. */

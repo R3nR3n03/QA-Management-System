@@ -2,18 +2,37 @@ import Link from "next/link";
 import { ChevronRight, CircleDot, Component, Folder, Package } from "lucide-react";
 import type { CatalogueTree as Tree } from "@/domain/catalogue-tree";
 import type { ListSearchParams } from "@/ui/list-params";
-import { isSelected, selectionHref, type Selection, type SelectionKind } from "./selection";
+import {
+  isSelected,
+  selectionHref,
+  toggleOpenHref,
+  type Selection,
+  type SelectionKind
+} from "./selection";
 import { TreeKeyboard } from "./TreeKeyboard";
 
 /**
  * The hierarchy as a tree: Product → Module → Feature → Requirement, with a child count
  * on every row that has children.
  *
- * A server component. There is no state to hold — which branches are open follows from
- * what is selected, and what is selected lives in the query string (`selection.ts`) — so
- * the rows themselves ship no JavaScript and work before hydration. Keyboard navigation
- * is a client controller wrapped around them (`TreeKeyboard`), not a rewrite of them: it
- * moves focus and nothing else, so the tree degrades to a working set of links.
+ * A server component. There is no state to hold — which branches are open and what is
+ * selected both live in the query string (`selection.ts`) — so the rows themselves ship no
+ * JavaScript and work before hydration. Keyboard navigation is a client controller wrapped
+ * around them (`TreeKeyboard`), not a rewrite of them: it moves focus and follows links, so
+ * the tree degrades to a working set of links.
+ *
+ * ## Two links per row, not one
+ *
+ * The chevron is its own link (`?open=…`) and the row is another (`?sel=…`). They used to
+ * be a single link that did both, and that is what made the tree look as though it would
+ * not open: clicking a node that was already selected and open navigated to its parent in
+ * order to close it, and a product has no parent, so the second click on a product cleared
+ * the selection and returned to a bare `/catalogue`. Opening a product and then clicking it
+ * again — the ordinary way anyone drills into a tree — opened it and shut it. Only one
+ * branch could be open at a time for the same reason. See `OPEN_PARAM` in `selection.ts`.
+ *
+ * Siblings rather than one nested in the other, because an `<a>` inside an `<a>` is invalid
+ * HTML; `.cat-row` is the flex box that puts them on one line.
  *
  * The requirement level is affordable only because the fetch is lazy: at most one
  * feature's worth is ever loaded (`listCatalogueTree`). Their labels are sentences, so
@@ -77,7 +96,6 @@ export function CatalogueTree({
           selected={selected}
           tabStop={tabStop}
           params={params}
-          parent={null}
         >
           {product.modules?.map((moduleRow, moduleIndex) => (
             <TreeNode
@@ -93,7 +111,6 @@ export function CatalogueTree({
               selected={selected}
               tabStop={tabStop}
               params={params}
-              parent={{ kind: "product", businessId: product.businessId }}
             >
               {moduleRow.features?.map((feature, featureIndex) => (
                 <TreeNode
@@ -109,7 +126,6 @@ export function CatalogueTree({
                   selected={selected}
                   tabStop={tabStop}
                   params={params}
-                  parent={{ kind: "module", businessId: moduleRow.businessId }}
                 >
                   {feature.requirements?.map((requirement, requirementIndex) => (
                     <TreeNode
@@ -125,7 +141,6 @@ export function CatalogueTree({
                       selected={selected}
                       tabStop={tabStop}
                       params={params}
-                      parent={{ kind: "feature", businessId: feature.businessId }}
                     />
                   ))}
                 </TreeNode>
@@ -151,7 +166,6 @@ function TreeNode({
   selected,
   tabStop,
   params,
-  parent,
   children
 }: {
   kind: SelectionKind;
@@ -168,60 +182,72 @@ function TreeNode({
   /** Business ID of the row holding the tab stop when nothing is selected. */
   tabStop: string | null;
   params: ListSearchParams | undefined;
-  parent: Selection | null;
   children?: React.ReactNode;
 }) {
   const Icon = ICON_BY_KIND[kind];
   const here = isSelected(selected, kind, businessId);
 
   /**
-   * Clicking the node that is already selected AND open goes to its parent, which closes
-   * it — the row is the toggle, because opening a branch is a fetch and therefore a
-   * navigation (see the `.cat-twist` note in globals.css). A product opened only because a
-   * descendant is selected is NOT selected itself, so clicking it selects it rather than
-   * collapsing the branch the viewer is working in.
+   * A row is expandable only if there is something behind the chevron. A requirement is a
+   * leaf (`open === null`), and so, in practice, is a module with no features: offering a
+   * control that opens onto nothing is the same broken promise `TreeModule.features`
+   * distinguishes `null` from `[]` to avoid.
    */
-  const href =
-    here && open === true
-      ? selectionHref(params, parent)
-      : selectionHref(params, { kind, businessId });
+  const expandable = open !== null && (count ?? 0) > 0;
 
   return (
     <li role="none">
-      <Link
-        href={href}
-        className="cat-node"
-        role="treeitem"
-        aria-level={level}
-        aria-setsize={setSize}
-        aria-posinset={position}
-        aria-selected={here}
-        aria-expanded={open === null ? undefined : open}
-        tabIndex={here || tabStop === businessId ? 0 : -1}
-        data-node-id={businessId}
-        data-bid={businessId}
-        data-name={name}
-        // One indent step per level, read by the padding rule.
+      <div
+        className="cat-row"
+        // One indent step per level. On the row, not the link, so the chevron sits in the
+        // gutter the indent creates rather than pushing the label out of line with it.
         style={{ ["--cat-level" as string]: level - 1 }}
-        title={`${businessId} · ${name}`}
       >
-        <ChevronRight
-          size={14}
-          aria-hidden
-          className={`cat-twist${open === null ? " cat-twist-leaf" : open ? " cat-twist-open" : ""}`}
-        />
-        <Icon size={14} aria-hidden style={{ flex: "none", opacity: 0.75 }} />
-        <span className="cat-node-id">{businessId}</span>
-        <span className="cat-node-label">{name}</span>
-        {/* The count is the row's own answer to "how big is this?", so it is read as part
-            of the row rather than announced as a bare number after the name. */}
-        {count === null ? null : (
-          <span className="cat-count" data-zero={count === 0 ? "" : undefined}>
-            <span className="sr-only">{childWord(kind, count)}</span>
-            <span aria-hidden>{count}</span>
-          </span>
+        {expandable ? (
+          <Link
+            href={toggleOpenHref(params, businessId)}
+            className="cat-twist-btn"
+            // Not a tab stop: the tree is ONE stop in the tab order, and that stop is the
+            // row. The chevron is reached with `→`/`←`, which is what the ARIA tree
+            // pattern asks for anyway.
+            tabIndex={-1}
+            aria-label={`${open ? "Collapse" : "Expand"} ${businessId} ${name}`}
+            data-twist={businessId}
+          >
+            <ChevronRight size={14} aria-hidden className={`cat-twist${open ? " cat-twist-open" : ""}`} />
+          </Link>
+        ) : (
+          // Keeps every label on one vertical line whether or not the row can open.
+          <span className="cat-twist-spacer" aria-hidden />
         )}
-      </Link>
+        <Link
+          href={selectionHref(params, { kind, businessId })}
+          className="cat-node"
+          role="treeitem"
+          aria-level={level}
+          aria-setsize={setSize}
+          aria-posinset={position}
+          aria-selected={here}
+          aria-expanded={expandable ? open === true : undefined}
+          tabIndex={here || tabStop === businessId ? 0 : -1}
+          data-node-id={businessId}
+          data-bid={businessId}
+          data-name={name}
+          title={`${businessId} · ${name}`}
+        >
+          <Icon size={14} aria-hidden style={{ flex: "none", opacity: 0.75 }} />
+          <span className="cat-node-id">{businessId}</span>
+          <span className="cat-node-label">{name}</span>
+          {/* The count is the row's own answer to "how big is this?", so it is read as part
+              of the row rather than announced as a bare number after the name. */}
+          {count === null ? null : (
+            <span className="cat-count" data-zero={count === 0 ? "" : undefined}>
+              <span className="sr-only">{childWord(kind, count)}</span>
+              <span aria-hidden>{count}</span>
+            </span>
+          )}
+        </Link>
+      </div>
       {children ? <ul role="group">{children}</ul> : null}
     </li>
   );

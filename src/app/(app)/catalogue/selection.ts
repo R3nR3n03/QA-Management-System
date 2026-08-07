@@ -85,6 +85,105 @@ export function selectionParam(selection: Selection): string {
   return `${PREFIX_BY_KIND[selection.kind]}:${selection.businessId}`;
 }
 
+/**
+ * Which branches are expanded, carried in the query string as `?open=PROD001.MOD002`.
+ *
+ * **Separate from `sel` on purpose.** Expansion used to be derived from the selection: a
+ * branch was open because the selected record was inside it, so the row link doubled as
+ * the expand/collapse toggle. Two things a viewer means separately — "show me this record"
+ * and "let me see what is inside this one" — were one action, which made the tree behave
+ * as if it would not open at all:
+ *
+ * - Clicking an already-selected, already-open node navigated to its PARENT to close it,
+ *   and a product has no parent, so a second click on a product threw the selection away
+ *   and returned to a bare `/catalogue`. Clicking a product twice — the ordinary way anyone
+ *   opens a tree — opened it and then shut it.
+ * - Only one branch could ever be open, because one selection has one ancestor path.
+ *   Opening a second product silently collapsed the first.
+ *
+ * A set of business IDs fixes both: any number of branches stay open, and opening one is
+ * no longer a selection. The selected record's own ancestors are still forced open by the
+ * page, so a link to a deep node reveals it without `open` having to name every step.
+ */
+export const OPEN_PARAM = "open";
+
+/** `.` rather than `,`: `URLSearchParams` leaves it unescaped, so the URL stays readable. */
+const OPEN_SEPARATOR = ".";
+
+/**
+ * A ceiling on how many branches one URL may open, because each open branch is a row in
+ * the `IN (…)` of the tree's fetch. Far above what anyone opens by hand; it exists so a
+ * pasted URL cannot turn one page load into an unbounded query.
+ */
+export const MAX_OPEN_NODES = 64;
+
+const EXPANDABLE_KINDS = ["product", "module", "feature"] as const;
+
+/**
+ * Which level a business ID belongs to, from its own format — `"MOD004"` → `"module"`.
+ *
+ * The open set carries bare IDs rather than `m:MOD004` pairs: the four formats are already
+ * disjoint, so the prefix IS the kind, and a shorter URL is one a person can still read.
+ */
+export function kindOfBusinessId(businessId: string): SelectionKind | null {
+  for (const kind of EXPANDABLE_KINDS) {
+    if (PATTERN_BY_KIND[kind].test(businessId)) return kind;
+  }
+  return PATTERN_BY_KIND.requirement.test(businessId) ? "requirement" : null;
+}
+
+/**
+ * `"PROD001.MOD004"` → `{"PROD001", "MOD004"}`.
+ *
+ * Anything unrecognised is dropped rather than throwing — same contract as
+ * `parseSelection`, and for the same reason: a hand-edited URL should degrade to a sensible
+ * tree, not a crashed screen. Requirements are dropped too; a leaf cannot be open.
+ */
+export function parseOpenSet(raw: string | undefined): Set<string> {
+  const open = new Set<string>();
+  if (!raw) return open;
+
+  for (const part of raw.split(OPEN_SEPARATOR)) {
+    const businessId = part.trim().toUpperCase();
+    const kind = kindOfBusinessId(businessId);
+    if (kind === null || kind === "requirement") continue;
+    open.add(businessId);
+    if (open.size >= MAX_OPEN_NODES) break;
+  }
+  return open;
+}
+
+/** The open set in the page's `searchParams`. Empty when nothing is expanded. */
+export function readOpenSet(params: ListSearchParams | undefined): Set<string> {
+  return parseOpenSet(readParam(params, OPEN_PARAM));
+}
+
+/** The set back as a parameter value, or `null` when empty so the key leaves the URL. */
+export function openParamValue(open: ReadonlySet<string>): string | null {
+  return open.size === 0 ? null : [...open].join(OPEN_SEPARATOR);
+}
+
+/** True when `businessId`'s branch is expanded. */
+export function isOpen(open: ReadonlySet<string>, businessId: string): boolean {
+  return open.has(businessId);
+}
+
+/**
+ * The href the chevron points at: this branch flipped, and **nothing else touched**.
+ *
+ * Not `selectionHref`: expanding a branch must not move the selection, must not clear the
+ * detail panel, and must not reset `?req=` — the viewer is looking around, not choosing.
+ */
+export function toggleOpenHref(
+  params: ListSearchParams | undefined,
+  businessId: string,
+  pathname = "/catalogue"
+): string {
+  const open = readOpenSet(params);
+  if (!open.delete(businessId)) open.add(businessId);
+  return hrefWith(pathname, params, { [OPEN_PARAM]: openParamValue(open) });
+}
+
 /** True when the two name the same record. Cheap enough to call once per tree row. */
 export function isSelected(current: Selection | null, kind: SelectionKind, businessId: string): boolean {
   return current !== null && current.kind === kind && current.businessId === businessId;
@@ -97,6 +196,10 @@ export function isSelected(current: Selection | null, kind: SelectionKind, busin
  * dropped, because they belong to the list of the record being left — keeping `?req=3`
  * while moving to a different feature lands the viewer past the end of a list they have
  * not seen.
+ *
+ * `open` is deliberately NOT dropped: which branches are expanded is the shape of the tree
+ * the viewer has built up, and choosing a record must not collapse it. That is the whole
+ * point of keeping the two parameters apart — see `OPEN_PARAM`.
  */
 export function selectionHref(
   params: ListSearchParams | undefined,
