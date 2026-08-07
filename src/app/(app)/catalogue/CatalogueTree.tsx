@@ -3,6 +3,7 @@ import { ChevronRight, CircleDot, Component, Folder, Package } from "lucide-reac
 import type { CatalogueTree as Tree } from "@/domain/catalogue-tree";
 import type { ListSearchParams } from "@/ui/list-params";
 import { isSelected, selectionHref, type Selection, type SelectionKind } from "./selection";
+import { TreeKeyboard } from "./TreeKeyboard";
 
 /**
  * The hierarchy as a tree: Product → Module → Feature → Requirement, with a child count
@@ -10,8 +11,9 @@ import { isSelected, selectionHref, type Selection, type SelectionKind } from ".
  *
  * A server component. There is no state to hold — which branches are open follows from
  * what is selected, and what is selected lives in the query string (`selection.ts`) — so
- * this ships no JavaScript and works before hydration. Keyboard navigation turns it into
- * a client island later; nothing here has to move for that.
+ * the rows themselves ship no JavaScript and work before hydration. Keyboard navigation
+ * is a client controller wrapped around them (`TreeKeyboard`), not a rewrite of them: it
+ * moves focus and nothing else, so the tree degrades to a working set of links.
  *
  * The requirement level is affordable only because the fetch is lazy: at most one
  * feature's worth is ever loaded (`listCatalogueTree`). Their labels are sentences, so
@@ -25,6 +27,14 @@ import { isSelected, selectionHref, type Selection, type SelectionKind } from ".
  * non-visual equivalent of the indentation, and this screen exists to make the hierarchy
  * legible. `aria-selected` rather than `aria-current`: this is a selection widget, and
  * there is only one page.
+ *
+ * ## The single tab stop
+ *
+ * A tree is one stop in the tab order, not one per row — 900 rows must not be 900 Tabs.
+ * The server renders `tabIndex={0}` on the selected row, or the first row when nothing is
+ * selected, and `-1` on the rest; `TreeKeyboard` moves it from there with the arrow keys.
+ * Rendering it server-side is what makes the tree keyboard-reachable before hydration
+ * rather than a set of unreachable links.
  */
 
 const ICON_BY_KIND = {
@@ -43,8 +53,16 @@ export function CatalogueTree({
   selected: Selection | null;
   params: ListSearchParams | undefined;
 }) {
+  // Which row holds the tree's one tab stop. The selected row owns it — unless the
+  // selection is not on screen (a search can filter it out), in which case the first row
+  // does, so the tree is never a widget with no way in.
+  const tabStop = selectedIsRendered(tree, selected)
+    ? null
+    : (tree.products[0]?.businessId ?? null);
+
   return (
-    <ul className="cat-tree" role="tree" aria-label="Product, module and feature hierarchy">
+    <TreeKeyboard>
+    <ul className="cat-tree" role="tree" aria-label="Product, module, feature and requirement hierarchy">
       {tree.products.map((product, index) => (
         <TreeNode
           key={product.id}
@@ -57,6 +75,7 @@ export function CatalogueTree({
           count={product.moduleCount}
           open={product.modules !== null}
           selected={selected}
+          tabStop={tabStop}
           params={params}
           parent={null}
         >
@@ -72,6 +91,7 @@ export function CatalogueTree({
               count={moduleRow.featureCount}
               open={moduleRow.features !== null}
               selected={selected}
+              tabStop={tabStop}
               params={params}
               parent={{ kind: "product", businessId: product.businessId }}
             >
@@ -87,6 +107,7 @@ export function CatalogueTree({
                   count={feature.requirementCount}
                   open={feature.requirements !== null}
                   selected={selected}
+                  tabStop={tabStop}
                   params={params}
                   parent={{ kind: "module", businessId: moduleRow.businessId }}
                 >
@@ -102,6 +123,7 @@ export function CatalogueTree({
                       count={null}
                       open={null}
                       selected={selected}
+                      tabStop={tabStop}
                       params={params}
                       parent={{ kind: "feature", businessId: feature.businessId }}
                     />
@@ -113,6 +135,7 @@ export function CatalogueTree({
         </TreeNode>
       ))}
     </ul>
+    </TreeKeyboard>
   );
 }
 
@@ -126,6 +149,7 @@ function TreeNode({
   count,
   open,
   selected,
+  tabStop,
   params,
   parent,
   children
@@ -141,6 +165,8 @@ function TreeNode({
   /** `null` for a level that cannot expand — a requirement. */
   open: boolean | null;
   selected: Selection | null;
+  /** Business ID of the row holding the tab stop when nothing is selected. */
+  tabStop: string | null;
   params: ListSearchParams | undefined;
   parent: Selection | null;
   children?: React.ReactNode;
@@ -171,6 +197,10 @@ function TreeNode({
         aria-posinset={position}
         aria-selected={here}
         aria-expanded={open === null ? undefined : open}
+        tabIndex={here || tabStop === businessId ? 0 : -1}
+        data-node-id={businessId}
+        data-bid={businessId}
+        data-name={name}
         // One indent step per level, read by the padding rule.
         style={{ ["--cat-level" as string]: level - 1 }}
         title={`${businessId} · ${name}`}
@@ -195,6 +225,32 @@ function TreeNode({
       {children ? <ul role="group">{children}</ul> : null}
     </li>
   );
+}
+
+/**
+ * Is the selected record actually one of the rows on screen?
+ *
+ * It usually is, but a search can filter it out — the selection survives a search by
+ * design. When it does, no row would carry `aria-selected` and the tab stop has to fall
+ * back to the first row, or the tree becomes a widget with no way into it.
+ */
+function selectedIsRendered(tree: Tree, selected: Selection | null): boolean {
+  if (selected === null) return false;
+  for (const product of tree.products) {
+    if (selected.kind === "product" && product.businessId === selected.businessId) return true;
+    for (const moduleRow of product.modules ?? []) {
+      if (selected.kind === "module" && moduleRow.businessId === selected.businessId) return true;
+      for (const feature of moduleRow.features ?? []) {
+        if (selected.kind === "feature" && feature.businessId === selected.businessId) return true;
+        for (const requirement of feature.requirements ?? []) {
+          if (selected.kind === "requirement" && requirement.businessId === selected.businessId) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
 }
 
 function childWord(kind: SelectionKind, count: number): string {

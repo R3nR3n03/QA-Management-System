@@ -2671,6 +2671,13 @@ dialog.modal::backdrop {
   background: var(--accent-wash);
   color: var(--ink);
 }
+/* The ring sits inside the row's own box. The global rule offsets it by 2px outwards,
+   which the explorer's `overflow: hidden` shaves off against the panel's rounded edge —
+   and the arrow keys move this ring down a scrolling column, so it has to survive at
+   both ends. */
+.cat-node:focus-visible {
+  outline-offset: -2px;
+}
 
 /* Selection is never colour alone: the row also takes a left stripe and 600 weight, so it
    survives greyscale and low vision. Same rule the `.seg` segments and the status chips

@@ -719,15 +719,32 @@ Icons are `lucide-react`, already a dependency and already the project's icon se
 
 **Tree (WAI-ARIA `tree` pattern — matching the spec exactly, not approximately):**
 
-| Key | Action |
-|---|---|
-| `↓` / `↑` | Next / previous **visible** node (crosses levels; a collapsed branch is skipped) |
-| `→` | Closed node → open it. Open node → move to first child. Leaf → nothing. |
-| `←` | Open node → close it. Closed/leaf → move to parent. |
-| `Home` / `End` | First / last visible node |
-| `Enter` / `Space` | Select the focused node (navigate; focus moves to the detail panel) |
-| `*` | Expand every sibling at the current level |
-| type-ahead | Typing letters jumps to the next node whose label starts with them |
+| Key | Action | Built |
+|---|---|---|
+| `↓` / `↑` | Next / previous visible node (crosses levels) | ✅ |
+| `→` | Closed node → **activate it**, which opens it. Open node → move to first child. Leaf → nothing. | ✅ |
+| `←` | Open node → **activate its parent**, which closes it. Closed/leaf → move focus to parent. | ✅ |
+| `Home` / `End` | First / last visible node | ✅ |
+| `Enter` / `Space` | Select the focused node; focus moves to the detail panel | ✅ |
+| type-ahead | Jumps to the next node whose ID or name starts with what was typed; one key repeated cycles the matches | ✅ |
+| `*` (expand all siblings) | — | ❌ **not built** |
+
+**Two adaptations, both forced by lazy loading.** A branch's children are fetched only
+when it opens, so opening one is a *navigation*. `→` on a closed node therefore does what
+`Enter` does, and `←` on an open one navigates to its parent. Focus stays on the row in
+both cases, which is what the pattern asks for; the selection moves because in this tree
+"closed" and "the parent is selected" are the same state.
+
+**`*` is deliberately absent.** Every expansion is a server round trip, so expanding eight
+siblings would be eight navigations. A key that cannot do what its name says is worse than
+one that isn't there.
+
+**Only `Enter` and `Space` move focus to the detail panel** — they mean "show me this", and
+changing the whole right-hand side of the screen with no indication is exactly the failure
+§7 item 5 is about. The arrow keys mean "look around" and leave focus in the tree.
+
+Collapsed branches are never rendered, so **document order is visible order** — up/down
+needs no filtering, and the parent of a row is the nearest row above it one level shallower.
 
 **Screen:**
 

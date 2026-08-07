@@ -188,7 +188,14 @@ export default async function CataloguePage({
           )}
         </nav>
 
-        <div className="cat-detail">
+        {/*
+          `tabIndex={-1}` so `TreeKeyboard` can move focus here when a row is activated
+          with Enter or Space. Without it, choosing a record from the keyboard replaces
+          the entire right-hand side of the screen and says nothing to anyone who is not
+          watching it happen. Arrow keys deliberately do not focus this — they mean "look
+          around", and focus belongs in the tree while you do.
+        */}
+        <section className="cat-detail" id="cat-detail" tabIndex={-1} aria-label="Selected record">
           <DetailPanel
             detail={detail}
             params={params}
@@ -197,7 +204,7 @@ export default async function CataloguePage({
             totals={totals}
             hasAnyProduct={totals.products > 0}
           />
-        </div>
+        </section>
       </div>
     </div>
   );
