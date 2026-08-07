@@ -2765,6 +2765,12 @@ dialog.modal::backdrop {
   font-size: 12px;
   color: var(--ink-3);
 }
+/* The match announcement is a live region, so it is in the DOM even when idle — a region
+   added at the same moment its text appears is often not announced at all. Empty, it must
+   take no space. */
+.cat-tree-note:empty {
+  padding: 0;
+}
 
 /* ---------- detail panel ---------- */
 

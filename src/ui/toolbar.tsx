@@ -77,12 +77,19 @@ export function UrlFilterToolbar({
   placeholder,
   label,
   paramKey = "q",
-  pageKey = "page"
+  pageKey = "page",
+  inputId
 }: {
   placeholder: string;
   label: string;
   paramKey?: string;
   pageKey?: string;
+  /**
+   * An id on the input, so a keyboard shortcut elsewhere on the page can focus it. Opt-in
+   * and unset by default: an id is a document-wide name, and minting one for all five
+   * existing call sites would risk two filters on one screen colliding.
+   */
+  inputId?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -154,6 +161,7 @@ export function UrlFilterToolbar({
     <div className="list-toolbar" data-busy={isPending ? "" : undefined}>
       <Search size={14} aria-hidden />
       <input
+        id={inputId}
         type="search"
         value={value}
         onChange={(e) => schedule(e.target.value)}

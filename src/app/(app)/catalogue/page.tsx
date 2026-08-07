@@ -12,6 +12,7 @@ import {
 import { AppError } from "@/lib/errors";
 import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
 import { requireSession } from "@/ui/session";
+import { CatalogueSearch } from "./CatalogueSearch";
 import { CatalogueTree } from "./CatalogueTree";
 import { ContextualCreate } from "./CatalogueForms";
 import { DetailPanel } from "./DetailPanel";
@@ -150,10 +151,12 @@ export default async function CataloguePage({
 
       <div className="cat">
         <nav className="cat-explorer" aria-label="Catalogue browser">
+          <CatalogueSearch matchCount={tree.matchCount} needle={needle} />
+          {/* A search that matched nothing says so in the live region above rather than
+              here, so the message is announced as well as shown — and an empty
+              `role="tree"` with no items is never rendered. */}
           {tree.products.length === 0 ? (
-            <p className="cat-tree-note">
-              {needle === "" ? "No products yet." : `Nothing matches “${needle}”.`}
-            </p>
+            needle === "" ? <p className="cat-tree-note">No products yet.</p> : null
           ) : (
             <CatalogueTree tree={tree} selected={selection} params={params} />
           )}
