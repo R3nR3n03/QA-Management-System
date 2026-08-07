@@ -162,15 +162,25 @@ export type SessionCookieOptions = {
  * implementation choice; it does not set policy. If deep links from email turn out to
  * matter, that is a QA Lead decision and reverting is a one-line change in one file.
  *
- * `secure` follows `NODE_ENV` rather than being hard-coded, because a `Secure` cookie is
- * never stored over plain `http` and local development has no TLS.
+ * `secure` follows `NODE_ENV` by default, because a `Secure` cookie is never stored over
+ * plain `http` and local development has no TLS.
+ *
+ * `SESSION_COOKIE_SECURE=false` overrides that default for the one case `NODE_ENV` cannot
+ * distinguish: a production *build* (`next start`, or `node .next/standalone/server.js`)
+ * run without a TLS terminator in front of it — per `PRODUCTION-READINESS-2026-07-31.md`
+ * D1, that is the only way this project's "prod" runs today. Without the override, the
+ * cookie is marked `Secure`, the browser silently refuses to store it over `http://`, and
+ * every navigation after login looks like a fresh unauthenticated request — for example
+ * clicking a catalogue tree node bounces to `/login` instead of expanding it. Leave this
+ * unset the moment a real deployment terminates TLS in front of the app; it is not a
+ * substitute for that.
  */
 export function sessionCookieOptions(
   env: Record<string, string | undefined> = process.env
 ): SessionCookieOptions {
   return {
     httpOnly: true,
-    secure: env.NODE_ENV === "production",
+    secure: env.SESSION_COOKIE_SECURE === "false" ? false : env.NODE_ENV === "production",
     sameSite: "strict",
     path: "/",
     // Derived from the same TTL the token carries, so the cookie cannot outlive the token
