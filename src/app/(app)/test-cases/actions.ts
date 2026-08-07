@@ -19,6 +19,13 @@ import { failState, runAction, type FormState } from "@/ui/action";
  * Every rule — author-only submit, reviewer-not-author approve, Draft-only edits,
  * step sequencing — lives in `src/domain/test-cases.ts` and is enforced there for
  * screen and API alike.
+ *
+ * Each one then redirects to the case it changed. `revalidatePath` alone left the screen
+ * on its pre-submit render — a stuck button beside a record that still read Draft, until
+ * the viewer reloaded by hand — because the refresh it triggers happens inside the action's
+ * own transition, which does not commit; see `refreshScreen` in `src/ui/action.ts` for the
+ * full account. Every form below is on the case's own screen, so the case's own URL is
+ * where the viewer already is.
  */
 
 function revalidateCase(id: string) {
@@ -86,7 +93,7 @@ export async function updateDraftAction(_prev: FormState, formData: FormData): P
 
   if (!result.ok) return failState(result);
   revalidateCase(id);
-  return null;
+  redirect(`/test-cases/${id}`);
 }
 
 export async function replaceStepsAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -104,7 +111,7 @@ export async function replaceStepsAction(_prev: FormState, formData: FormData): 
 
   if (!result.ok) return failState(result);
   revalidateCase(id);
-  return null;
+  redirect(`/test-cases/${id}`);
 }
 
 export async function submitTestCaseAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -112,7 +119,7 @@ export async function submitTestCaseAction(_prev: FormState, formData: FormData)
   const result = await runAction((actor) => submitTestCase(id, Number(formData.get("version")), actor));
   if (!result.ok) return failState(result);
   revalidateCase(id);
-  return null;
+  redirect(`/test-cases/${id}`);
 }
 
 export async function approveTestCaseAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -120,7 +127,7 @@ export async function approveTestCaseAction(_prev: FormState, formData: FormData
   const result = await runAction((actor) => approveTestCase(id, Number(formData.get("version")), actor));
   if (!result.ok) return failState(result);
   revalidateCase(id);
-  return null;
+  redirect(`/test-cases/${id}`);
 }
 
 export async function returnToDraftAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -134,7 +141,7 @@ export async function returnToDraftAction(_prev: FormState, formData: FormData):
   );
   if (!result.ok) return failState(result);
   revalidateCase(id);
-  return null;
+  redirect(`/test-cases/${id}`);
 }
 
 export async function retireTestCaseAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -148,5 +155,5 @@ export async function retireTestCaseAction(_prev: FormState, formData: FormData)
   );
   if (!result.ok) return failState(result);
   revalidateCase(id);
-  return null;
+  redirect(`/test-cases/${id}`);
 }

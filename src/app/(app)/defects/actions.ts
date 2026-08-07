@@ -10,6 +10,11 @@ import { failState, runAction, type FormState } from "@/ui/action";
  * Server actions for the defect lifecycle. The transition table, the role gates and
  * every required-rationale rule live in `src/domain/defects.ts`; these read the form
  * and call one service each.
+ *
+ * Both edits then redirect to the defect they changed, for the reason set out on
+ * `refreshScreen` in `src/ui/action.ts`: a revalidate-only action leaves the screen on its
+ * pre-submit render, so a triaged defect kept reading New — with the button stuck mid-word
+ * — until the viewer reloaded. Both forms live on the defect's own screen.
  */
 
 function revalidateDefect(id: string) {
@@ -56,7 +61,7 @@ export async function updateDefectAction(_prev: FormState, formData: FormData): 
 
   if (!result.ok) return failState(result);
   revalidateDefect(id);
-  return null;
+  redirect(`/defects/${id}`);
 }
 
 export async function transitionDefectAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -81,5 +86,5 @@ export async function transitionDefectAction(_prev: FormState, formData: FormDat
 
   if (!result.ok) return failState(result);
   revalidateDefect(id);
-  return null;
+  redirect(`/defects/${id}`);
 }

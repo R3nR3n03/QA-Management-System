@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { AppError } from "@/lib/errors";
 import { requireAuth } from "@/lib/auth";
 import { logRequest } from "@/lib/logging";
@@ -61,6 +63,55 @@ export type FormState = {
   /** A confirmation, not a failure — rendered calmly, and forms may reset on it. */
   success?: boolean;
 } | null;
+
+/**
+ * Send the viewer back to the screen they submitted from, once a mutation has committed.
+ *
+ * ## Why a screen mutation has to end in a navigation
+ *
+ * A server action that only calls `revalidatePath` does its refresh inside the action's own
+ * transition, and that transition does not commit here: the screen stays on its pre-submit
+ * render, and because `useActionState`'s pending flag is optimistic state tied to the same
+ * transition, the button stays stuck on its "…ing" label too (`vercel/next.js` discussion
+ * #82289, issue #66426 — revalidate-only actions under a segment with a `loading.tsx`,
+ * which `(app)` has). It looked like two bugs — a frozen button and a stale record — and it
+ * was one: nothing committed. The only way to see the result was a manual reload.
+ *
+ * Redirecting completes the navigation the refresh was meant to be. `revalidatePath` still
+ * has to run first, or the navigation is served the router's cached copy of the very render
+ * we are trying to replace.
+ *
+ * ## Why the URL comes off the `Referer` header
+ *
+ * A list screen holds the viewer's place in the query string — `/catalogue?modules=3`,
+ * `/admin/users?size=50` — and a mutation that redirects to the bare path silently throws
+ * them back to page one of the default tab. A server action posts to the page it was
+ * submitted from, so that header IS the screen to return to, query and all.
+ *
+ * Only `pathname + search` of a PARSED url travels. The origin is dropped rather than
+ * compared, so a forged `Referer` cannot turn this into an off-site redirect — there is no
+ * allowlist here to get wrong. `fallback` covers a request that arrives without the header
+ * at all: correct screen, default view.
+ *
+ * Use it for a mutation that leaves the viewer where they are. A create still redirects to
+ * the record it created, which is a different destination, not this.
+ *
+ * `redirect()` signals by throwing, so this never returns and must be the last thing an
+ * action does — and it must never sit inside a `try`.
+ */
+export async function refreshScreen(fallback: string): Promise<never> {
+  const referer = (await headers()).get("referer");
+  if (!referer) redirect(fallback);
+
+  let submittedFrom = fallback;
+  try {
+    const url = new URL(referer);
+    submittedFrom = `${url.pathname}${url.search}`;
+  } catch {
+    // Not a URL. Nothing to preserve, so the caller's own screen it is.
+  }
+  redirect(submittedFrom);
+}
 
 /** Convert a failed ActionResult into the renderable form state. */
 export function failState(result: ActionFail): NonNullable<FormState> {
