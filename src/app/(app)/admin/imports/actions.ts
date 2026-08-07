@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createImportRun, resolveImportRow } from "@/domain/imports";
 import { AppError } from "@/lib/errors";
 import { assertWithinUploadLimit, maxUploadBytes } from "@/lib/upload-limits";
-import { failState, runAction, type FormState } from "@/ui/action";
+import { failState, refreshScreen, runAction, type FormState } from "@/ui/action";
 import { errorCopy } from "@/ui/error-copy";
 
 export async function uploadWorkbookAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -47,6 +47,10 @@ export async function resolveImportRowAction(_prev: FormState, formData: FormDat
   const result = await runAction((actor) => resolveImportRow(rowReportId, { decision, rationale }, actor));
   if (!result.ok) return failState(result);
 
-  revalidatePath(`/admin/imports/${String(formData.get("runId") ?? "")}`);
-  return null;
+  const runId = String(formData.get("runId") ?? "");
+  revalidatePath(`/admin/imports/${runId}`);
+  // Back to the run's report, where the row that was just reconciled has to change state —
+  // a revalidate-only action never commits that refresh (see `src/ui/action.ts`), and on a
+  // long report the viewer's place in the row list is worth keeping.
+  return refreshScreen(`/admin/imports/${runId}`);
 }

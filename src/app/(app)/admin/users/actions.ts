@@ -3,7 +3,16 @@
 import { QamsRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { createUser, setUserActive, updateUserProfile, updateUserRole } from "@/domain/admin";
-import { failState, runAction, type FormState } from "@/ui/action";
+import { failState, refreshScreen, runAction, type FormState } from "@/ui/action";
+
+/**
+ * People administration. Every form is on the People screen and leaves the viewer there, so
+ * each action ends in `refreshScreen`: a revalidate-only action never commits its refresh,
+ * so a role change or a deactivation stayed off screen until a manual reload — and a role
+ * change that appears not to have happened is the kind of thing an administrator does twice
+ * (see `src/ui/action.ts`). Returning to the submitted URL keeps the page and rows-per-page
+ * the list was showing.
+ */
 
 export async function createUserAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const result = await runAction((actor) =>
@@ -20,7 +29,7 @@ export async function createUserAction(_prev: FormState, formData: FormData): Pr
 
   if (!result.ok) return failState(result);
   revalidatePath("/admin/users");
-  return null;
+  return refreshScreen("/admin/users");
 }
 
 export async function updateUserRoleAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -36,7 +45,7 @@ export async function updateUserRoleAction(_prev: FormState, formData: FormData)
 
   if (!result.ok) return failState(result);
   revalidatePath("/admin/users");
-  return null;
+  return refreshScreen("/admin/users");
 }
 
 export async function updateUserProfileAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -53,7 +62,7 @@ export async function updateUserProfileAction(_prev: FormState, formData: FormDa
 
   if (!result.ok) return failState(result);
   revalidatePath("/admin/users");
-  return null;
+  return refreshScreen("/admin/users");
 }
 
 export async function setUserActiveAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -69,5 +78,5 @@ export async function setUserActiveAction(_prev: FormState, formData: FormData):
 
   if (!result.ok) return failState(result);
   revalidatePath("/admin/users");
-  return null;
+  return refreshScreen("/admin/users");
 }
