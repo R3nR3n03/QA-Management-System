@@ -2,27 +2,45 @@
  * Assembling the catalogue explorer's tree from flat rows.
  *
  * Pure — no Prisma import — so the parts that are easy to get subtly wrong are testable
- * without a database: which branches count as loaded, what a count means, and how a
- * search match drags its ancestors into view. `src/domain/catalogue.ts` runs the queries
- * and hands the rows here. Same split as `import-parsing.ts` beside it, and for the same
+ * without a database: which branches count as loaded, what a count means, and how many
+ * children one branch is allowed to draw. `src/domain/catalogue.ts` runs the queries and
+ * hands the rows here. Same split as `import-parsing.ts` beside it, and for the same
  * reason: `npm run test` must stay runnable with no PostgreSQL
  * (`vitest.acceptance.config.ts:6-8`).
+ *
+ * ## The tree stops at Feature
+ *
+ * Product → Module → Feature. Requirements are NOT tree nodes: they are the
+ * highest-cardinality level by a wide margin, their label is a whole sentence rather than
+ * a name, and a 300px column truncates a sentence into nothing legible. They live in the
+ * feature's detail panel, which pages them, and in search results, which rank and bound
+ * them. See `docs/adr/0001-catalogue-tree-stops-at-feature.md`.
+ *
+ * ## Search is not here
+ *
+ * Filtering the tree to a needle used to live in this file (`narrowToMatches`). It read
+ * the whole Product, Module and Feature tables on every keystroke and filtered them in
+ * JavaScript, then force-expanded every surviving branch. Search is now a flat, ranked,
+ * database-bounded result list — `./catalogue-search`. See
+ * `docs/adr/0002-catalogue-search-is-a-flat-ranked-list.md`.
  */
 
 export type NodeRow = { id: string; businessId: string; name: string };
 export type ModuleRow = NodeRow & { productId: string };
 export type FeatureRow = NodeRow & { moduleId: string };
-/** A requirement's `name` is its statement — mapped at the query, so every level of the
- *  tree has one shape and `nodeMatches` needs no special case. */
-export type RequirementRow = NodeRow & { featureId: string };
 
-/** The leaf. Nothing hangs off a requirement, so it carries no count. */
-export type TreeRequirement = NodeRow;
+/**
+ * How many children one open branch draws before the rest are deferred.
+ *
+ * A branch is not a list screen. Past a screenful or two the rows stop being scannable and
+ * start being scroll, and the detail panel — which pages every child list — is the place
+ * that reads a long list properly. The cap is what stops one 400-feature module from
+ * deciding how big the whole tree is.
+ */
+export const DEFAULT_CHILD_LIMIT = 50;
 
-export type TreeFeature = NodeRow & {
-  requirementCount: number;
-  requirements: TreeRequirement[] | null;
-};
+/** The leaf of the tree. Its requirements are read in the detail panel, not here. */
+export type TreeFeature = NodeRow & { requirementCount: number };
 
 export type TreeModule = NodeRow & {
   featureCount: number;
@@ -35,33 +53,21 @@ export type TreeModule = NodeRow & {
    * the two would either hide a real gap or promise children that were never loaded.
    */
   features: TreeFeature[] | null;
+  /** Children the cap held back. `0` when everything is on screen. */
+  hiddenFeatures: number;
 };
 
 export type TreeProduct = NodeRow & {
   moduleCount: number;
   modules: TreeModule[] | null;
+  hiddenModules: number;
 };
 
 export type CatalogueTree = {
   products: TreeProduct[];
-  /**
-   * How many nodes the needle put on screen in their own right, for the line the explorer
-   * announces to screen readers. `null` when nothing was searched — not the same as `0`.
-   *
-   * Counts NODES, not hits. A feature surfaced by three matching requirements counts once,
-   * because one row appears; a product counts once however many descendants it drags in.
-   * The number has to describe what the viewer can see, or the announcement and the tree
-   * disagree.
-   */
-  matchCount: number | null;
+  /** Products the cap held back, same rule as any other level. */
+  hiddenProducts: number;
 };
-
-/** Case-insensitive substring over the two things a person searches a node by. */
-export function nodeMatches(row: NodeRow, needle: string): boolean {
-  const q = needle.trim().toLowerCase();
-  if (q === "") return true;
-  return row.businessId.toLowerCase().includes(q) || row.name.toLowerCase().includes(q);
-}
 
 /** `rows` grouped by a foreign key, input order preserved within each group. */
 function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[]> {
@@ -74,29 +80,35 @@ function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[
   return out;
 }
 
-/** How many rows sit under each parent. The count badge in browse mode comes from the
- *  database; this is the search-mode equivalent, counting only what survived the filter. */
-export function countByParent<T>(rows: readonly T[], key: (row: T) => string): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const row of rows) out.set(key(row), (out.get(key(row)) ?? 0) + 1);
-  return out;
+/**
+ * The first `limit` rows, and how many the caller is not being shown.
+ *
+ * `hidden` is measured against `total` — the database's count for the branch — rather than
+ * against `rows.length`, because `total` is what the viewer needs in order to decide
+ * whether opening the record is worth it. "+ 312 more" is a fact about the catalogue;
+ * "+ 0 more" would be a fact about the fetch.
+ */
+function capped<T>(rows: readonly T[], limit: number, total: number): { shown: T[]; hidden: number } {
+  if (rows.length <= limit) return { shown: [...rows], hidden: 0 };
+  const shown = rows.slice(0, limit);
+  return { shown, hidden: Math.max(0, total - shown.length) };
 }
 
 export type AssembleInput = {
   products: readonly NodeRow[];
-  /** Modules of the open products only, in browse mode. */
+  /** Modules of the open products only. */
   modules: readonly ModuleRow[];
-  /** Features of the open modules only, in browse mode. */
+  /** Features of the open modules only. */
   features: readonly FeatureRow[];
-  /** Requirements of the open features only, in browse mode. */
-  requirements: readonly RequirementRow[];
   moduleCounts: ReadonlyMap<string, number>;
   featureCounts: ReadonlyMap<string, number>;
   requirementCounts: ReadonlyMap<string, number>;
   openProductIds: ReadonlySet<string>;
   openModuleIds: ReadonlySet<string>;
-  openFeatureIds: ReadonlySet<string>;
-  matchCount?: number | null;
+  /** Defaults to `DEFAULT_CHILD_LIMIT`. */
+  childLimit?: number;
+  /** Products in the catalogue, when more were counted than fetched. */
+  productTotal?: number;
 };
 
 /**
@@ -104,166 +116,68 @@ export type AssembleInput = {
  *
  * A branch is rendered as loaded only when its parent id is in the open set, so a closed
  * product reports `modules: null` even if rows for it happened to arrive. That keeps one
- * rule — "open decides what is shown" — instead of letting the query's reach decide it,
- * which is what makes browse mode and search mode share this function.
+ * rule — "open decides what is shown" — instead of letting the query's reach decide it.
  */
 export function assembleTree(input: AssembleInput): CatalogueTree {
+  const limit = input.childLimit ?? DEFAULT_CHILD_LIMIT;
   const modulesByProduct = groupBy(input.modules, (m) => m.productId);
   const featuresByModule = groupBy(input.features, (f) => f.moduleId);
-  const requirementsByFeature = groupBy(input.requirements, (r) => r.featureId);
 
-  const products = input.products.map((product) => ({
-    id: product.id,
-    businessId: product.businessId,
-    name: product.name,
-    moduleCount: input.moduleCounts.get(product.id) ?? 0,
-    modules: input.openProductIds.has(product.id)
-      ? (modulesByProduct.get(product.id) ?? []).map((moduleRow) => ({
+  const rootTotal = input.productTotal ?? input.products.length;
+  const root = capped(input.products, limit, rootTotal);
+
+  const products = root.shown.map((product) => {
+    const moduleCount = input.moduleCounts.get(product.id) ?? 0;
+    if (!input.openProductIds.has(product.id)) {
+      return {
+        id: product.id,
+        businessId: product.businessId,
+        name: product.name,
+        moduleCount,
+        modules: null,
+        hiddenModules: 0
+      };
+    }
+
+    const branch = capped(modulesByProduct.get(product.id) ?? [], limit, moduleCount);
+
+    return {
+      id: product.id,
+      businessId: product.businessId,
+      name: product.name,
+      moduleCount,
+      modules: branch.shown.map((moduleRow) => {
+        const featureCount = input.featureCounts.get(moduleRow.id) ?? 0;
+        if (!input.openModuleIds.has(moduleRow.id)) {
+          return {
+            id: moduleRow.id,
+            businessId: moduleRow.businessId,
+            name: moduleRow.name,
+            featureCount,
+            features: null,
+            hiddenFeatures: 0
+          };
+        }
+
+        const leaves = capped(featuresByModule.get(moduleRow.id) ?? [], limit, featureCount);
+
+        return {
           id: moduleRow.id,
           businessId: moduleRow.businessId,
           name: moduleRow.name,
-          featureCount: input.featureCounts.get(moduleRow.id) ?? 0,
-          features: input.openModuleIds.has(moduleRow.id)
-            ? (featuresByModule.get(moduleRow.id) ?? []).map((feature) => ({
-                id: feature.id,
-                businessId: feature.businessId,
-                name: feature.name,
-                requirementCount: input.requirementCounts.get(feature.id) ?? 0,
-                requirements: input.openFeatureIds.has(feature.id)
-                  ? (requirementsByFeature.get(feature.id) ?? []).map((requirement) => ({
-                      id: requirement.id,
-                      businessId: requirement.businessId,
-                      name: requirement.name
-                    }))
-                  : null
-              }))
-            : null
-        }))
-      : null
-  }));
+          featureCount,
+          features: leaves.shown.map((feature) => ({
+            id: feature.id,
+            businessId: feature.businessId,
+            name: feature.name,
+            requirementCount: input.requirementCounts.get(feature.id) ?? 0
+          })),
+          hiddenFeatures: leaves.hidden
+        };
+      }),
+      hiddenModules: branch.hidden
+    };
+  });
 
-  return { products, matchCount: input.matchCount ?? null };
-}
-
-export type NarrowInput = {
-  /** Every product, module and feature. Search fetches the whole spine — see below. */
-  products: readonly NodeRow[];
-  modules: readonly ModuleRow[];
-  features: readonly FeatureRow[];
-  needle: string;
-  /**
-   * The requirements that MATCHED, already selected by the database.
-   *
-   * Unlike the three levels above, these are not the whole table. Requirements outnumber
-   * everything else several times over, so search fetches only the hits — and only the
-   * hits are shown. A feature that matched by its own name appears closed, with its count,
-   * rather than unfolding every requirement it owns; see the expansion rule below.
-   */
-  matchedRequirements?: readonly RequirementRow[];
-};
-
-export type NarrowResult = {
-  products: NodeRow[];
-  modules: ModuleRow[];
-  features: FeatureRow[];
-  requirements: RequirementRow[];
-  openProductIds: Set<string>;
-  openModuleIds: Set<string>;
-  openFeatureIds: Set<string>;
-  matchCount: number;
-};
-
-/**
- * The tree, filtered to a needle.
- *
- * The rule that makes search useful rather than confusing: **a match pulls its ancestors
- * in with it**. Matching `3-D Secure` shows FEAT012 under Checkout under Retail Banking,
- * not a naked feature row with no idea where it lives — which is exactly the orphaned
- * reading the whole redesign exists to remove. Matching a product, conversely, keeps all
- * of its modules, because "show me PROD002" means the product and its contents.
- *
- * Everything reachable is expanded: a search result behind a closed chevron is a search
- * result nobody finds.
- *
- * **The requirement level is the one exception, in both directions.** A matched product
- * keeps every module and a matched module every feature, but a matched FEATURE does not
- * unfold its requirements — it shows closed, with its count. Requirements outnumber the
- * other three levels several times over, and searching a common word would otherwise
- * empty most of the table into a 300px column. So: requirements appear when they
- * themselves matched, and a feature expands only because something inside it did.
- *
- * Search fetches every product, module and feature rather than resolving ancestors with
- * recursive queries. That is three light queries of three columns each — precisely what
- * `listCatalogueOptions` already does on every load of the current screen, so this is no
- * new cost, and it keeps the matching rules here where they can be tested. Requirements
- * are the exception again: only the matching rows are fetched.
- */
-export function narrowToMatches(input: NarrowInput): NarrowResult {
-  const matchedRequirements = input.matchedRequirements ?? [];
-
-  const matchedProducts = new Set(
-    input.products.filter((p) => nodeMatches(p, input.needle)).map((p) => p.id)
-  );
-  const matchedModules = new Set(
-    input.modules.filter((m) => nodeMatches(m, input.needle)).map((m) => m.id)
-  );
-  const matchedFeatures = new Set(
-    input.features.filter((f) => nodeMatches(f, input.needle)).map((f) => f.id)
-  );
-
-  // Nodes that earned their place directly, before ancestors and descendants are added.
-  // A matched product does not make its 40 features "matches". A requirement is its own
-  // row now, so it counts as itself rather than as the feature it hangs under.
-  const matchCount =
-    matchedProducts.size + matchedModules.size + matchedFeatures.size + matchedRequirements.length;
-
-  // Downward: a matched product keeps every module, and a matched module every feature.
-  // Deliberately stops there — a matched feature does not keep its requirements.
-  const keptModules = input.modules.filter(
-    (m) => matchedModules.has(m.id) || matchedProducts.has(m.productId)
-  );
-  const keptModuleIds = new Set(keptModules.map((m) => m.id));
-
-  // Upward: a matched requirement drags its feature in, a kept feature its module, and a
-  // kept module its product.
-  const featuresFromRequirements = new Set(matchedRequirements.map((r) => r.featureId));
-
-  const keptFeatures = input.features.filter(
-    (f) =>
-      matchedFeatures.has(f.id) ||
-      keptModuleIds.has(f.moduleId) ||
-      featuresFromRequirements.has(f.id)
-  );
-
-  const moduleById = new Map(input.modules.map((m) => [m.id, m]));
-  const ancestorModules = new Set<string>();
-  for (const feature of keptFeatures) ancestorModules.add(feature.moduleId);
-
-  const finalModules = input.modules.filter(
-    (m) => keptModuleIds.has(m.id) || ancestorModules.has(m.id)
-  );
-  const finalModuleIds = new Set(finalModules.map((m) => m.id));
-
-  const productIds = new Set(matchedProducts);
-  for (const moduleId of finalModuleIds) {
-    const owner = moduleById.get(moduleId);
-    if (owner) productIds.add(owner.productId);
-  }
-
-  const finalFeatures = keptFeatures.filter((f) => finalModuleIds.has(f.moduleId));
-  const finalFeatureIds = new Set(finalFeatures.map((f) => f.id));
-  const finalRequirements = matchedRequirements.filter((r) => finalFeatureIds.has(r.featureId));
-
-  return {
-    products: input.products.filter((p) => productIds.has(p.id)),
-    modules: finalModules,
-    features: finalFeatures,
-    requirements: finalRequirements,
-    // Everything that survived is open: see the note above.
-    openProductIds: productIds,
-    openModuleIds: finalModuleIds,
-    // ...except a feature, which opens only because a requirement inside it matched.
-    openFeatureIds: new Set(finalRequirements.map((r) => r.featureId)),
-    matchCount
-  };
+  return { products, hiddenProducts: root.hidden };
 }

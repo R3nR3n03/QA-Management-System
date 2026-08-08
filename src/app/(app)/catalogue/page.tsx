@@ -1,16 +1,19 @@
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { FoldVertical } from "lucide-react";
 import {
   catalogueTotals,
   getFeatureDetail,
   getModuleDetail,
   getProductDetail,
   getRequirementDetail,
-  listCatalogueOptions,
   listCatalogueTree,
   resolveOpenIds,
+  searchCatalogue,
   type CatalogueDetail
 } from "@/domain/catalogue";
+import type { SearchResults as Results } from "@/domain/catalogue-search";
 import { AppError } from "@/lib/errors";
 import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
 import { requireSession } from "@/ui/session";
@@ -18,7 +21,15 @@ import { CatalogueSearch } from "./CatalogueSearch";
 import { CatalogueTree } from "./CatalogueTree";
 import { ContextualCreate } from "./CatalogueForms";
 import { DetailPanel } from "./DetailPanel";
-import { readOpenSet, readSelection, type Selection } from "./selection";
+import { ExplorerResizer } from "./ExplorerResizer";
+import { SearchResults } from "./SearchResults";
+import {
+  CHILD_PAGE_PARAM,
+  collapseAllHref,
+  readOpenSet,
+  readSelection,
+  type Selection
+} from "./selection";
 
 export const dynamic = "force-dynamic";
 
@@ -30,17 +41,24 @@ export const dynamic = "force-dynamic";
  * right answer is the overview, not a crashed screen. `parseSelection` has already refused
  * anything that could never be a business ID, so this only catches "valid shape, no such
  * row". Any other failure is a real fault and still propagates.
+ *
+ * Every level's child list is paged now, so `childPage` reaches all three getters rather
+ * than only the feature's requirements.
  */
 async function loadDetail(
   selection: Selection | null,
-  requirementPage: number
+  childPage: number
 ): Promise<CatalogueDetail | null> {
   if (!selection) return null;
   try {
-    if (selection.kind === "product") return await getProductDetail(selection.businessId);
-    if (selection.kind === "module") return await getModuleDetail(selection.businessId);
+    if (selection.kind === "product") {
+      return await getProductDetail(selection.businessId, { page: childPage });
+    }
+    if (selection.kind === "module") {
+      return await getModuleDetail(selection.businessId, { page: childPage });
+    }
     if (selection.kind === "feature") {
-      return await getFeatureDetail(selection.businessId, { page: requirementPage });
+      return await getFeatureDetail(selection.businessId, { page: childPage });
     }
     return await getRequirementDetail(selection.businessId);
   } catch (error) {
@@ -53,11 +71,10 @@ async function loadDetail(
  * The Product → Module → Feature → Requirement hierarchy, as a master-detail explorer.
  *
  * This screen was four stacked, independently paged tables — Products, Modules, Features
- * and Requirements — with no visible relationship between them. The Requirements table was
- * the worst of it: a statement beside a feature ID, and no way to tell which module or
- * product that feature belonged to. The tree on the left now carries the structure and the
- * panel on the right carries one record at a time, so the relationship is the layout.
- * Rationale, wireframes and the full architecture: `CATALOGUE-EXPLORER-REDESIGN.md`.
+ * and Requirements — with no visible relationship between them. The tree on the left now
+ * carries the structure and the panel on the right carries one record at a time, so the
+ * relationship is the layout. Rationale and wireframes:
+ * `CATALOGUE-EXPLORER-REDESIGN.md`.
  *
  * Creation and editing are QA-Lead-gated in the domain (an escalated policy choice —
  * implementation audit §6.1). Both happen in modals; business IDs and parent links are
@@ -67,10 +84,21 @@ async function loadDetail(
  * action here ends in `refreshScreen` and so returns to the URL it was submitted from —
  * add a feature to MOD004 and you are still on MOD004. See `selection.ts`.
  *
- * Requirements are rows in a feature's panel rather than tree nodes: they are the
- * highest-cardinality level and their label is a sentence, which is neither readable in a
- * 300px tree row nor scannable fifty at a time. Theirs is the one child list still paged,
- * so it keeps its own page key (`?req=2`) and `hrefWith` carries the selection alongside.
+ * ## What this screen costs, and what it used to
+ *
+ * Every interaction here is a navigation, so the query count per interaction is the
+ * budget. It was roughly twenty, and three of those read whole tables:
+ *
+ * - `listCatalogueOptions()` fetched EVERY product, module and feature on every load, to
+ *   fill create-dialog dropdowns that are never rendered — the selection always supplies
+ *   the parent, and the dialog states it instead of asking. Gone entirely.
+ * - Searching read the whole Product, Module and Feature tables and filtered them in
+ *   JavaScript. It is now four `LIMIT`-ed queries — and when a search is running the tree
+ *   is not fetched at all, because the results replace it.
+ * - The tree fetched an unbounded fourth level. There is no fourth level.
+ *
+ * The two modes are exclusive on purpose: browsing costs the tree, searching costs the
+ * hits, and neither pays for the other.
  */
 export default async function CataloguePage({
   searchParams
@@ -85,15 +113,19 @@ export default async function CataloguePage({
 
   const selection = readSelection(params);
   const needle = readParam(params, "q");
-  const requirementPage = readPage(params, "req");
+  const childPage = readPage(params, CHILD_PAGE_PARAM);
+  const searching = needle !== "";
 
   // Before the tree, not beside it: the tree opens branches by row id, and these two are
   // what resolve business IDs to them — the detail for the selected record's ancestors,
   // `resolveOpenIds` for the branches the viewer expanded. Independent of each other, so
-  // they still run together.
+  // they still run together. `resolveOpenIds` is skipped while searching, because the tree
+  // it would open is not on screen.
   const [detail, opened] = await Promise.all([
-    loadDetail(selection, requirementPage),
-    resolveOpenIds([...readOpenSet(params)])
+    loadDetail(selection, childPage),
+    searching
+      ? Promise.resolve({ productIds: [], moduleIds: [] })
+      : resolveOpenIds([...readOpenSet(params)])
   ]);
 
   /**
@@ -107,24 +139,18 @@ export default async function CataloguePage({
   const withAncestors = (ids: string[], ancestor: string | null | undefined) =>
     ancestor ? [...new Set([...ids, ancestor])] : ids;
 
-  const [totals, tree, options] = await Promise.all([
+  const [totals, tree, results] = await Promise.all([
     catalogueTotals(),
-    listCatalogueTree({
-      q: needle,
-      openProductIds: withAncestors(opened.productIds, detail?.path.productId),
-      openModuleIds: withAncestors(opened.moduleIds, detail?.path.moduleId),
-      openFeatureIds: withAncestors(opened.featureIds, detail?.path.featureId)
-    }),
-    // The create dialogs still need every possible parent for the case where nothing is
-    // selected and no parent is implied — three columns each, not whole records.
-    listCatalogueOptions()
+    // Exactly one of these two runs. The results replace the tree while a search is
+    // running, so fetching both would be paying for a panel nobody is looking at.
+    searching
+      ? Promise.resolve(null)
+      : listCatalogueTree({
+          openProductIds: withAncestors(opened.productIds, detail?.path.productId),
+          openModuleIds: withAncestors(opened.moduleIds, detail?.path.moduleId)
+        }),
+    searching ? searchCatalogue(needle) : Promise.resolve<Results | null>(null)
   ]);
-
-  const asParent = (row: { id: string; businessId: string; name: string }) => ({
-    id: row.id,
-    businessId: row.businessId,
-    label: row.name
-  });
 
   /**
    * What the header's one button will create, and inside what.
@@ -154,6 +180,8 @@ export default async function CataloguePage({
             parent: { id: detail.id, businessId: detail.businessId, label: detail.title }
           };
 
+  const openCount = readOpenSet(params).size;
+
   return (
     <div className="cat-screen">
       <div className="cat-head">
@@ -163,14 +191,7 @@ export default async function CataloguePage({
             <p className="muted">Product → Module → Feature → Requirement</p>
           </div>
           {/* One call to action, and what it creates follows the selection. */}
-          <ContextualCreate
-            selection={createUnder}
-            options={{
-              products: options.products.map(asParent),
-              modules: options.modules.map(asParent),
-              features: options.features.map(asParent)
-            }}
-          />
+          <ContextualCreate selection={createUnder} />
         </div>
         <dl className="cat-stats">
           <div className="cat-stat">
@@ -194,16 +215,47 @@ export default async function CataloguePage({
 
       <div className="cat">
         <nav className="cat-explorer" aria-label="Catalogue browser">
-          <CatalogueSearch matchCount={tree.matchCount} needle={needle} />
-          {/* A search that matched nothing says so in the live region above rather than
-              here, so the message is announced as well as shown — and an empty
-              `role="tree"` with no items is never rendered. */}
-          {tree.products.length === 0 ? (
-            needle === "" ? <p className="cat-tree-note">No products yet.</p> : null
+          <CatalogueSearch
+            matchCount={results ? results.hits.length : null}
+            truncated={results?.truncated ?? false}
+            needle={needle}
+          />
+
+          {/* Twelve open branches take twelve clicks to undo, and each one is a round
+              trip. Only offered when there is something to collapse, and never while
+              searching — there is no tree to fold. */}
+          {!searching && openCount > 0 ? (
+            <div className="cat-tree-tools">
+              <Link className="cat-collapse" href={collapseAllHref(params)}>
+                <FoldVertical size={13} aria-hidden />
+                Collapse all
+                <span className="sr-only"> {openCount} open branches</span>
+              </Link>
+            </div>
+          ) : null}
+
+          {/* Exactly one of the two panels, decided by the same flag that decided which
+              query ran. Nested rather than chained, so a future third state cannot fall
+              through to "No products yet." while a search is on screen. */}
+          {searching ? (
+            results === null ? null : (
+              <SearchResults
+                results={results}
+                needle={needle}
+                selected={selection}
+                params={params}
+              />
+            )
+          ) : tree === null || tree.products.length === 0 ? (
+            <p className="cat-tree-note">No products yet.</p>
           ) : (
             <CatalogueTree tree={tree} selected={selection} params={params} />
           )}
         </nav>
+
+        {/* The explorer's width is a preference about this viewer's screen, so the handle
+            writes a CSS variable and localStorage rather than the URL. */}
+        <ExplorerResizer />
 
         {/*
           `tabIndex={-1}` so `TreeKeyboard` can move focus here when a row is activated
@@ -216,7 +268,7 @@ export default async function CataloguePage({
           <DetailPanel
             detail={detail}
             params={params}
-            requirementPage={requirementPage}
+            childPage={childPage}
             needle={needle}
             totals={totals}
             hasAnyProduct={totals.products > 0}

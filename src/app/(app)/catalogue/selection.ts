@@ -117,7 +117,19 @@ const OPEN_SEPARATOR = ".";
  */
 export const MAX_OPEN_NODES = 64;
 
-const EXPANDABLE_KINDS = ["product", "module", "feature"] as const;
+/**
+ * The page key for whatever child list the detail panel is showing.
+ *
+ * ONE key for all three levels, because the panel shows exactly one child list at a time —
+ * a product's modules, a module's features, or a feature's requirements. It was `req`,
+ * from when requirements were the only paged list on the screen; every child list is paged
+ * now (`getProductDetail`, `getModuleDetail`), and three keys for one control would be
+ * three ways to strand a viewer on page 3 of a list they had left.
+ */
+export const CHILD_PAGE_PARAM = "c";
+
+/** Levels that can be expanded in the tree. Not `feature` — the tree stops there. */
+const EXPANDABLE_KINDS = ["product", "module"] as const;
 
 /**
  * Which level a business ID belongs to, from its own format — `"MOD004"` → `"module"`.
@@ -126,10 +138,15 @@ const EXPANDABLE_KINDS = ["product", "module", "feature"] as const;
  * disjoint, so the prefix IS the kind, and a shorter URL is one a person can still read.
  */
 export function kindOfBusinessId(businessId: string): SelectionKind | null {
-  for (const kind of EXPANDABLE_KINDS) {
+  for (const kind of ["product", "module", "feature", "requirement"] as const) {
     if (PATTERN_BY_KIND[kind].test(businessId)) return kind;
   }
-  return PATTERN_BY_KIND.requirement.test(businessId) ? "requirement" : null;
+  return null;
+}
+
+/** True for a level the tree can expand — Product and Module, and nothing below them. */
+function isExpandable(kind: SelectionKind | null): boolean {
+  return kind !== null && (EXPANDABLE_KINDS as readonly SelectionKind[]).includes(kind);
 }
 
 /**
@@ -137,7 +154,8 @@ export function kindOfBusinessId(businessId: string): SelectionKind | null {
  *
  * Anything unrecognised is dropped rather than throwing — same contract as
  * `parseSelection`, and for the same reason: a hand-edited URL should degrade to a sensible
- * tree, not a crashed screen. Requirements are dropped too; a leaf cannot be open.
+ * tree, not a crashed screen. Features and requirements are dropped too: the tree stops at
+ * Feature, so neither is a branch any query can open.
  */
 export function parseOpenSet(raw: string | undefined): Set<string> {
   const open = new Set<string>();
@@ -145,8 +163,7 @@ export function parseOpenSet(raw: string | undefined): Set<string> {
 
   for (const part of raw.split(OPEN_SEPARATOR)) {
     const businessId = part.trim().toUpperCase();
-    const kind = kindOfBusinessId(businessId);
-    if (kind === null || kind === "requirement") continue;
+    if (!isExpandable(kindOfBusinessId(businessId))) continue;
     open.add(businessId);
     if (open.size >= MAX_OPEN_NODES) break;
   }
@@ -184,6 +201,22 @@ export function toggleOpenHref(
   return hrefWith(pathname, params, { [OPEN_PARAM]: openParamValue(open) });
 }
 
+/**
+ * Every branch shut, and nothing else touched.
+ *
+ * The counterpart to opening branches one at a time. Twelve open branches take twelve
+ * clicks to undo and each one is a round trip; getting back to a tree you can see the
+ * shape of should be one action. The selection survives — collapsing is looking around,
+ * exactly as expanding is, and the selected record's own ancestors are re-opened by the
+ * page anyway so the panel and the tree cannot disagree about where you are.
+ */
+export function collapseAllHref(
+  params: ListSearchParams | undefined,
+  pathname = "/catalogue"
+): string {
+  return hrefWith(pathname, params, { [OPEN_PARAM]: null });
+}
+
 /** True when the two name the same record. Cheap enough to call once per tree row. */
 export function isSelected(current: Selection | null, kind: SelectionKind, businessId: string): boolean {
   return current !== null && current.kind === kind && current.businessId === businessId;
@@ -192,10 +225,9 @@ export function isSelected(current: Selection | null, kind: SelectionKind, busin
 /**
  * The href a tree row points at: this selection, every other parameter untouched.
  *
- * Passing `null` clears the selection and returns to the overview. Paging keys are
- * dropped, because they belong to the list of the record being left — keeping `?req=3`
- * while moving to a different feature lands the viewer past the end of a list they have
- * not seen.
+ * Passing `null` clears the selection and returns to the overview. The child page is
+ * dropped, because it belongs to the list of the record being left — keeping `?c=3` while
+ * moving to a different record lands the viewer past the end of a list they have not seen.
  *
  * `open` is deliberately NOT dropped: which branches are expanded is the shape of the tree
  * the viewer has built up, and choosing a record must not collapse it. That is the whole
@@ -208,6 +240,6 @@ export function selectionHref(
 ): string {
   return hrefWith(pathname, params, {
     [SELECTION_PARAM]: selection === null ? null : selectionParam(selection),
-    req: null
+    [CHILD_PAGE_PARAM]: null
   });
 }

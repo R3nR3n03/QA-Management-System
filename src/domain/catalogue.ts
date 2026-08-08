@@ -8,14 +8,19 @@ import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids
 import { appendAudit } from "@/lib/audit";
 import { containsAny, runPaged, type PageRequest } from "@/lib/pagination";
 import {
+  DEFAULT_SEARCH_LIMIT,
+  rankHits,
+  type SearchAncestor,
+  type SearchHit,
+  type SearchResults
+} from "./catalogue-search";
+import {
   assembleTree,
-  countByParent,
-  narrowToMatches,
+  DEFAULT_CHILD_LIMIT,
   type CatalogueTree,
   type FeatureRow,
   type ModuleRow,
-  type NodeRow,
-  type RequirementRow
+  type NodeRow
 } from "./catalogue-tree";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
@@ -50,11 +55,12 @@ function runInTransaction<T>(
  * form and the release-readiness picker, where the caller wants a page of a level rather
  * than a search across the hierarchy.
  *
- * Searching the catalogue is `listCatalogueTree` below, which is a different question —
- * it matches across all four levels at once and returns the matches in their place in the
- * tree. (Until the explorer screen existed this comment said the catalogue offered no
- * search box at all, and that adding one would be UI policy nobody asked for. The QA Lead
- * asked for one; the note is corrected rather than left contradicting the code beneath it.)
+ * Searching the catalogue is `searchCatalogue` below, which is a different question — it
+ * matches across all four levels at once and returns a ranked, bounded list of hits with
+ * their ancestry. (Until the explorer screen existed this comment said the catalogue
+ * offered no search box at all, and that adding one would be UI policy nobody asked for.
+ * The QA Lead asked for one; the note is corrected rather than left contradicting the code
+ * beneath it.)
  */
 export async function listProducts(options: PageRequest = {}) {
   return runPaged(
@@ -68,34 +74,16 @@ export async function listProducts(options: PageRequest = {}) {
 const OPTION_SELECT = { id: true, businessId: true, name: true } as const;
 
 /**
- * The parent options the catalogue screen needs whatever page it is on: a child row on
- * page 3 still has to name its parent, and the Add dialogs still have to offer every
- * possible parent. Deliberately NOT paged — but three columns per row rather than the
- * whole record, so the light thing is fetched in full and the heavy thing (the editable
- * rows, each carrying a server-action form) is what gets paged.
- */
-export async function listCatalogueOptions() {
-  const [products, modules, features] = await Promise.all([
-    prisma.product.findMany({ select: OPTION_SELECT, orderBy: { businessId: "asc" } }),
-    prisma.module.findMany({
-      select: { ...OPTION_SELECT, productId: true },
-      orderBy: { businessId: "asc" }
-    }),
-    prisma.feature.findMany({
-      select: { ...OPTION_SELECT, moduleId: true },
-      orderBy: { businessId: "asc" }
-    })
-  ]);
-  return { products, modules, features };
-}
-
-/**
  * Products as filter options: every one, three columns, cheapest ordering.
  *
- * Separate from `listCatalogueOptions` because the list screens need only this third of
- * it — pulling modules and features to render one product dropdown is two queries and
- * two result sets thrown away on every page load. Unpaged: a dropdown that only offers
- * the first page of products is a filter that silently cannot reach some rows.
+ * Unpaged: a dropdown that only offers the first page of products is a filter that
+ * silently cannot reach some rows.
+ *
+ * There was a `listCatalogueOptions` beside this that fetched every product, module AND
+ * feature in one go, for the catalogue explorer's create dialogs. It is gone. The explorer
+ * always knows the parent from the selection and states it (`locked-parent`), so the
+ * dropdowns those three result sets fed were never rendered — three unbounded table reads
+ * on every load of the screen, feeding props nothing displayed.
  */
 export async function listProductOptions() {
   return prisma.product.findMany({ select: OPTION_SELECT, orderBy: { businessId: "asc" } });
@@ -139,58 +127,62 @@ export async function catalogueTotals() {
 }
 
 /**
- * The explorer's tree.
+ * The explorer's tree: Product → Module → Feature.
  *
- * Two modes, one return shape.
+ * Lazy by branch AND bounded by branch, which are two different economies and the tree
+ * needs both:
  *
- * **Browsing** (no needle) is lazy: every product with its module count, then the modules
- * of the one open product, then the features of the one open module, then the requirements
- * of the one open feature. A catalogue with 40 products and 900 features costs 40 rows plus
- * one branch per level — not 900. This is what the redesign means by
- * "virtualization-ready": the depth of the fetch follows the depth of what is actually open.
+ * - **Lazy**: every product with its module count, then the modules of the OPEN products,
+ *   then the features of the OPEN modules. A catalogue with 40 products and 900 features
+ *   costs 40 rows plus one branch per level, not 900. The depth of the fetch follows the
+ *   depth of what is actually open, and `MAX_OPEN_NODES` bounds how many that can be.
+ * - **Bounded**: one branch draws at most `childLimit` children, however many it has
+ *   (`assembleTree`). Laziness alone does not save a tree from a single module with 400
+ *   features — it just means you pay for it after one click rather than none.
  *
- * That laziness is what makes a fourth level affordable. Requirements outnumber the other
- * three several times over, and at most ONE feature's worth is ever fetched.
+ * The fourth level is gone. Requirements are not tree nodes: they are read in the
+ * feature's detail panel, which pages them, and found through `searchCatalogue`, which
+ * ranks and bounds them. See `docs/adr/0001-catalogue-tree-stops-at-feature.md`.
  *
- * **Searching** fetches the whole spine (three light queries of three columns) and filters
- * it in `narrowToMatches`, because a match has to be shown under its real ancestors and
- * resolving those one recursive query at a time would be slower and far harder to test.
- * That is the same volume `listCatalogueOptions` already pulls on every load of the
- * current screen, so it is not a new cost.
- *
- * Requirements are the exception in search too: only the matching rows are fetched, and
- * only those appear. A feature that matched by name shows closed with its count rather
- * than unfolding everything it owns — see `narrowToMatches`.
+ * Searching is NOT this function any more — see `searchCatalogue`.
  */
 export async function listCatalogueTree(options: {
-  q?: string;
   /** A single open branch per level — the shape the acceptance tests drive. */
   openProductId?: string;
   openModuleId?: string;
-  openFeatureId?: string;
   /**
    * Every open branch per level, which is what the screen passes.
    *
-   * Plural because expansion is no longer derived from one selected record's ancestor
-   * path: the viewer expands branches independently of what is selected, so any number
-   * can be open at once. Unioned with the singular options above.
+   * Plural because expansion is not derived from one selected record's ancestor path: the
+   * viewer expands branches independently of what is selected, so any number can be open
+   * at once. Unioned with the singular options above.
    */
   openProductIds?: readonly string[];
   openModuleIds?: readonly string[];
-  openFeatureIds?: readonly string[];
+  /** Children per branch. Defaults to `DEFAULT_CHILD_LIMIT`. */
+  childLimit?: number;
 } = {}): Promise<CatalogueTree> {
-  const needle = (options.q ?? "").trim();
-
-  if (needle !== "") return searchCatalogueTree(needle);
-
   const openProducts = union(options.openProductIds, options.openProductId);
   const openModules = union(options.openModuleIds, options.openModuleId);
-  const openFeatures = union(options.openFeatureIds, options.openFeatureId);
+
+  const childLimit = options.childLimit ?? DEFAULT_CHILD_LIMIT;
 
   const [products, moduleCountRows] = await Promise.all([
-    prisma.product.findMany({ select: OPTION_SELECT, orderBy: BY_BUSINESS_ID }),
+    // `take` bounds the ROOT the same way the assembler bounds a branch, so a catalogue
+    // that grows to 400 products cannot ship 400 rows before anyone expands anything.
+    // One over the cap: that extra row is how we know whether there is anything past it.
+    prisma.product.findMany({
+      select: OPTION_SELECT,
+      orderBy: BY_BUSINESS_ID,
+      take: childLimit + 1
+    }),
     prisma.module.groupBy({ by: ["productId"], _count: { _all: true } })
   ]);
+
+  // Only when the root actually overflowed. In every other case the rows we hold ARE the
+  // total, and a COUNT(*) to learn that would be a wasted round trip on every page load.
+  const productTotal =
+    products.length > childLimit ? await prisma.product.count() : products.length;
 
   const modules: ModuleRow[] = openProducts.size
     ? await prisma.module.findMany({
@@ -218,6 +210,9 @@ export async function listCatalogueTree(options: {
       })
     : [];
 
+  // The badge beside a feature. Counted for the features actually drawn, which is a set
+  // bounded by the open modules — never the requirement table, which is the level that
+  // outnumbers the other three several times over.
   const requirementCountRows = features.length
     ? await prisma.requirement.groupBy({
         by: ["featureId"],
@@ -226,30 +221,17 @@ export async function listCatalogueTree(options: {
       })
     : [];
 
-  // The requirements of the open features, and only those. This is the level that would
-  // flood the tree if it were ever fetched wholesale, so it stays bounded by what the
-  // viewer has actually opened — and `MAX_OPEN_NODES` bounds that in turn.
-  const requirements: RequirementRow[] = openFeatures.size
-    ? (
-        await prisma.requirement.findMany({
-          where: { featureId: { in: [...openFeatures] } },
-          select: { id: true, businessId: true, statement: true, featureId: true },
-          orderBy: BY_BUSINESS_ID
-        })
-      ).map(asRequirementRow)
-    : [];
-
   return assembleTree({
     products,
     modules,
     features,
-    requirements,
     moduleCounts: countsFrom(moduleCountRows, "productId"),
     featureCounts: countsFrom(featureCountRows, "moduleId"),
     requirementCounts: countsFrom(requirementCountRows, "featureId"),
     openProductIds: openProducts,
     openModuleIds: openModules,
-    openFeatureIds: openFeatures
+    childLimit: options.childLimit,
+    productTotal
   });
 }
 
@@ -276,12 +258,10 @@ function union(many: readonly string[] | undefined, one: string | undefined): Se
 export async function resolveOpenIds(businessIds: readonly string[]): Promise<{
   productIds: string[];
   moduleIds: string[];
-  featureIds: string[];
 }> {
   const forLevel = (pattern: RegExp) => businessIds.filter((id) => pattern.test(id));
   const productBids = forLevel(BUSINESS_ID_PATTERNS.product);
   const moduleBids = forLevel(BUSINESS_ID_PATTERNS.module);
-  const featureBids = forLevel(BUSINESS_ID_PATTERNS.feature);
 
   const idsOf = async (
     model: { findMany: (args: unknown) => Promise<Array<{ id: string }>> },
@@ -293,80 +273,144 @@ export async function resolveOpenIds(businessIds: readonly string[]): Promise<{
         )
       : [];
 
-  const [productIds, moduleIds, featureIds] = await Promise.all([
+  const [productIds, moduleIds] = await Promise.all([
     idsOf(prisma.product as never, productBids),
-    idsOf(prisma.module as never, moduleBids),
-    idsOf(prisma.feature as never, featureBids)
+    idsOf(prisma.module as never, moduleBids)
   ]);
 
-  return { productIds, moduleIds, featureIds };
+  return { productIds, moduleIds };
 }
 
-/** A requirement's statement is its label, so the tree sees one row shape at every level. */
-function asRequirementRow(row: {
-  id: string;
-  businessId: string;
-  statement: string;
-  featureId: string;
-}): RequirementRow {
-  return { id: row.id, businessId: row.businessId, name: row.statement, featureId: row.featureId };
-}
+/**
+ * Records matching `needle`, across all four levels, best first.
+ *
+ * Four queries, each bounded by `LIMIT`, each carrying its own ancestry through a join.
+ * The ranking is `rankHits` — pure, and tested without a database — because no single
+ * `ORDER BY` can interleave four tables, and four separately-ordered result sets
+ * concatenated would put every product above every requirement whatever was typed.
+ *
+ * ## What this replaced, and why it had to go
+ *
+ * Search used to build a filtered TREE: it read the whole Product, Module and Feature
+ * tables (three columns each) on every committed keystroke, filtered them in JavaScript,
+ * dragged each match's ancestors on screen, and force-expanded every branch that survived.
+ * At the size the catalogue was written for that is fine and rather elegant. At three
+ * thousand features it is three full table reads per keystroke rendered as a wall of
+ * expanded rows in a 300px column.
+ *
+ * The ancestry those expanded branches existed to show is now one line per hit, which is
+ * cheaper to produce and easier to read. See
+ * `docs/adr/0002-catalogue-search-is-a-flat-ranked-list.md`.
+ *
+ * ## The cost that is left
+ *
+ * `containsAny` compiles to `ILIKE '%needle%'`, which no btree index can serve, so each
+ * of the four queries is a sequential scan that stops early once `LIMIT` rows are found.
+ * Bounded output, unbounded scan — acceptable at the size this catalogue is planned for
+ * (`docs/adr/0002`), and the fix if it ever is not is a `pg_trgm` GIN index per searched
+ * column, which is an additive migration and no change here.
+ *
+ * A blank needle is not a search: it returns nothing rather than the whole catalogue.
+ */
+export async function searchCatalogue(
+  needle: string,
+  options: { limit?: number } = {}
+): Promise<SearchResults> {
+  const trimmed = needle.trim();
+  if (trimmed === "") return { hits: [], truncated: false };
 
-async function searchCatalogueTree(needle: string): Promise<CatalogueTree> {
-  const [products, modules, features, requirementHits] = await Promise.all([
-    prisma.product.findMany({ select: OPTION_SELECT, orderBy: BY_BUSINESS_ID }),
+  const limit = options.limit ?? DEFAULT_SEARCH_LIMIT;
+  // One over, so `truncated` is answered by the rows themselves rather than by a
+  // COUNT(*) on a predicate no index can serve.
+  const take = limit + 1;
+
+  const PRODUCT_CRUMB = { select: { businessId: true, name: true } } as const;
+
+  const [products, modules, features, requirements] = await Promise.all([
+    prisma.product.findMany({
+      where: containsAny(trimmed, ["businessId", "name"]),
+      select: { id: true, businessId: true, name: true },
+      orderBy: BY_BUSINESS_ID,
+      take
+    }),
     prisma.module.findMany({
-      select: { ...OPTION_SELECT, productId: true },
-      orderBy: BY_BUSINESS_ID
+      where: containsAny(trimmed, ["businessId", "name"]),
+      select: { id: true, businessId: true, name: true, product: PRODUCT_CRUMB },
+      orderBy: BY_BUSINESS_ID,
+      take
     }),
     prisma.feature.findMany({
-      select: { ...OPTION_SELECT, moduleId: true },
-      orderBy: BY_BUSINESS_ID
+      where: containsAny(trimmed, ["businessId", "name"]),
+      select: {
+        id: true,
+        businessId: true,
+        name: true,
+        module: { select: { businessId: true, name: true, product: PRODUCT_CRUMB } }
+      },
+      orderBy: BY_BUSINESS_ID,
+      take
     }),
-    // Only the hits, and this time the whole row — a matching requirement is its own node
-    // in the tree now, not a pointer to the feature above it.
     prisma.requirement.findMany({
-      where: containsAny(needle, ["businessId", "statement"]),
-      select: { id: true, businessId: true, statement: true, featureId: true },
-      orderBy: BY_BUSINESS_ID
+      where: containsAny(trimmed, ["businessId", "statement"]),
+      select: {
+        id: true,
+        businessId: true,
+        statement: true,
+        feature: {
+          select: {
+            businessId: true,
+            name: true,
+            module: { select: { businessId: true, name: true, product: PRODUCT_CRUMB } }
+          }
+        }
+      },
+      orderBy: BY_BUSINESS_ID,
+      take
     })
   ]);
 
-  const narrowed = narrowToMatches({
-    products: products as NodeRow[],
-    modules,
-    features,
-    needle,
-    matchedRequirements: requirementHits.map(asRequirementRow)
-  });
+  const crumb = (
+    kind: SearchAncestor["kind"],
+    row: { businessId: string; name: string }
+  ): SearchAncestor => ({ kind, businessId: row.businessId, name: row.name });
 
-  // Requirement counts are the one number the narrowed rows cannot supply themselves —
-  // and only for the features that survived, which is a bounded set. This is the FULL
-  // count for the feature, not the matching one: the badge sits beside a feature the
-  // viewer can open, and it has to say how much is in there.
-  const requirementCountRows = narrowed.features.length
-    ? await prisma.requirement.groupBy({
-        by: ["featureId"],
-        where: { featureId: { in: narrowed.features.map((f) => f.id) } },
-        _count: { _all: true }
-      })
-    : [];
+  const hits: SearchHit[] = [
+    ...products.map((row) => ({
+      kind: "product" as const,
+      id: row.id,
+      businessId: row.businessId,
+      label: row.name,
+      trail: []
+    })),
+    ...modules.map((row) => ({
+      kind: "module" as const,
+      id: row.id,
+      businessId: row.businessId,
+      label: row.name,
+      trail: [crumb("product", row.product)]
+    })),
+    ...features.map((row) => ({
+      kind: "feature" as const,
+      id: row.id,
+      businessId: row.businessId,
+      label: row.name,
+      trail: [crumb("product", row.module.product), crumb("module", row.module)]
+    })),
+    ...requirements.map((row) => ({
+      kind: "requirement" as const,
+      id: row.id,
+      // A requirement has no name; its statement is its label, and it is a sentence.
+      businessId: row.businessId,
+      label: row.statement,
+      trail: [
+        crumb("product", row.feature.module.product),
+        crumb("module", row.feature.module),
+        crumb("feature", row.feature)
+      ]
+    }))
+  ];
 
-  return assembleTree({
-    products: narrowed.products,
-    modules: narrowed.modules,
-    features: narrowed.features,
-    requirements: narrowed.requirements,
-    // In search mode a badge counts MATCHING children, not every child — the tree is
-    // showing a filtered catalogue and the numbers have to describe what is on screen.
-    moduleCounts: countByParent(narrowed.modules, (m) => m.productId),
-    featureCounts: countByParent(narrowed.features, (f) => f.moduleId),
-    requirementCounts: countsFrom(requirementCountRows, "featureId"),
-    openProductIds: narrowed.openProductIds,
-    openModuleIds: narrowed.openModuleIds,
-    openFeatureIds: narrowed.openFeatureIds,
-    matchCount: narrowed.matchCount
-  });
+  return rankHits(hits, trimmed, limit);
 }
 
 /** One row of the detail panel's child list. */
@@ -437,26 +481,43 @@ async function displayNameOf(userId: string): Promise<string | null> {
   return user?.displayName ?? null;
 }
 
-export async function getProductDetail(businessId: string): Promise<CatalogueDetail> {
+/**
+ * A product and its modules.
+ *
+ * Paged, like every child list on this screen. The tree draws at most `childLimit`
+ * children per branch and points the rest here (`assembleTree`), so "here" has to be able
+ * to hold them — an unpaged list would move a 300-module product from one unbounded render
+ * to another.
+ */
+export async function getProductDetail(
+  businessId: string,
+  options: PageRequest = {}
+): Promise<CatalogueDetail> {
   const product = await prisma.product.findUnique({ where: { businessId } });
   if (!product) throw new AppError(404, "REFERENCE_NOT_FOUND", "Product not found.", "businessId");
 
   const [modules, featureTotal, requirementTotal, updatedByName] = await Promise.all([
-    prisma.module.findMany({
-      where: { productId: product.id },
-      select: { id: true, businessId: true, name: true, version: true, updatedAt: true },
-      orderBy: BY_BUSINESS_ID
-    }),
+    runPaged(
+      options,
+      (window) =>
+        prisma.module.findMany({
+          where: { productId: product.id },
+          select: { id: true, businessId: true, name: true, version: true, updatedAt: true },
+          orderBy: BY_BUSINESS_ID,
+          ...window
+        }),
+      () => prisma.module.count({ where: { productId: product.id } })
+    ),
     prisma.feature.count({ where: { module: { productId: product.id } } }),
     prisma.requirement.count({ where: { feature: { module: { productId: product.id } } } }),
     displayNameOf(product.updatedBy)
   ]);
 
   const featureCounts = countsFrom(
-    modules.length
+    modules.rows.length
       ? await prisma.feature.groupBy({
           by: ["moduleId"],
-          where: { moduleId: { in: modules.map((m) => m.id) } },
+          where: { moduleId: { in: modules.rows.map((m) => m.id) } },
           _count: { _all: true }
         })
       : [],
@@ -479,9 +540,11 @@ export async function getProductDetail(businessId: string): Promise<CatalogueDet
       versionTag: product.versionTag,
       status: product.status
     },
-    stats: { modules: modules.length, features: featureTotal, requirements: requirementTotal },
+    // The TOTAL, not the page: a header that says "12 modules" while the list beneath it
+    // shows 50 of 300 is a header describing the pager rather than the product.
+    stats: { modules: modules.total, features: featureTotal, requirements: requirementTotal },
     childKind: "module",
-    children: modules.map((row) => ({
+    children: modules.rows.map((row) => ({
       id: row.id,
       businessId: row.businessId,
       label: row.name,
@@ -489,11 +552,15 @@ export async function getProductDetail(businessId: string): Promise<CatalogueDet
       version: row.version,
       updatedAt: row.updatedAt
     })),
-    childTotal: modules.length
+    childTotal: modules.total
   };
 }
 
-export async function getModuleDetail(businessId: string): Promise<CatalogueDetail> {
+/** A module and its features. Paged, for the same reason as `getProductDetail`. */
+export async function getModuleDetail(
+  businessId: string,
+  options: PageRequest = {}
+): Promise<CatalogueDetail> {
   const moduleRow = await prisma.module.findUnique({
     where: { businessId },
     include: { product: true }
@@ -501,20 +568,26 @@ export async function getModuleDetail(businessId: string): Promise<CatalogueDeta
   if (!moduleRow) throw new AppError(404, "REFERENCE_NOT_FOUND", "Module not found.", "businessId");
 
   const [features, requirementTotal, updatedByName] = await Promise.all([
-    prisma.feature.findMany({
-      where: { moduleId: moduleRow.id },
-      select: { id: true, businessId: true, name: true, version: true, updatedAt: true },
-      orderBy: BY_BUSINESS_ID
-    }),
+    runPaged(
+      options,
+      (window) =>
+        prisma.feature.findMany({
+          where: { moduleId: moduleRow.id },
+          select: { id: true, businessId: true, name: true, version: true, updatedAt: true },
+          orderBy: BY_BUSINESS_ID,
+          ...window
+        }),
+      () => prisma.feature.count({ where: { moduleId: moduleRow.id } })
+    ),
     prisma.requirement.count({ where: { feature: { moduleId: moduleRow.id } } }),
     displayNameOf(moduleRow.updatedBy)
   ]);
 
   const requirementCounts = countsFrom(
-    features.length
+    features.rows.length
       ? await prisma.requirement.groupBy({
           by: ["featureId"],
-          where: { featureId: { in: features.map((f) => f.id) } },
+          where: { featureId: { in: features.rows.map((f) => f.id) } },
           _count: { _all: true }
         })
       : [],
@@ -539,9 +612,9 @@ export async function getModuleDetail(businessId: string): Promise<CatalogueDeta
       versionTag: moduleRow.product.versionTag,
       status: moduleRow.product.status
     },
-    stats: { modules: null, features: features.length, requirements: requirementTotal },
+    stats: { modules: null, features: features.total, requirements: requirementTotal },
     childKind: "feature",
-    children: features.map((row) => ({
+    children: features.rows.map((row) => ({
       id: row.id,
       businessId: row.businessId,
       label: row.name,
@@ -549,7 +622,7 @@ export async function getModuleDetail(businessId: string): Promise<CatalogueDeta
       version: row.version,
       updatedAt: row.updatedAt
     })),
-    childTotal: features.length
+    childTotal: features.total
   };
 }
 

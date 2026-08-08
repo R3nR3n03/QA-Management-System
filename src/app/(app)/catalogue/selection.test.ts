@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  collapseAllHref,
   isSelected,
   kindOfBusinessId,
   MAX_OPEN_NODES,
@@ -109,11 +110,11 @@ describe("selectionHref", () => {
     expect(href).toContain("sel=f%3AFEAT012");
   });
 
-  // ?req=3 belongs to the list of the record being left. Carried onto a different
-  // feature it lands the viewer past the end of a list they have never seen — the
+  // ?c=3 belongs to the child list of the record being left. Carried onto a different
+  // record it lands the viewer past the end of a list they have never seen — the
   // failure src/ui/list-empty.tsx exists to explain.
-  it("drops the requirement page when the selection changes", () => {
-    expect(selectionHref({ sel: "f:FEAT011", req: "3" }, { kind: "feature", businessId: "FEAT012" })).toBe(
+  it("drops the child page when the selection changes", () => {
+    expect(selectionHref({ sel: "f:FEAT011", c: "3" }, { kind: "feature", businessId: "FEAT012" })).toBe(
       "/catalogue?sel=f%3AFEAT012"
     );
   });
@@ -140,7 +141,7 @@ describe("kindOfBusinessId", () => {
 
 describe("parseOpenSet", () => {
   it("reads a dot-separated list of business IDs", () => {
-    expect([...parseOpenSet("PROD001.MOD004.FEAT012")]).toEqual(["PROD001", "MOD004", "FEAT012"]);
+    expect([...parseOpenSet("PROD001.MOD004")]).toEqual(["PROD001", "MOD004"]);
   });
 
   it("reads a missing or empty parameter as nothing open", () => {
@@ -157,10 +158,10 @@ describe("parseOpenSet", () => {
     expect([...parseOpenSet("PROD001.whatever.MOD9.")]).toEqual(["PROD001"]);
   });
 
-  // A requirement is a leaf. Accepting one would put an id in the open set that no query
-  // can ever act on.
-  it("drops a requirement, which cannot be open", () => {
-    expect([...parseOpenSet("REQ001.MOD004")]).toEqual(["MOD004"]);
+  // The tree stops at Feature, so neither a feature nor a requirement is a branch.
+  // Accepting one would put an id in the open set that no query can ever act on.
+  it("drops the levels that cannot be open", () => {
+    expect([...parseOpenSet("REQ001.FEAT012.MOD004")]).toEqual(["MOD004"]);
   });
 
   // Each open branch becomes a row in the tree fetch's IN (…). A pasted URL must not be
@@ -208,10 +209,33 @@ describe("toggleOpenHref", () => {
    * the selection away and collapsed the tree.
    */
   it("touches nothing but the open set", () => {
-    const href = toggleOpenHref({ sel: "f:FEAT012", q: "checkout", req: "3" }, "PROD001");
+    const href = toggleOpenHref({ sel: "f:FEAT012", q: "checkout", c: "3" }, "PROD001");
     expect(href).toContain("sel=f%3AFEAT012");
     expect(href).toContain("q=checkout");
-    expect(href).toContain("req=3");
+    expect(href).toContain("c=3");
     expect(href).toContain("open=PROD001");
+  });
+});
+
+/**
+ * Twelve open branches take twelve clicks to undo, and each one is a server round trip.
+ * Collapsing is looking around, exactly as expanding is, so it must leave the selection
+ * and the needle where they were.
+ */
+describe("collapseAllHref", () => {
+  it("shuts every branch", () => {
+    expect(collapseAllHref({ open: "PROD001.MOD004.MOD007" })).toBe("/catalogue");
+  });
+
+  it("keeps the selection, the needle and the child page", () => {
+    const href = collapseAllHref({ open: "PROD001", sel: "m:MOD004", q: "checkout", c: "2" });
+    expect(href).toContain("sel=m%3AMOD004");
+    expect(href).toContain("q=checkout");
+    expect(href).toContain("c=2");
+    expect(href).not.toContain("open=");
+  });
+
+  it("is a no-op on a tree that is already collapsed", () => {
+    expect(collapseAllHref({})).toBe("/catalogue");
   });
 });

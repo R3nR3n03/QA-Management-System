@@ -13,6 +13,10 @@ This directory is the single source of truth (SSOT) for the Quality Assurance Ma
 7. `excel-source-map.md`
 8. `ai-agent-governance.md`
 
+[`adr/`](adr/README.md) is deliberately absent from that list. Architecture decision records
+describe how the implementation was built and carry no policy authority; they sit below every
+document above. Where an ADR and a policy document disagree, the policy document is right.
+
 The supplied Excel workbook is a one-time seed/reference source, not an ongoing policy authority. Its records are imported once; the web application is the operational system of record. The documentation owns the policy decisions that the workbook does not define.
 
 ## Navigation
@@ -30,6 +34,7 @@ The supplied Excel workbook is a one-time seed/reference source, not an ongoing 
 | [Testing and acceptance](testing-and-acceptance.md) | Required implementation and knowledge-base verification |
 | [Master implementation prompt](qa-management-system-master-prompt.md) | Copy-ready prompt for an implementation agent |
 | [QA copilot skill](skills/qa-management-system/SKILL.md) | Project-local, read-only AI skill |
+| [Architecture decisions](adr/README.md) | Engineering decisions and their trade-offs — no policy authority |
 
 ## Terms
 

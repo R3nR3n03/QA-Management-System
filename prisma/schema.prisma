@@ -90,6 +90,12 @@ model Product {
 
   modules   Module[]
   testCases TestCase[]
+
+  /// The catalogue explorer's search is `ILIKE '%needle%'` across this column
+  /// (`searchCatalogue`, `src/domain/catalogue.ts`). A leading wildcard cannot use a
+  /// btree index at all, so this is a trigram GIN index — the only kind that can serve
+  /// it. Requires the `pg_trgm` extension, created by the migration that adds these.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Product_name_trgm_idx")
 }
 
 model Module {
@@ -114,6 +120,12 @@ model Module {
   /// LEADING column of a unique index (e.g. `TestStep.testCaseId` via
   /// `@@unique([testCaseId, sequence])`) are deliberately NOT repeated here.
   @@index([productId])
+
+  /// The catalogue explorer's search is `ILIKE '%needle%'` across this column
+  /// (`searchCatalogue`, `src/domain/catalogue.ts`). A leading wildcard cannot use a
+  /// btree index at all, so this is a trigram GIN index — the only kind that can serve
+  /// it. Requires the `pg_trgm` extension, created by the migration that adds these.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Module_name_trgm_idx")
 }
 
 model Feature {
@@ -134,6 +146,12 @@ model Feature {
   /// Joined by the per-product release-readiness read, which reaches test cases
   /// through `feature.module.productId` (`src/domain/traceability.ts`).
   @@index([moduleId])
+
+  /// The catalogue explorer's search is `ILIKE '%needle%'` across this column
+  /// (`searchCatalogue`, `src/domain/catalogue.ts`). A leading wildcard cannot use a
+  /// btree index at all, so this is a trigram GIN index — the only kind that can serve
+  /// it. Requires the `pg_trgm` extension, created by the migration that adds these.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Feature_name_trgm_idx")
 }
 
 model Requirement {
@@ -152,6 +170,14 @@ model Requirement {
   rtmLinks  RequirementTraceLink[]
 
   @@index([featureId])
+
+  /// The catalogue explorer's search is `ILIKE '%needle%'` across this column
+  /// (`searchCatalogue`, `src/domain/catalogue.ts`). A leading wildcard cannot use a
+  /// btree index at all, so this is a trigram GIN index — the only kind that can serve
+  /// it. Requires the `pg_trgm` extension, created by the migration that adds these.
+  /// The largest of the four tables and the longest text in them, so this is the one
+  /// that most needs it.
+  @@index([statement(ops: raw("gin_trgm_ops"))], type: Gin, map: "Requirement_statement_trgm_idx")
 }
 
 model TestCase {
