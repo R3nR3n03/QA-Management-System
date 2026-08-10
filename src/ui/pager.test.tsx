@@ -1,7 +1,16 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+/** The rows-per-page dropdown is a client island, so the pager needs the nav hooks now. */
+const nav = vi.hoisted(() => ({ search: "", pathname: "/test-cases", replace: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: nav.replace, push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => nav.pathname,
+  useSearchParams: () => new URLSearchParams(nav.search)
+}));
 
 // `next/link` renders an anchor; `scroll` is a Link-only prop and must not reach the DOM.
 vi.mock("next/link", () => ({
@@ -31,6 +40,11 @@ import { Pager } from "./pager";
  */
 
 afterEach(cleanup);
+beforeEach(() => {
+  nav.search = "";
+  nav.pathname = "/test-cases";
+  nav.replace.mockClear();
+});
 
 const link = (name: string) => screen.getByRole("link", { name });
 
@@ -100,10 +114,11 @@ describe("Pager", () => {
 
   it("hides the rows-per-page control unless it is offered", () => {
     render(<Pager total={1002} page={1} pathname="/test-cases" params={{}} />);
-    expect(screen.queryByRole("group", { name: "Rows per page of the list" })).toBeNull();
+    expect(screen.queryByLabelText("Rows per page of the list")).toBeNull();
   });
 
   it("changing rows-per-page returns to page 1 and keeps other parameters", () => {
+    nav.search = "page=7&q=login";
     render(
       <Pager
         total={1002}
@@ -114,19 +129,45 @@ describe("Pager", () => {
       />
     );
 
+    const select = screen.getByLabelText("Rows per page of the list") as HTMLSelectElement;
+    // The closed state reports the size in effect — one control saying one value, which is
+    // what replaced three buttons where only the raised one carried that meaning.
+    expect(select.value).toBe("50");
+
+    fireEvent.change(select, { target: { value: "100" } });
     // The page key is dropped: page 7 of 50-row pages is not page 7 of 100-row pages.
-    expect(link("100").getAttribute("href")).toBe("/test-cases?q=login&size=100");
-    expect(link("25").getAttribute("href")).toBe("/test-cases?q=login&size=25");
-    // The default size clears the key rather than writing `size=50`.
-    expect(screen.getByText("50").getAttribute("aria-current")).toBe("true");
+    expect(nav.replace).toHaveBeenCalledWith("/test-cases?q=login&size=100", { scroll: false });
+  });
+
+  it("the default size clears the key rather than writing size=50", () => {
+    nav.search = "size=25";
+    render(
+      <Pager
+        total={1002}
+        page={1}
+        pathname="/test-cases"
+        params={{ size: "25" }}
+        pageSize={25}
+        sizeOptions={[25, 50, 100]}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Rows per page of the list"), {
+      target: { value: "50" }
+    });
+    expect(nav.replace).toHaveBeenCalledWith("/test-cases", { scroll: false });
   });
 
   it("still shows the size control on a list too short to page", () => {
     // Only one page, but changing to 25 rows would make it two — so the control stays
     // even though Prev/Next has nothing to do.
+    nav.pathname = "/defects";
     render(<Pager total={30} page={1} pathname="/defects" params={{}} sizeOptions={[25, 50, 100]} />);
 
-    expect(link("25").getAttribute("href")).toBe("/defects?size=25");
+    fireEvent.change(screen.getByLabelText("Rows per page of the list"), {
+      target: { value: "25" }
+    });
+    expect(nav.replace).toHaveBeenCalledWith("/defects?size=25", { scroll: false });
     expect(screen.queryByText("Previous")).toBeNull();
     expect(screen.queryByRole("link", { name: "Page 2" })).toBeNull();
   });

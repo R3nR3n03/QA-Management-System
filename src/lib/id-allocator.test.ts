@@ -31,6 +31,47 @@ describe("formatBusinessId", () => {
       expect((thrown as AppError).code).toBe("ID_INVALID");
     }
   });
+
+  /**
+   * The catalogue's four levels are `PROD###`, `MOD###`, `FEAT###` and `REQ###` — THREE
+   * digits (`docs/data-model.md` § Core catalogue). A four-digit allocator emits `REQ0001`,
+   * which fails `BUSINESS_ID_PATTERNS.requirement`, which is why those four services were
+   * never wired to the allocator and asked for a hand-typed ID instead — in breach of the
+   * rule one section above them: "Business IDs are allocated by the system when the
+   * creating request does not supply one."
+   */
+  it("pads to a caller-declared width, for the three-digit catalogue levels", () => {
+    expect(formatBusinessId("REQ", 1, 3)).toBe("REQ001");
+    expect(formatBusinessId("REQ", 42, 3)).toBe("REQ042");
+    expect(formatBusinessId("PROD", 999, 3)).toBe("PROD999");
+    expect(formatBusinessId("FEAT", 7, 3)).toBe("FEAT007");
+  });
+
+  it("defaults to four digits, so every existing caller is unchanged", () => {
+    expect(formatBusinessId("EXE-", 1)).toBe("EXE-0001");
+    expect(formatBusinessId("BUG-", 9999)).toBe("BUG-9999");
+  });
+
+  it("refuses a number past the declared width's own ceiling", () => {
+    // 999 is the documented ceiling for a three-digit level, so 1000 is refused there for
+    // exactly the reason 10000 is refused at four digits — the format cannot express it.
+    let thrown: unknown;
+    try {
+      formatBusinessId("REQ", 1000, 3);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(AppError);
+    expect((thrown as AppError).code).toBe("ID_INVALID");
+    // The message must name the space that is actually exhausted. `REQ####` would send a
+    // QA Lead looking for a limit that does not exist.
+    expect((thrown as AppError).message).toContain("REQ###");
+    expect((thrown as AppError).message).toContain("1000");
+  });
+
+  it("still accepts the last id inside the declared width", () => {
+    expect(formatBusinessId("REQ", 999, 3)).toBe("REQ999");
+  });
 });
 
 describe("highestSuffix", () => {

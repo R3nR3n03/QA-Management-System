@@ -1,8 +1,17 @@
 import Link from "next/link";
-import { CalendarClock, ChevronRight, CircleCheck, CirclePlay, ClipboardList } from "lucide-react";
+import {
+  CalendarClock,
+  ChevronRight,
+  CircleCheck,
+  CirclePlay,
+  CircleSlash,
+  CircleX,
+  ClipboardList,
+  Play
+} from "lucide-react";
 import { ExecutionLifecycleState, type ExecutionOutcome } from "@prisma/client";
 import { ExecutionStateChip, OutcomeChip } from "./chips";
-import { formatUtcMinute } from "./format";
+import { formatUtcMinute, outcomeBreakdown } from "./format";
 import { ListEmpty } from "./list-empty";
 import { hrefWith, readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
@@ -39,6 +48,11 @@ export type WorkRowData = {
   caseTitle: string;
   /** The first covered case's priority; shown only for a single-case run. */
   priority: string;
+  /**
+   * The Jira issue this run is testing, or null. Rendered as text and never as a link — see
+   * the note on `JiraNote` below.
+   */
+  jiraIssueKey: string | null;
   plannedAt: Date;
   startedAt: Date | null;
 };
@@ -50,6 +64,9 @@ export type FinalizedRowData = {
   result: ExecutionOutcome | null;
   caseBusinessIds: string[];
   caseTitle: string;
+  jiraIssueKey: string | null;
+  /** Per-case outcomes, in coverage order — the breakdown behind a multi-case run's chip. */
+  caseResults: Array<ExecutionOutcome | null>;
   finalizedAt: Date | null;
 };
 
@@ -100,6 +117,66 @@ function StateMark({ state }: { state: ExecutionLifecycleState }) {
   );
 }
 
+/**
+ * The same marker for a finished run, keyed to its outcome.
+ *
+ * It replaces the edge stripe these rows used to carry. Both said the outcome in colour,
+ * and 12px apart that was one signal spent twice; the marker is also what lines the recap's
+ * titles up with the queue's above it, so the two lists read as one column of runs rather
+ * than two lists that happen to be stacked. Decorative for the same reason `StateMark` is —
+ * the chip beside it carries the word.
+ *
+ * A null result should not occur on a finalized run, and the row omits its chip when it
+ * does. The marker goes neutral to match: a green tick for an outcome nobody recorded would
+ * be the one case where this says something the chip does not.
+ */
+function OutcomeMark({ outcome }: { outcome: ExecutionOutcome | null }) {
+  if (outcome === null) {
+    return (
+      <span className="work-mark" aria-hidden>
+        <ClipboardList size={18} />
+      </span>
+    );
+  }
+  return (
+    <span className="work-mark" data-tone={outcome.toLowerCase()} aria-hidden>
+      {outcome === "FAIL" ? (
+        <CircleX size={18} />
+      ) : outcome === "BLOCKED" ? (
+        <CircleSlash size={18} />
+      ) : (
+        <CircleCheck size={18} />
+      )}
+    </span>
+  );
+}
+
+/**
+ * The Jira issue a run is testing, last in a row's line of facts.
+ *
+ * Text rather than a link, the same choice `record-list.tsx` makes for the same reason: a
+ * row's one click target is its title — which is why the trailing button is skipped in the
+ * tab order — and an external anchor duplicates no destination, so it could not be hidden
+ * the same way. 50 rows would be 50 extra tab stops serving the rarer intention, when the
+ * run's own screen one click away links the key properly.
+ *
+ * "No Jira issue" only where the deployment HAS Jira configured. Without it no run could
+ * ever carry a key, so the words would report the deployment rather than the run, on every
+ * row forever. A recorded key shows either way — it is a fact of the run whether or not
+ * anything will ever be sent.
+ */
+function JiraNote({ issueKey, configured }: { issueKey: string | null; configured: boolean }) {
+  if (issueKey) {
+    return (
+      <>
+        {" · "}
+        <span className="jira-key">{issueKey}</span>
+      </>
+    );
+  }
+  return configured ? <>{" · No Jira issue"}</> : null;
+}
+
 export function WorkQueue({
   rows,
   total,
@@ -114,7 +191,8 @@ export function WorkQueue({
   products,
   productKey = "product",
   features,
-  featureKey = "feature"
+  featureKey = "feature",
+  jiraConfigured = false
 }: {
   rows: WorkRowData[];
   total: number;
@@ -133,6 +211,8 @@ export function WorkQueue({
   /** Omit to leave the feature filter off the bar entirely. */
   features?: ProductOption[];
   featureKey?: string;
+  /** Whether this deployment has Jira configured at all. See `JiraNote`. */
+  jiraConfigured?: boolean;
 }) {
   const tab = readWorkTab(params, stateKey);
   const query = readParam(params, queryKey);
@@ -221,24 +301,24 @@ export function WorkQueue({
           // Planned tab is simply the wrong tab to be looking at.
           noMatch={
             query !== "" ? (
-              <>
+              <p>
                 No run of yours matches &ldquo;{query}&rdquo;
                 {scoped ? ` in this ${scopeWord(product, feature)}` : ""}.
-              </>
+              </p>
             ) : scoped ? (
               // The scope is the filter a reader is least likely to be looking at — the
               // tab it emptied is on screen showing a zero, the dropdown is one line of
               // small text — so it gets named.
-              `No run of yours covers this ${scopeWord(product, feature)}.`
+              <p>No run of yours covers this {scopeWord(product, feature)}.</p>
             ) : tab === ExecutionLifecycleState.PLANNED ? (
-              "Nothing planned is waiting on you."
+              <p>Nothing planned is waiting on you.</p>
             ) : tab === ExecutionLifecycleState.IN_PROGRESS ? (
-              "You have no run in progress."
+              <p>You have no run in progress.</p>
             ) : (
-              <>
+              <p>
                 Nothing is waiting on you right now.{" "}
                 <Link href="/executions">Browse all executions</Link>
-              </>
+              </p>
             )
           }
         />
@@ -267,11 +347,17 @@ export function WorkQueue({
                       {row.caseTitle}
                     </Link>
                   </div>
-                  <div className="muted">
+                  {/* The row's line of facts: what it covers, then the ticket it is
+                      testing. The Jira key is here BECAUSE the screen's needle matches it —
+                      the queue and the executions list share one `executionWhere` — and a
+                      tester who pastes a key would otherwise get rows back with nothing on
+                      them saying why they matched. */}
+                  <div className="muted row-facts">
                     <span className="bid">{row.caseBusinessIds[0]}</span>
                     {row.caseBusinessIds.length > 1
                       ? ` +${row.caseBusinessIds.length - 1} more`
                       : ` · ${row.priority || "no"} priority`}
+                    <JiraNote issueKey={row.jiraIssueKey} configured={jiraConfigured} />
                   </div>
                 </div>
                 <span className="muted work-when">
@@ -289,7 +375,9 @@ export function WorkQueue({
                   tabIndex={-1}
                 >
                   {started ? "Continue" : "Start"}
-                  <ChevronRight size={14} aria-hidden />
+                  {/* A play glyph rather than the chevron the secondary links carry: this
+                      button runs a test, it does not navigate deeper into a record. */}
+                  <Play size={12} fill="currentColor" aria-hidden />
                 </Link>
               </li>
             );
@@ -321,12 +409,15 @@ export function WorkQueue({
 export function FinalizedRecap({
   rows,
   total,
-  href = "/executions"
+  href = "/executions",
+  jiraConfigured = false
 }: {
   rows: FinalizedRowData[];
   /** Finalized runs matching the current filters, before the cap. */
   total: number;
   href?: string;
+  /** Whether this deployment has Jira configured at all. See `JiraNote`. */
+  jiraConfigured?: boolean;
 }) {
   if (rows.length === 0) return null;
 
@@ -350,43 +441,66 @@ export function FinalizedRecap({
       </div>
       <div className="card card-flush">
         <ul className="row-list">
-          {rows.map((row) => (
-            // The stripe is keyed to the outcome the chip already names, so a scan down
-            // the edge and a read of the chip say the same thing.
-            <li key={row.id} className="list-row work-row" data-outcome={row.result ?? undefined}>
-              <div className="row-main">
-                <div className="cluster">
-                  <span className="bid">{row.businessId}</span>
-                  {row.caseBusinessIds.length > 1 ? (
-                    <span className="state state-accent">{row.caseBusinessIds.length} cases</span>
-                  ) : null}
-                  {row.finalizedAt ? (
-                    <span className="muted">
-                      Finalized{" "}
-                      <time dateTime={row.finalizedAt.toISOString()}>
-                        {formatUtcMinute(row.finalizedAt)}
-                      </time>
-                    </span>
-                  ) : null}
+          {rows.map((row) => {
+            // A Fail chip on a seven-case run does not say whether one case failed or all
+            // seven — the run carries only its derived worst outcome. Single-case runs need
+            // no breakdown: their chip already IS the one case's result.
+            const breakdown =
+              row.caseBusinessIds.length > 1 ? outcomeBreakdown(row.caseResults) : "";
+            return (
+              // The same four-part row the queue above uses — mark, record, when, action —
+              // so the two lists read as one column rather than two shapes.
+              <li key={row.id} className="list-row work-row">
+                <OutcomeMark outcome={row.result} />
+                <div className="row-main">
+                  <div className="cluster">
+                    <span className="bid">{row.businessId}</span>
+                    {row.result ? <OutcomeChip outcome={row.result} /> : null}
+                    {row.caseBusinessIds.length > 1 ? (
+                      <span className="state state-accent">{row.caseBusinessIds.length} cases</span>
+                    ) : null}
+                  </div>
+                  <div className="row-title">
+                    <Link className="row-link" href={`/executions/${row.id}`}>
+                      {row.caseTitle}
+                    </Link>
+                  </div>
+                  {/* The recap used to name no case at all, so a run could be identified
+                      here only by its own ID. It carries the queue's line of facts now, for
+                      the same reason the queue carries it. */}
+                  <div className="muted row-facts">
+                    <span className="bid">{row.caseBusinessIds[0]}</span>
+                    {row.caseBusinessIds.length > 1
+                      ? ` +${row.caseBusinessIds.length - 1} more`
+                      : ""}
+                    {breakdown ? ` (${breakdown})` : ""}
+                    <JiraNote issueKey={row.jiraIssueKey} configured={jiraConfigured} />
+                  </div>
                 </div>
-                <div className="row-title">
-                  <Link className="row-link" href={`/executions/${row.id}`}>
-                    {row.caseTitle}
-                  </Link>
-                </div>
-              </div>
-              {row.result ? <OutcomeChip outcome={row.result} /> : null}
-              <Link
-                className="btn btn-secondary btn-sm"
-                href={`/executions/${row.id}`}
-                aria-label={`View ${row.businessId}`}
-                tabIndex={-1}
-              >
-                View
-                <ChevronRight size={14} aria-hidden />
-              </Link>
-            </li>
-          ))}
+                {/* Moved out of the cluster into the queue's timestamp slot: the same fact
+                    in the same place on both lists, instead of trailing the chips on one
+                    and sitting at the row's end on the other. */}
+                {row.finalizedAt ? (
+                  <span className="muted work-when">
+                    <CalendarClock size={13} aria-hidden />
+                    Finalized{" "}
+                    <time dateTime={row.finalizedAt.toISOString()}>
+                      {formatUtcMinute(row.finalizedAt)}
+                    </time>
+                  </span>
+                ) : null}
+                <Link
+                  className="btn btn-secondary btn-sm work-cta"
+                  href={`/executions/${row.id}`}
+                  aria-label={`View ${row.businessId}`}
+                  tabIndex={-1}
+                >
+                  View
+                  <ChevronRight size={14} aria-hidden />
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       </div>
       {total > rows.length ? (

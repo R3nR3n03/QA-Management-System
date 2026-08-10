@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState, useSyncExternalStore, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import {
   Bug,
   ChevronsLeft,
@@ -27,6 +27,7 @@ import {
   Users,
   X
 } from "lucide-react";
+import { useStoredPref } from "./stored-pref";
 
 /**
  * The application sidebar. Same items, same targets, same role-derived inventory as
@@ -73,56 +74,6 @@ const ICONS: Record<string, ComponentType<{ size?: number; strokeWidth?: number;
 type Theme = "system" | "light" | "dark";
 const THEME_KEY = "qams-theme";
 const COLLAPSE_KEY = "qams-nav-collapsed";
-const PREF_EVENT = "qams-pref-change";
-
-/**
- * A localStorage-backed preference as React state, via useSyncExternalStore so the
- * server snapshot (the fallback) and the client snapshot resolve without a hydration
- * mismatch — users who chose a non-default see one repaint after hydration, never an
- * error. Writes notify through one window event so every subscriber re-reads.
- */
-/**
- * Hoisted, not inline: `useSyncExternalStore` re-subscribes whenever the `subscribe`
- * identity changes, and an arrow defined in the body is a new function every render.
- * This component re-renders on every keystroke in the rail search and on every route
- * change, so an inline version tore down and re-attached four window listeners each
- * time. It closes over nothing, so there is no reason for it to live in the body.
- */
-function subscribeToPrefs(onChange: () => void): () => void {
-  window.addEventListener(PREF_EVENT, onChange);
-  window.addEventListener("storage", onChange);
-  return () => {
-    window.removeEventListener(PREF_EVENT, onChange);
-    window.removeEventListener("storage", onChange);
-  };
-}
-
-function useStoredPref(key: string, fallback: string): [string, (value: string | null) => void] {
-  const value = useSyncExternalStore(
-    subscribeToPrefs,
-    // Storage can throw outright — Safari private browsing, or a browser configured to
-    // block it. This runs during render, so an unguarded read would take the whole
-    // client tree down over a preference. A preference is never worth that: fall back.
-    () => {
-      try {
-        return localStorage.getItem(key) ?? fallback;
-      } catch {
-        return fallback;
-      }
-    },
-    () => fallback
-  );
-  const set = (next: string | null) => {
-    try {
-      if (next === null) localStorage.removeItem(key);
-      else localStorage.setItem(key, next);
-    } catch {
-      // Not persisted. The event below still repaints this session correctly.
-    }
-    window.dispatchEvent(new Event(PREF_EVENT));
-  };
-  return [value, set];
-}
 
 function applyTheme(theme: Theme) {
   const root = document.documentElement;

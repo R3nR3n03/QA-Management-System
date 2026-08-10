@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import type { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome } from "@prisma/client";
 import { DefectStatusChip, ExecutionStateChip, OutcomeChip } from "./chips";
-import { formatUtcMinute } from "./format";
+import { formatUtcMinute, outcomeBreakdown } from "./format";
 import { ListEmpty } from "./list-empty";
 import { hrefWith, readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
@@ -64,28 +64,6 @@ function lastEvent(row: ExecutionRowData): { verb: string; at: Date } {
   if (row.finalizedAt) return { verb: "Finalized", at: row.finalizedAt };
   if (row.startedAt) return { verb: "Started", at: row.startedAt };
   return { verb: "Planned", at: row.plannedAt };
-}
-
-/**
- * "2 passed, 1 failed" for a finalized run covering more than one case.
- *
- * The run's own chip carries only the derived worst outcome
- * (`docs/business-rules-and-validation.md:30`), so a 9-pass/1-fail run and a 10-fail run
- * are the same red Fail chip. This says which, in words, without a second colour channel
- * on a row that already has two. Counted in a fixed order so two rows always read the
- * same way, and outcomes with no cases are omitted rather than printed as zero.
- */
-function outcomeBreakdown(results: Array<ExecutionOutcome | null>): string {
-  const order: Array<[ExecutionOutcome, string]> = [
-    ["PASS" as ExecutionOutcome, "passed"],
-    ["FAIL" as ExecutionOutcome, "failed"],
-    ["BLOCKED" as ExecutionOutcome, "blocked"]
-  ];
-  const parts = order
-    .map(([outcome, word]) => [results.filter((r) => r === outcome).length, word] as const)
-    .filter(([count]) => count > 0)
-    .map(([count, word]) => `${count} ${word}`);
-  return parts.join(", ");
 }
 
 export function ExecutionList({
@@ -212,7 +190,7 @@ export function ExecutionList({
             pathname={pathname}
             params={params}
             pageKey={pageKey}
-            noMatch="No execution matches the current filters."
+            noMatch={<p>No execution matches the current filters.</p>}
           />
         ) : (
           <ul className="row-list">
@@ -382,11 +360,11 @@ export function DefectList({
             // that did — "nothing matches" with no needle reads as a bug.
             noMatch={
               query !== "" ? (
-                <>
+                <p>
                   Nothing matches &ldquo;{query}&rdquo;{product !== "" ? " in this product" : ""}.
-                </>
+                </p>
               ) : (
-                "No defect has been raised against this product."
+                <p>No defect has been raised against this product.</p>
               )
             }
           />

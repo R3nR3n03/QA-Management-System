@@ -10,11 +10,19 @@ import { z } from "zod";
  *
  * Business-id *format* (`PROD###`, `MOD###`, …) stays in `ensureBusinessIdFormat`; duplicate
  * detection stays in the domain. Neither is duplicated here.
+ *
+ * ## Why every `businessId` is optional but still `.min(1)`
+ *
+ * `docs/data-model.md:5`: "Business IDs are allocated by the system when the creating request
+ * does not supply one." So OMITTING the key is a valid request — it asks for a generated ID.
+ * Sending `""` is not: that is a form posting an empty input, and `suppliedBusinessId` in the
+ * domain rejects it. `.min(1).optional()` encodes exactly that difference, and `undefined` and
+ * `""` must not be collapsed into one case.
  */
 
 /** POST /api/v1/products -> `createProduct`. */
 export const createProductSchema = z.strictObject({
-  businessId: z.string().min(1), // requireNonBlank — catalogue.ts:20
+  businessId: z.string().min(1).optional(), // omitted → allocated; blank → rejected
   name: z.string().min(1), // requireNonBlank — catalogue.ts:21
   versionTag: z.string().min(1), // requireNonBlank — catalogue.ts:22
   status: z.string().min(1) // requireNonBlank — catalogue.ts:23
@@ -30,7 +38,7 @@ export const updateProductSchema = z.strictObject({
 
 /** POST /api/v1/modules -> `createModule`. */
 export const createModuleSchema = z.strictObject({
-  businessId: z.string().min(1), // requireNonBlank — catalogue.ts:101
+  businessId: z.string().min(1).optional(), // omitted → allocated; blank → rejected
   name: z.string().min(1), // requireNonBlank — catalogue.ts:102
   productId: z.string() // no blank guard; unresolved id 404s — catalogue.ts:105-106
 });
@@ -43,7 +51,7 @@ export const updateModuleSchema = z.strictObject({
 
 /** POST /api/v1/features -> `createFeature`. */
 export const createFeatureSchema = z.strictObject({
-  businessId: z.string().min(1), // requireNonBlank — catalogue.ts:166
+  businessId: z.string().min(1).optional(), // omitted → allocated; blank → rejected
   name: z.string().min(1), // requireNonBlank — catalogue.ts:167
   moduleId: z.string() // no blank guard; unresolved id 404s — catalogue.ts:170-171
 });
@@ -56,7 +64,7 @@ export const updateFeatureSchema = z.strictObject({
 
 /** POST /api/v1/requirements -> `createRequirement`. */
 export const createRequirementSchema = z.strictObject({
-  businessId: z.string().min(1), // requireNonBlank — catalogue.ts:231
+  businessId: z.string().min(1).optional(), // omitted → allocated; blank → rejected
   statement: z.string().min(1), // requireNonBlank — catalogue.ts:232
   featureId: z.string() // no blank guard; unresolved id 404s — catalogue.ts:235-236
 });

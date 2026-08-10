@@ -84,11 +84,9 @@ function executionWhere(options: ExecutionListOptions): Prisma.TestExecutionWher
            offering no search at all. One issue key routinely has several runs, which is
            why this returns a list rather than a record.
 
-           This reaches `/my-work` too, whose rows do not show the key: the queue and the
-           executions list share this builder. Kept deliberately, because narrowing it to
-           the list that renders the key would answer "no runs match" for a tester's own
-           linked run — the same false negative this clause exists to prevent. That screen
-           names the Jira key in its search placeholder so the match is not a mystery. */
+           This reaches `/my-work` too: the queue and the executions list share this
+           builder, and both render the key on the row, so a match is visible in the row
+           it returned rather than being a mystery. */
         { jiraIssueKey: { contains: needle, mode: "insensitive" } },
         {
           cases: {
@@ -827,6 +825,35 @@ export async function assignedWorkCounts(
     open: planned + inProgress,
     finalized: countOf(ExecutionLifecycleState.FINALIZED)
   };
+}
+
+/**
+ * How many covered cases sit in a tester's unfinished runs.
+ *
+ * A run is not a unit of work — three runs can be three cases or thirty-three, and the
+ * queue's own tally cannot tell them apart. This is the number that says how much is
+ * actually left to do.
+ *
+ * A count, never a rate: `docs/business-rules-and-validation.md:39` defines no percentage,
+ * threshold or target, so nothing derived from this may be graded.
+ *
+ * Takes the same filters the queue takes, and counts through `executionWhere` scoped to one
+ * tester, so a narrowed screen reports the narrowed number and the count can never reach a
+ * run the list itself could not show.
+ */
+export async function assignedOpenCaseCount(
+  testerId: string,
+  options: Pick<ExecutionListOptions, "query" | "productId" | "featureId"> = {}
+): Promise<number> {
+  return prisma.executionTestCase.count({
+    where: {
+      execution: executionWhere({
+        ...options,
+        testerId,
+        states: [ExecutionLifecycleState.PLANNED, ExecutionLifecycleState.IN_PROGRESS]
+      })
+    }
+  });
 }
 
 /**
