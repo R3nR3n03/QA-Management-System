@@ -12,11 +12,14 @@ export async function PATCH(request: Request, context: Params) {
   return withRoute(request, async ({ auth, requestId }) => {
     const { id } = await context.params;
     const body = await parseWith(updateExecutionSchema, request);
-    const updated = await updateExecution(
-      id,
-      { testerId: body.testerId, version: body.version },
-      { userId: auth.userId, role: auth.role, requestId }
-    );
+    // `body` wholesale, matching the POST sibling. Listing fields here meant `jiraIssueKey`
+    // was accepted by the schema, silently dropped, and answered with 200 — the caller was
+    // told their change had been applied when nothing had happened.
+    const updated = await updateExecution(id, body, {
+      userId: auth.userId,
+      role: auth.role,
+      requestId
+    });
     return Response.json(updated);
   });
 }

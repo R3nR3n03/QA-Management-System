@@ -229,8 +229,9 @@ export function sanitizeFailureReason(raw: string): string {
     .replace(/\b(bearer|basic)\s+[\w\-._~+/=]+/gi, "$1 [REDACTED]")
     // `token=…`, `access_token=…`, `client_secret=…`, `api_key=…` in a query or body.
     .replace(/\b([\w-]*(?:token|secret|password|api[_-]?key))=[^\s&]+/gi, "$1=[REDACTED]")
-    // Any remaining query string: Jira errors quote the request URL, and its params are not
-    // worth the risk of whatever a future endpoint puts in them.
-    .replace(/(\?)[^\s]*/g, "$1[REDACTED]")
+    // Any query string on a quoted URL. Anchored to `://…?` on purpose: an unanchored `\?`
+    // ate ordinary prose, rewriting "Could not resolve site? check the grant" into
+    // "Could not resolve site?[REDACTED]" and truncating the reason a Lead needs to read.
+    .replace(/(https?:\/\/\S*?\?)\S*/gi, "$1[REDACTED]")
     .slice(0, 500);
 }

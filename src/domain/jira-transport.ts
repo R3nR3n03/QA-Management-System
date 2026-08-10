@@ -37,6 +37,12 @@ import type {
  * a QA Lead. Only a programming error escapes as a throw, and `settleJiraSync` catches that.
  */
 
+/**
+ * Ceiling on the token exchange specifically, kept under the surrounding transaction's
+ * timeout so a slow Atlassian can never strand a spent refresh token.
+ */
+const REFRESH_TIMEOUT_MS = 8_000;
+
 const ATLASSIAN_TOKEN_URL = "https://auth.atlassian.com/oauth/token";
 const ATLASSIAN_RESOURCES_URL = "https://api.atlassian.com/oauth/token/accessible-resources";
 
@@ -85,6 +91,11 @@ async function withRefreshedAccessToken(
     const response = await doFetch(ATLASSIAN_TOKEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // Bounded well inside the transaction timeout below. Unbounded, a slow Atlassian would
+      // let the transaction expire AFTER the refresh token had already been spent and
+      // rotated — the rollback would discard the replacement and leave the stored token
+      // permanently dead, with the account still showing as connected.
+      signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
       body: JSON.stringify({
         grant_type: "refresh_token",
         client_id: config.clientId,
@@ -118,6 +129,24 @@ async function withRefreshedAccessToken(
     }
 
     return { accessToken: record.access_token };
+  },
+  {
+    /**
+     * Deliberately longer than `REFRESH_TIMEOUT_MS`, and deliberately not the 5s default.
+     *
+     * Spending a rotating refresh token is not idempotent: once Atlassian answers, the old
+     * token is dead whether or not we manage to store the replacement. So the transaction
+     * must not be able to expire while that exchange is outstanding — the fetch is bounded
+     * first, and this leaves room for it to settle and the write to land.
+     *
+     * The honest cost: a pool connection and a row lock are held across third-party network
+     * I/O, which `settleJiraSync` otherwise refuses. It is accepted HERE and nowhere else,
+     * because Atlassian revokes an entire token family on detecting reuse, so two concurrent
+     * refreshes of one credential would disconnect the person outright. Bounded I/O under a
+     * lock is the lesser harm than an unserialised refresh.
+     */
+    timeout: REFRESH_TIMEOUT_MS + 10_000,
+    maxWait: 10_000
   });
 }
 
@@ -125,10 +154,12 @@ async function withRefreshedAccessToken(
 async function resolveCloudId(
   accessToken: string,
   baseUrl: string,
-  doFetch: FetchLike
+  doFetch: FetchLike,
+  timeoutMs: number
 ): Promise<string | null> {
   const response = await doFetch(ATLASSIAN_RESOURCES_URL, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(timeoutMs)
   });
   if (!response.ok) return null;
 
@@ -139,7 +170,11 @@ async function resolveCloudId(
   // several sites, and transitioning an issue on the wrong one would be silent and wrong.
   const wanted = baseUrl.replace(/\/+$/, "").toLowerCase();
   const match = sites.find((site) => (site.url ?? "").replace(/\/+$/, "").toLowerCase() === wanted);
-  return (match ?? sites[0]).id ?? null;
+
+  // No fallback to the first reachable site. The grant is account-level and can reach a
+  // sandbox or another team's Jira; transitioning PROJ-123 on the wrong instance would
+  // succeed, look fine, and be wrong. No match is a failure with a reason, not a guess.
+  return match?.id ?? null;
 }
 
 /**
@@ -170,13 +205,13 @@ export function createJiraTransport(doFetch: FetchLike = fetch): JiraTransport {
         );
       }
 
-      const cloudId = await resolveCloudId(refreshed.accessToken, config.baseUrl, doFetch);
+      const cloudId = await resolveCloudId(refreshed.accessToken, config.baseUrl, doFetch, request.timeoutMs);
       if (!cloudId) return failed("Could not resolve the Jira site for this account.", request.actorId);
 
       const api = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue/${encodeURIComponent(request.issueKey)}/transitions`;
       const auth = { Authorization: `Bearer ${refreshed.accessToken}`, Accept: "application/json" };
 
-      const available = await doFetch(api, { headers: auth });
+      const available = await doFetch(api, { headers: auth, signal: AbortSignal.timeout(request.timeoutMs) });
       if (available.status === 404) {
         return failed(`Jira issue ${request.issueKey} was not found, or is not visible to this account.`, request.actorId);
       }
@@ -201,6 +236,7 @@ export function createJiraTransport(doFetch: FetchLike = fetch): JiraTransport {
       const applied = await doFetch(api, {
         method: "POST",
         headers: { ...auth, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(request.timeoutMs),
         body: JSON.stringify({ transition: { id: transitionId } })
       });
 

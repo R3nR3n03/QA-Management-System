@@ -56,7 +56,7 @@ export function authorizeUrl(clientId: string, redirectUri: string, state: strin
  * caller to do with "connected, but no usable credential" — that state would look connected
  * on screen and fail silently at every sync.
  */
-export function parseTokenResponse(body: unknown): string {
+export function parseTokenResponse(body: unknown, status?: number): string {
   if (body === null || typeof body !== "object") {
     throw new Error("Jira returned an unreadable token response.");
   }
@@ -72,8 +72,12 @@ export function parseTokenResponse(body: unknown): string {
 
   const refreshToken = record.refresh_token;
   if (typeof refreshToken !== "string" || refreshToken.trim() === "") {
+    // `status` is quoted when the caller knows it, because a 500 page or a proxy envelope
+    // rendered as JSON carries no `error` key — and blaming the offline_access scope sends
+    // an operator to fix something that is already correct.
+    const suffix = status === undefined || (status >= 200 && status < 300) ? "" : ` (HTTP ${status})`;
     throw new Error(
-      "Jira returned no refresh token. The OAuth app must request the offline_access scope."
+      `Jira returned no refresh token${suffix}. If the status was successful, the OAuth app must request the offline_access scope.`
     );
   }
 
@@ -119,5 +123,5 @@ export async function exchangeCodeForRefreshToken(
 
   // Parsed before the status is consulted, because an error body carries the useful reason
   // and a bare status code does not.
-  return parseTokenResponse(body);
+  return parseTokenResponse(body, response.status);
 }

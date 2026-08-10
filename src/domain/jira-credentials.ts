@@ -137,10 +137,20 @@ export async function disconnectJiraAccount(actor: Actor) {
     throw new AppError(404, "REFERENCE_NOT_FOUND", "No Jira account is connected.");
   }
 
-  // Everything this person attempted that has not since succeeded. `SUCCEEDED` rows are
-  // finished work and are never revisited.
+  /**
+   * Everything waiting on this person's credential that has not since succeeded.
+   *
+   * Matching on `actorId` alone was wrong and found almost nothing. The failures that
+   * actually correspond to an unusable per-user credential are recorded with `actorId: null`
+   * — nobody performed the write, which is the point — so the syncs most in need of settling
+   * here were invisible to it. The execution's tester is the durable link between a queued
+   * sync and the person whose credential it is waiting on.
+   */
   const failures = await prisma.jiraSyncAttempt.findMany({
-    where: { actorId: actor.userId, outcome: JiraSyncOutcome.FAILED },
+    where: {
+      outcome: JiraSyncOutcome.FAILED,
+      OR: [{ actorId: actor.userId }, { execution: { testerId: actor.userId } }]
+    },
     select: { executionId: true, jiraIssueKey: true }
   });
 

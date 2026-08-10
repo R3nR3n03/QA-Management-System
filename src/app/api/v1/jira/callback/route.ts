@@ -49,7 +49,9 @@ export async function GET(request: Request) {
 
   const failure = (reason: string, detail: string): never => {
     // The cookie is cleared on every exit so a spent or rejected state cannot be replayed.
-    jar.delete(JIRA_CONNECT_COOKIE);
+    // The path must match the one the cookie was set with, or the deletion silently misses
+    // and the spent state stays replayable for its whole ten-minute lifetime.
+    jar.delete({ name: JIRA_CONNECT_COOKIE, path: "/api/v1/jira" });
     logRequest({
       occurredAt: new Date().toISOString(),
       requestId: url.searchParams.get("state")?.slice(0, 8) ?? "jira-callback",
