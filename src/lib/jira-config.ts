@@ -13,6 +13,16 @@ import { AppError } from "./errors";
  * before this feature. The admin screen shows whether Jira is connected and its base URL,
  * and nothing else.
  *
+ * ## The base URL is no longer QA-Lead-only
+ *
+ * It was, when `/admin/integrations` was the only screen that named it. An execution now
+ * renders its Jira issue key as a link, so `baseUrl` reaches every authenticated role
+ * through `jiraIssueUrl` below. That is a deliberate widening, recorded in
+ * `docs/api-and-security.md#Jira execution sync interface`: the base URL is the public
+ * address of the team's Jira site, which anyone holding an issue key can already guess,
+ * unlike the client id, the client secret and the tokens this module still refuses to
+ * expose at any role.
+ *
  * Pure, and the environment is injected, so the whole module is testable without setting a
  * single real variable — the same shape as `allowed-origins.ts` and the parsers in
  * `rate-limit.ts`.
@@ -246,4 +256,35 @@ export function jiraConnectionStatus(env: JiraEnv & Record<string, string | unde
     baseUrl: config.baseUrl,
     serviceAccountFallback: config.serviceAccountFallback
   };
+}
+
+/**
+ * Jira's permalink for one issue key, or `null` when there is nowhere to send a reader.
+ *
+ * The `null` decides the "plain text instead of a link" branch once, here, for both of its
+ * causes — no `JIRA_BASE_URL`, or a run carrying no key — so a screen asks one question and
+ * renders either an anchor or a span. A deployment that never configured Jira still records
+ * issue keys (`/admin/integrations` says exactly that), and those runs must show the key they
+ * hold without pretending it leads somewhere.
+ *
+ * `/browse/<key>` is Jira's own permalink shape: no project id, no API call, and nothing about
+ * the issue beyond its key. Pure, so the screens that render it need no Jira round trip.
+ */
+export function jiraIssueUrl(
+  baseUrl: string | null | undefined,
+  issueKey: string | null | undefined
+): string | null {
+  const base = present(baseUrl ?? undefined);
+  const key = present(issueKey ?? undefined);
+  if (base === null || key === null) return null;
+
+  // Trailing slashes are trimmed rather than assumed absent: this value is hand-written into
+  // an environment file, and `https://host/` + `/browse` is a double slash some reverse
+  // proxies answer with a redirect or a 404.
+  //
+  // The key is encoded although every stored one is pattern-valid
+  // (`normalizeJiraIssueKey`), so encoding is a no-op on real data. It is here because the
+  // result goes straight into an `href`: a path separator arriving from the database must
+  // not be able to retarget the link.
+  return `${base.replace(/\/+$/, "")}/browse/${encodeURIComponent(key)}`;
 }

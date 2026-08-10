@@ -33,7 +33,10 @@ import { runPaged, type PageRequest } from "@/lib/pagination";
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
 export type ExecutionListOptions = PageRequest & {
-  /** Needle matched against run ID, tester name, covered case ID/title, state and result. */
+  /**
+   * Needle matched against run ID, tester name, covered case ID/title, Jira issue key, state
+   * and result. This list is the only statement of what `GET /executions?q=` searches.
+   */
   query?: string;
   /** Restrict to these lifecycle states. */
   states?: ExecutionLifecycleState[];
@@ -76,6 +79,17 @@ function executionWhere(options: ExecutionListOptions): Prisma.TestExecutionWher
       OR: [
         { businessId: { contains: needle, mode: "insensitive" } },
         { tester: { displayName: { contains: needle, mode: "insensitive" } } },
+        /* A person arriving with a Jira ticket in hand types its key here — and a search
+           box that answers "no executions match" for a run that IS linked is worse than
+           offering no search at all. One issue key routinely has several runs, which is
+           why this returns a list rather than a record.
+
+           This reaches `/my-work` too, whose rows do not show the key: the queue and the
+           executions list share this builder. Kept deliberately, because narrowing it to
+           the list that renders the key would answer "no runs match" for a tester's own
+           linked run — the same false negative this clause exists to prevent. That screen
+           names the Jira key in its search placeholder so the match is not a mystery. */
+        { jiraIssueKey: { contains: needle, mode: "insensitive" } },
         {
           cases: {
             some: {

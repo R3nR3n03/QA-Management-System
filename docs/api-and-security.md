@@ -45,7 +45,7 @@ Do not expose stack traces, SQL details, authorization rules, or internal identi
 
 ## Jira execution sync interface
 
-**Status: approved policy, not yet implemented.** See `architecture.md#Jira execution sync` for the behavior this secures.
+**Status: implemented, with two gaps** — see the status note in `architecture.md#Jira execution sync` for the behavior this secures and for what is still missing.
 
 Outbound only. QAMS calls Jira; Jira has no endpoint into QAMS, no webhook, and no credential here. There is nothing inbound to authorize.
 
@@ -56,6 +56,8 @@ A push that cannot use the triggering user's credential — never connected, rev
 QAMS resolves the target transition by Jira's `done` status category rather than by status name, because status names are user-editable text and categories are not. A deployment may override the transition per Jira project.
 
 Every sync attempt is audited with actor, execution, issue key, and outcome. Credential material never appears in that event.
+
+The Jira site's base URL is shown to every authenticated role, because an execution renders its issue key as a link into Jira. This is the one Jira connection value that is not restricted: it is the public address of the team's Jira site, which anyone holding an issue key can already reach. The client ID, the client secret, the encryption key, and every stored token remain unreadable at every role, masked or otherwise.
 
 ## Workbook import interface
 

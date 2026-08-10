@@ -204,11 +204,23 @@ a {
 
 /* ---------- primitives ---------- */
 
-.bid {
+/* One typographic treatment, two kinds of identifier. `.bid` is a QAMS business ID; a Jira
+   key names a row in someone else's database, which is why `jira-sync.ts` keeps its pattern
+   out of BUSINESS_ID_PATTERNS and why it does not borrow the `bid` class to read the same
+   way. */
+.bid,
+.jira-key {
   font-family: var(--mono);
   font-size: 0.92em;
   letter-spacing: 0.01em;
   color: var(--ink-2);
+}
+
+/* On the execution detail page the key is a link into Jira, and the class above sets a
+   colour — 0,1,0 beats the bare `a` rule's 0,0,1, which would leave the anchor muted grey
+   and strip its only affordance. Same shape as `a.cat-node-more` below. */
+a.jira-key {
+  color: var(--accent);
 }
 
 .state {

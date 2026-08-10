@@ -3,6 +3,7 @@ import { AppError } from "./errors";
 import {
   isJiraConfigured,
   jiraConfig,
+  jiraIssueUrl,
   parseTransitionOverrides,
   type JiraEnv
 } from "./jira-config";
@@ -117,6 +118,58 @@ describe("jiraConfig", () => {
   it("falls back to the default on an unusable timeout rather than failing", () => {
     expect(jiraConfig({ ...complete, JIRA_TRANSITION_TIMEOUT_MS: "0" }).timeoutMs).toBe(5_000);
     expect(jiraConfig({ ...complete, JIRA_TRANSITION_TIMEOUT_MS: "nope" }).timeoutMs).toBe(5_000);
+  });
+});
+
+/**
+ * The deep link a screen renders for an execution's issue key.
+ *
+ * Null is the whole not-configured branch, decided once here rather than at each call site:
+ * a deployment with no `JIRA_BASE_URL` still records issue keys, and those runs show the key
+ * as plain text with nowhere to send the reader.
+ */
+describe("jiraIssueUrl", () => {
+  it("builds Jira's browse URL for a key", () => {
+    expect(jiraIssueUrl("https://acme.atlassian.net", "PROJ-123")).toBe(
+      "https://acme.atlassian.net/browse/PROJ-123"
+    );
+  });
+
+  // JIRA_BASE_URL is written by hand into an environment file, so both spellings arrive.
+  it("tolerates a trailing slash on the base URL", () => {
+    expect(jiraIssueUrl("https://acme.atlassian.net/", "PROJ-123")).toBe(
+      "https://acme.atlassian.net/browse/PROJ-123"
+    );
+    expect(jiraIssueUrl("https://acme.atlassian.net///", "PROJ-123")).toBe(
+      "https://acme.atlassian.net/browse/PROJ-123"
+    );
+  });
+
+  it("keeps a base URL that already has a path", () => {
+    expect(jiraIssueUrl("https://example.com/jira/", "PROJ-123")).toBe(
+      "https://example.com/jira/browse/PROJ-123"
+    );
+  });
+
+  it("has no URL to offer when Jira is not configured", () => {
+    expect(jiraIssueUrl(null, "PROJ-123")).toBeNull();
+    expect(jiraIssueUrl("   ", "PROJ-123")).toBeNull();
+  });
+
+  it("has no URL to offer for a run carrying no key", () => {
+    expect(jiraIssueUrl("https://acme.atlassian.net", null)).toBeNull();
+    expect(jiraIssueUrl("https://acme.atlassian.net", "  ")).toBeNull();
+  });
+
+  /**
+   * Every stored key is pattern-valid (`normalizeJiraIssueKey`), so encoding changes nothing
+   * about a real one. It is here because this value reaches an `href`, and a path separator
+   * arriving from the database must not be able to retarget the link.
+   */
+  it("encodes a key rather than letting it change the path", () => {
+    expect(jiraIssueUrl("https://acme.atlassian.net", "PROJ-1/../secret")).toBe(
+      "https://acme.atlassian.net/browse/PROJ-1%2F..%2Fsecret"
+    );
   });
 });
 

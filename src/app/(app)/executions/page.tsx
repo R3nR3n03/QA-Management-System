@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ExecutionLifecycleState } from "@prisma/client";
 import { listFeatureOptions, listProductOptions } from "@/domain/catalogue";
 import { listExecutionsWithCase } from "@/domain/executions";
+import { jiraConnectionStatus } from "@/lib/jira-config";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { ExecutionList } from "@/ui/record-list";
@@ -73,6 +74,7 @@ export default async function ExecutionsPage({
           caseBusinessIds: execution.cases.map((covered) => covered.testCase.businessId),
           caseTitle: execution.cases[0]?.testCase.title ?? "",
           testerName: execution.tester.displayName,
+          jiraIssueKey: execution.jiraIssueKey,
           // Per-case outcomes in the same coverage order, so a multi-case run can say
           // which of its cases passed rather than only its derived worst result.
           caseResults: execution.cases.map((covered) => covered.result),
@@ -87,6 +89,11 @@ export default async function ExecutionsPage({
         params={params}
         products={products}
         features={features}
+        /* Only decides whether an unlinked run says "No Jira issue"; a recorded key shows
+           either way. Read on the page rather than inside the list because deployment
+           configuration is the page's to supply — the list is presentation, and which rows
+           exist and what the deployment is are both answered before it renders. */
+        jiraConfigured={jiraConnectionStatus().connected}
       />
     </>
   );

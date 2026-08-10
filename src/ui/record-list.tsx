@@ -33,6 +33,11 @@ export type ExecutionRowData = {
   /** The first covered case's title. */
   caseTitle: string;
   testerName: string;
+  /**
+   * The Jira issue this run is testing, or null. Rendered as text and never as a link, even
+   * though the detail page links the same key — see the note on the row below.
+   */
+  jiraIssueKey: string | null;
   /** Per-case outcomes, in coverage order; `null` until the run is finalized. */
   caseResults: Array<ExecutionOutcome | null>;
   plannedAt: Date;
@@ -96,7 +101,8 @@ export function ExecutionList({
   products,
   productKey = "product",
   features,
-  featureKey = "feature"
+  featureKey = "feature",
+  jiraConfigured = false
 }: {
   rows: ExecutionRowData[];
   total: number;
@@ -113,6 +119,16 @@ export function ExecutionList({
   /** Omit to leave the feature filter off this screen entirely. */
   features?: ProductOption[];
   featureKey?: string;
+  /**
+   * Whether this deployment has Jira configured at all.
+   *
+   * Only decides what an UNLINKED run says. Where no `JIRA_*` configuration exists no run
+   * could ever carry a key, so "No Jira issue" would report the deployment's configuration
+   * rather than anything about the run — on every row, forever. A key that IS recorded shows
+   * either way: keys can be recorded with the integration switched off, and the key is a fact
+   * of the run whether or not anything will ever be sent.
+   */
+  jiraConfigured?: boolean;
 }) {
   const query = readParam(params, queryKey);
   const activeState = readParam(params, stateKey) || "ALL";
@@ -135,7 +151,7 @@ export function ExecutionList({
             there would be no way left to clear it. */}
         {filtered || total > 5 ? (
           <UrlFilterToolbar
-            placeholder="Filter by ID, case, tester, or state…"
+            placeholder="Filter by ID, case, tester, Jira key, or state…"
             label="Filter executions"
             paramKey={queryKey}
             pageKey={pageKey}
@@ -232,6 +248,20 @@ export function ExecutionList({
                     {row.testerName}
                     {" · "}
                     {event.verb} <time dateTime={event.at.toISOString()}>{formatUtcMinute(event.at)}</time>
+                    {/* The Jira issue, last in the line and text rather than a link. The
+                        row's one click target is its title — the reason the row is not a
+                        stretched link and the reason "View" is skipped in the tab order.
+                        An external anchor duplicates no destination, so it could not be
+                        hidden the same way: 50 rows would be 50 extra tab stops to serve
+                        the rarer intention, when the detail page one click away links it. */}
+                    {row.jiraIssueKey ? (
+                      <>
+                        {" · "}
+                        <span className="jira-key">{row.jiraIssueKey}</span>
+                      </>
+                    ) : jiraConfigured ? (
+                      " · No Jira issue"
+                    ) : null}
                   </div>
                 </div>
                 {/* The same destination as the title, so it is skipped in the tab order:
