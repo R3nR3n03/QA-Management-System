@@ -1,7 +1,8 @@
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
-import { jiraConnectionRoster } from "@/domain/jira-credentials";
+import { jiraConnectionFor, jiraConnectionRoster } from "@/domain/jira-credentials";
 import { jiraConnectionStatus } from "@/lib/jira-config";
+import { JiraConnectionPanel } from "@/ui/jira-connection";
 import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
@@ -26,11 +27,10 @@ export default async function IntegrationsPage() {
   if (auth.role !== QamsRole.QA_LEAD) notFound();
 
   const jira = jiraConnectionStatus();
-  const roster = await jiraConnectionRoster({
-    userId: auth.userId,
-    role: auth.role,
-    requestId: "page"
-  });
+  const [roster, mine] = await Promise.all([
+    jiraConnectionRoster({ userId: auth.userId, role: auth.role, requestId: "page" }),
+    jiraConnectionFor(auth.userId)
+  ]);
 
   return (
     <>
@@ -78,6 +78,20 @@ export default async function IntegrationsPage() {
             <code>docs/architecture.md</code> for what the sync does once configured.
           </p>
         )}
+      </div>
+
+      {/*
+        The Lead's OWN connection, the same component `/account` mounts. The screens stay
+        split — deployment status is Lead-only, personal connection is not — but a Lead
+        looking at this page should not have to go elsewhere to connect themselves.
+      */}
+      <div style={{ marginTop: "var(--sp-4)" }}>
+        <JiraConnectionPanel
+          connected={mine.connected}
+          connectedAt={mine.connectedAt}
+          deploymentConfigured={jira.connected}
+          serviceAccountFallback={jira.serviceAccountFallback}
+        />
       </div>
 
       {/*
