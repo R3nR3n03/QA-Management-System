@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { jiraConfig } from "@/lib/jira-config";
 import { ensureRole, RoleSets } from "@/lib/rbac";
-import { encryptSecret } from "@/lib/secret-box";
+import { encryptSecret, parseEncryptionKey } from "@/lib/secret-box";
 
 /**
  * A person's own Jira connection: connect, disconnect, and who has one.
@@ -94,7 +94,14 @@ export async function connectJiraAccount(refreshToken: string, actor: Actor) {
     );
   }
 
-  const encryptedRefreshToken = encryptSecret(refreshToken, config.encryptionKey);
+  // Decoded here rather than in `jiraConfig()`: that module is imported by
+  // `instrumentation.ts`, which Next compiles for the Edge runtime where `node:crypto` does
+  // not resolve. The key's SHAPE was already checked at boot, so this cannot fail in
+  // practice — it is the decode, not the validation.
+  const encryptedRefreshToken = encryptSecret(
+    refreshToken,
+    parseEncryptionKey(config.encryptionKey)
+  );
 
   return prisma.$transaction(async (tx) => {
     const saved = await tx.jiraCredential.upsert({

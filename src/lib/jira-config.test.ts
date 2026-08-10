@@ -79,8 +79,14 @@ describe("jiraConfig", () => {
     ).toThrow();
   });
 
-  it("decodes the encryption key", () => {
-    expect(jiraConfig(complete).encryptionKey).toHaveLength(32);
+  // Kept as the raw base64 string: decoding needs node:crypto, and this module is reachable
+  // from the Edge runtime through instrumentation.ts.
+  it("keeps the encryption key as base64 without decoding it", () => {
+    expect(jiraConfig(complete).encryptionKey).toBe(complete.JIRA_ENCRYPTION_KEY);
+  });
+
+  it("rejects an encryption key that is not base64", () => {
+    expect(() => jiraConfig({ ...complete, JIRA_ENCRYPTION_KEY: "not base64 !!!" })).toThrow();
   });
 
   it("rejects a base URL that is not http(s)", () => {

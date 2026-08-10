@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 /**
  * Authenticated encryption for secrets held at rest.
@@ -28,6 +28,13 @@ import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
  *
  * Pure apart from `randomBytes`, and the key is injected, so this is testable without any
  * environment at all.
+ *
+ * ## Node-only, deliberately
+ *
+ * `node:crypto` does not exist on the Edge runtime. Nothing that middleware or
+ * `instrumentation.ts` can reach may import this file — `src/lib/jira-config.ts` did briefly,
+ * which broke the build with "Can't resolve 'crypto'". Config validates the key's SHAPE
+ * without decoding it; `parseEncryptionKey` is called from Node-only code that encrypts.
  */
 
 /** AES-256 needs exactly this many bytes of key. */

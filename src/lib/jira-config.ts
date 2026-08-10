@@ -1,5 +1,4 @@
 import { AppError } from "./errors";
-import { parseEncryptionKey } from "./secret-box";
 
 /**
  * Deployment configuration for the Jira execution sync
@@ -49,6 +48,14 @@ export type JiraEnv = {
 /** The documented default, and the value used when an override is unusable. */
 export const DEFAULT_JIRA_TRANSITION_TIMEOUT_MS = 5_000;
 
+/**
+ * Base64 of exactly 32 bytes: 43 payload characters and one `=` of padding.
+ *
+ * An arithmetic check rather than a decode, so this module needs no Buffer and no crypto and
+ * stays importable from the Edge runtime.
+ */
+const BASE64_32_BYTES = /^[A-Za-z0-9+/]{43}=$/;
+
 /** One variable per Jira project: `JIRA_TRANSITION_OVERRIDE_PROJ=31`. */
 export const TRANSITION_OVERRIDE_PREFIX = "JIRA_TRANSITION_OVERRIDE_";
 
@@ -79,8 +86,15 @@ export type JiraConfig = {
   serviceAccountFallback: boolean;
   serviceAccountToken: string | null;
   redirectUri: string | null;
-  /** Decoded and length-checked at boot, so a bad key fails there rather than at connect. */
-  encryptionKey: Buffer | null;
+  /**
+   * The raw base64 key, validated for shape at boot but NOT decoded here.
+   *
+   * Decoding needs `node:crypto` via `secret-box.ts`, and this module must stay free of Node
+   * builtins: `instrumentation.ts` imports it and Next compiles that for the Edge runtime
+   * too, where `crypto` does not resolve — the same trap `src/middleware.ts` documents.
+   * `parseEncryptionKey` turns this into a key, in Node-only code that actually encrypts.
+   */
+  encryptionKey: string | null;
   timeoutMs: number;
   /** Jira project key -> transition id. Empty unless a deployment overrides one. */
   transitionOverrides: Map<string, string>;
@@ -189,9 +203,17 @@ export function jiraConfig(env: JiraEnv & Record<string, string | undefined> = p
 
   const serviceAccountToken = present(env.JIRA_SERVICE_ACCOUNT_TOKEN);
 
-  // Decoded here so a malformed key stops the process at boot rather than at the moment a
-  // tester clicks Connect. `parseEncryptionKey` throws its own explanatory message.
-  const encryptionKey = parseEncryptionKey(present(env.JIRA_ENCRYPTION_KEY) ?? undefined);
+  // Shape-checked here so a malformed key still stops the process at boot rather than
+  // surfacing when a tester clicks Connect — without decoding it, which would need
+  // `node:crypto` and break the Edge build. See `encryptionKey` on JiraConfig.
+  const encryptionKey = present(env.JIRA_ENCRYPTION_KEY) as string;
+  if (!BASE64_32_BYTES.test(encryptionKey)) {
+    throw new AppError(
+      500,
+      "POLICY_NOT_DEFINED",
+      "JIRA_ENCRYPTION_KEY must be 32 bytes of base64. Generate one with `openssl rand -base64 32`."
+    );
+  }
 
   return {
     enabled: true,
