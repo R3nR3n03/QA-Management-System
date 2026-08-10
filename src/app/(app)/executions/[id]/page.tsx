@@ -452,6 +452,7 @@ export default async function ExecutionPage({
                   executionId={execution.id}
                   version={execution.version}
                   currentTesterId={execution.testerId}
+                  currentJiraIssueKey={execution.jiraIssueKey}
                   testers={assignableTesters}
                 />
               </>

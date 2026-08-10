@@ -24,11 +24,14 @@ export function ReassignForm({
   executionId,
   version,
   currentTesterId,
+  currentJiraIssueKey,
   testers
 }: {
   executionId: string;
   version: number;
   currentTesterId: string;
+  /** The Jira task this run tests, or `null`. Editable here only while Planned. */
+  currentJiraIssueKey: string | null;
   testers: TesterOption[];
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(updateExecutionAction, null);
@@ -37,7 +40,7 @@ export function ReassignForm({
 
   useEffect(() => {
     if (wasPending.current && !pending && state === null) {
-      toast("Execution reassigned.");
+      toast("Execution updated.");
     }
     wasPending.current = pending;
   }, [pending, state, toast]);
@@ -59,11 +62,32 @@ export function ReassignForm({
           ))}
         </select>
       </label>
+
+      {/*
+        Rendered ALWAYS, even when empty — the field's presence is what tells the action
+        "this form has an opinion about the Jira key", and clearing it is how a key is
+        removed. Omitting it when null would make an empty box indistinguishable from a
+        form that never mentioned Jira (`readOptionalText`).
+      */}
+      <label className={fieldClass(state, "jiraIssueKey")}>
+        <span>Jira issue key</span>
+        <input
+          name="jiraIssueKey"
+          type="text"
+          placeholder="PROJ-123"
+          autoComplete="off"
+          defaultValue={currentJiraIssueKey ?? ""}
+          disabled={pending}
+          {...fieldProps(state, "jiraIssueKey", FORM_ID)}
+        />
+      </label>
+
       <button className="btn btn-secondary" type="submit" disabled={pending}>
-        {pending ? "Reassigning…" : "Reassign"}
+        {pending ? "Saving…" : "Save"}
       </button>
       <p className="muted" style={{ marginTop: "var(--sp-2)" }}>
-        Only a Planned run can be reassigned. Once started, the tester is part of the record.
+        Only a Planned run can be changed. Once started, the tester and the Jira issue key are
+        both part of the record. Clearing the key removes the Jira link.
       </p>
     </form>
   );

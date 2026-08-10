@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { finalizeExecution, startExecution, updateExecution } from "@/domain/executions";
 import { failState, runAction, type FormState } from "@/ui/action";
+import { readOptionalText } from "@/ui/form-data";
 
 /**
  * Server actions for the execution lifecycle. Each one authenticates, calls exactly
@@ -56,7 +57,14 @@ export async function updateExecutionAction(_prev: FormState, formData: FormData
   const version = Number(formData.get("version"));
   const testerId = String(formData.get("testerId") ?? "");
 
-  const result = await runAction((actor) => updateExecution(id, { testerId, version }, actor));
+  // Absent means "this form said nothing about Jira, leave the key alone"; present and
+  // empty means "clear it". `updateExecution` distinguishes the two, which is why this is
+  // not the usual `String(get(...) ?? "")`.
+  const jiraIssueKey = readOptionalText(formData, "jiraIssueKey");
+
+  const result = await runAction((actor) =>
+    updateExecution(id, { testerId, version, jiraIssueKey }, actor)
+  );
 
   if (!result.ok) return failState(result);
 
