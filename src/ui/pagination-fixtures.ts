@@ -39,9 +39,14 @@ const FINALIZED_AT = new Date("2026-01-07T14:45:00.000Z");
 
 export function makeExecutionRows(
   count: number,
-  options: { state?: ExecutionLifecycleState; idOffset?: number } = {}
+  options: {
+    state?: ExecutionLifecycleState;
+    idOffset?: number;
+    /** Every generated row carries the same key: a Jira task routinely has several runs. */
+    jiraIssueKey?: string | null;
+  } = {}
 ): ExecutionRowData[] {
-  const { state = "PLANNED", idOffset = 0 } = options;
+  const { state = "PLANNED", idOffset = 0, jiraIssueKey = null } = options;
   const started = state === "IN_PROGRESS" || state === "FINALIZED";
   return Array.from({ length: count }, (_, index) => {
     const n = idOffset + index + 1;
@@ -53,6 +58,7 @@ export function makeExecutionRows(
       caseBusinessIds: [`TC-FIX-${pad(n)}`],
       caseTitle: `Execution title ${n}`,
       testerName: "Fixture Tester",
+      jiraIssueKey,
       caseResults: [state === "FINALIZED" ? ("PASS" as const) : null],
       plannedAt: PLANNED_AT,
       startedAt: started ? STARTED_AT : null,

@@ -7,6 +7,7 @@ import { listControlledValues } from "@/domain/admin";
 import { listOpenDefectsForCases } from "@/domain/defects";
 import { executionDetail, listAssignableTesters } from "@/domain/executions";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
+import { jiraConnectionStatus, jiraIssueUrl } from "@/lib/jira-config";
 import { ExecutionStateChip, OutcomeChip, TestCaseStateChip } from "@/ui/chips";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
 import { formatUtcMinute } from "@/ui/format";
@@ -106,6 +107,12 @@ export default async function ExecutionPage({
   const auth = await requireSession();
   const execution = await executionDetail(id);
   if (!execution) notFound();
+
+  /* Deployment configuration, so it is read here and never asked for by a component.
+     `jiraIssueHref` is null in the two cases that both render plain text: no Jira configured,
+     and a run carrying no key. */
+  const jira = jiraConnectionStatus();
+  const jiraIssueHref = jiraIssueUrl(jira.baseUrl, execution.jiraIssueKey);
 
   const controlled = await listControlledValues();
   const priorities = controlled
@@ -216,9 +223,48 @@ export default async function ExecutionPage({
       <p className="run-lede">
         {single ? single.testCase.title : `${execution.cases.length} test cases in one run`}
       </p>
+      {/* Assignment and the Jira task, in one line of facts about the run.
+
+          The issue key used to be visible ONLY inside the reassignment form's input, which
+          mounts only on a Planned run for a viewer who may act on it — so a tester could set
+          a key and never see it again, and nobody could read it off a Finalized run at all.
+          It belongs here instead: an attribute of the record, in every lifecycle state, for
+          every role that may view the run. */}
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
         Assigned to {execution.tester.displayName}
         {isAssignee ? " (you)" : ""}
+        {execution.jiraIssueKey ? (
+          <>
+            {" · Testing "}
+            {/* "Testing PROJ-123" rather than a bare key: in a line of facts a bare
+                identifier could be read as another QAMS business ID, and this one names a
+                row in someone else's database. A new tab because a tester mid-run should
+                not lose the run to glance at a ticket. */}
+            {jiraIssueHref ? (
+              <a
+                className="jira-key"
+                href={jiraIssueHref}
+                target="_blank"
+                /* Not optional with `target="_blank"`: without it the opened page gets a
+                   `window.opener` handle back into this one. Same reasoning as the Connect
+                   link in `jira-connection.tsx`. */
+                rel="noopener noreferrer"
+                /* The new tab is announced. "Connect Jira" is a control where a reader
+                   expects one; a key inside a sentence is not, and focus moving to another
+                   tab unannounced is disorienting. */
+                aria-label={`${execution.jiraIssueKey} in Jira, opens in a new tab`}
+              >
+                {execution.jiraIssueKey}
+              </a>
+            ) : (
+              /* A key recorded while the integration is switched off. Still a fact of the
+                 run, with nowhere to send the reader. */
+              <span className="jira-key">{execution.jiraIssueKey}</span>
+            )}
+          </>
+        ) : jira.connected ? (
+          " · No Jira issue"
+        ) : null}
       </p>
 
       <div className="run-head">

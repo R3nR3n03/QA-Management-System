@@ -57,6 +57,15 @@ beforeEach(() => {
 
 const href = (name: string) => screen.getByRole("link", { name }).getAttribute("href");
 
+/**
+ * A row's `·`-separated metadata line, composed text and all.
+ *
+ * `getByText` joins only an element's DIRECT text nodes, so a fact rendered inside its own
+ * `<span>` or `<time>` is invisible to a regex over the line. Reading `textContent` off the
+ * line asserts what a reader actually sees, in order.
+ */
+const metaLine = () => screen.getByText(/Fixture Tester/).textContent;
+
 describe("ExecutionList", () => {
   it("renders the lifecycle state chips (Prisma enum values resolve under jsdom)", () => {
     render(
@@ -133,6 +142,7 @@ describe("ExecutionList", () => {
             caseBusinessIds: ["TC-FIX-0001", "TC-FIX-0002", "TC-FIX-0003"],
             caseTitle: "Checkout with a valid card",
             testerName: "Fixture Tester",
+            jiraIssueKey: null,
             caseResults: ["PASS", "FAIL", "PASS"],
             plannedAt: new Date("2026-01-05T09:00:00.000Z"),
             startedAt: new Date("2026-01-06T10:30:00.000Z"),
@@ -169,6 +179,71 @@ describe("ExecutionList", () => {
     // rather than leaving a blank where a timestamp would go.
     expect(screen.getByText(/· Planned$/)).toBeTruthy();
     expect(screen.getByText("2026-01-05 09:00 UTC")).toBeTruthy();
+  });
+
+  /**
+   * The Jira issue key on the row.
+   *
+   * Text, never a link, even though the detail page links the same key: the row's one click
+   * target is its title, which is why the row is not a stretched link and why "View" is
+   * skipped in the tab order. An external anchor per row duplicates no destination, so it
+   * could not be hidden the same way — 50 rows would become 50 extra tab stops to serve the
+   * rarer intention.
+   */
+  it("names the Jira issue a run is testing, as text rather than a link", () => {
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(1, { jiraIssueKey: "PROJ-123" })}
+        total={1}
+        page={1}
+        pathname="/executions"
+        params={{}}
+        jiraConfigured
+      />
+    );
+
+    expect(metaLine()).toMatch(/· PROJ-123$/);
+    expect(screen.queryByRole("link", { name: /PROJ-123/ })).toBeNull();
+  });
+
+  it("says so when a run carries no issue key", () => {
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(1)}
+        total={1}
+        page={1}
+        pathname="/executions"
+        params={{}}
+        jiraConfigured
+      />
+    );
+    expect(metaLine()).toMatch(/· No Jira issue$/);
+  });
+
+  /**
+   * Q13(b): where no `JIRA_*` configuration exists, no run could ever be linked, so "No Jira
+   * issue" would report the deployment's config rather than anything about the run — on every
+   * row, forever.
+   */
+  it("stays silent about an absent key where the deployment has no Jira", () => {
+    render(
+      <ExecutionList rows={makeExecutionRows(1)} total={1} page={1} pathname="/executions" params={{}} />
+    );
+    expect(metaLine()).not.toMatch(/No Jira issue/);
+  });
+
+  /** A key recorded before (or without) any Jira configuration is still a fact of the run. */
+  it("still shows a recorded key where the deployment has no Jira", () => {
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(1, { jiraIssueKey: "PROJ-123" })}
+        total={1}
+        page={1}
+        pathname="/executions"
+        params={{}}
+      />
+    );
+    expect(metaLine()).toMatch(/· PROJ-123$/);
   });
 
   it("offers products as a dropdown and keeps the choice when the state chip changes", () => {

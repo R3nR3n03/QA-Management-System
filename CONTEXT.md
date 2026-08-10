@@ -78,6 +78,21 @@ _Avoid_: match, result, row
 The text a viewer typed into a search box, before anything has been matched with it.
 _Avoid_: query, term, filter
 
+## The execution
+
+**Execution**:
+One run of one or more approved test cases, assigned to one tester, moving through three
+lifecycle states. "Run" says the same thing and is used freely in prose — both words are
+right, and the better-reading one wins in any given sentence.
+_Avoid_: **execution plan**. There is no record by that name, and the phrase already means
+something else entirely in a database. Also avoid test round, test pass.
+
+**Planned**:
+The first lifecycle state: the execution exists and what it covers is fixed, but nobody has
+started it. "Plan an execution" is the act that creates one, and it produces an execution in
+this state — never a separate record of its own.
+_Avoid_: draft, scheduled, pending, plan (as a noun)
+
 ## Jira
 
 **Jira issue key**:

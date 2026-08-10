@@ -78,9 +78,18 @@ export default async function MyWorkPage({
         {/* The needle stays on screen once it is set, however few rows match, or there
             would be no way left to clear it — the same rule the record lists follow. It
             searches BOTH lists on this screen, which is why it sits in the page header
-            rather than inside the queue card with the filters that govern only that. */}
+            rather than inside the queue card with the filters that govern only that.
+
+            The Jira key is named in the placeholder because this needle matches it — the
+            queue and the executions list share one `executionWhere` — while the queue's rows
+            do not SHOW the key. Unnamed, a tester who pasted a key would get rows back with
+            nothing saying why they matched. */}
         {query !== "" || counts.open + counts.finalized > 5 ? (
-          <UrlFilterToolbar placeholder="Search your runs…" label="Search your runs" paramKey="q" />
+          <UrlFilterToolbar
+            placeholder="Search by run, case, or Jira key…"
+            label="Search your runs"
+            paramKey="q"
+          />
         ) : null}
       </div>
 
