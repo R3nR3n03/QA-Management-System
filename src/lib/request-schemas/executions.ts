@@ -21,7 +21,11 @@ export const createExecutionSchema = z.strictObject({
     .refine((ids) => new Set(ids).size === ids.length, {
       message: "Each test case may be selected only once."
     }), // duplicates 422 — executions.ts:34-36
-  testerId: z.string() // no blank guard; unresolved id 422s REFERENCE_INACTIVE — executions.ts:50-53
+  testerId: z.string(), // no blank guard; unresolved id 422s REFERENCE_INACTIVE — executions.ts:50-53
+  // Optional, and only shape-checked in the domain (`normalizeJiraIssueKey`): a malformed
+  // key 422s ID_INVALID, a blank one reads as "no Jira task", and a well-formed key naming a
+  // nonexistent issue is accepted on purpose so Jira can never block planning.
+  jiraIssueKey: z.string().nullish()
 });
 
 /**
@@ -34,7 +38,11 @@ export const createExecutionSchema = z.strictObject({
  */
 export const updateExecutionSchema = z.strictObject({
   testerId: z.string(), // no blank guard; unresolved id 422s REFERENCE_INACTIVE like createExecution
-  version: z.number().optional() // ensureVersion tolerates undefined (409) — executions.ts:109
+  version: z.number().optional(), // ensureVersion tolerates undefined (409) — executions.ts:109
+  // Absent means "leave the key alone"; explicit null clears it. Changing it after the run
+  // leaves Planned is 422 FORBIDDEN_TRANSITION (`ensureIssueKeyMutable`), on the same rule
+  // that freezes the tester.
+  jiraIssueKey: z.string().nullish()
 });
 
 /** POST /api/v1/executions/{id}/start -> `startExecution`. */

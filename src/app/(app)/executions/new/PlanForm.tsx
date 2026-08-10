@@ -470,6 +470,30 @@ export function PlanForm({
         </span>
       </label>
 
+      {/*
+        Optional, and the only point at which it can be set: the key is part of the record
+        once the run leaves Planned, the same rule that freezes the tester
+        (`docs/roles-workflows.md`). Not `type="url"` or a pattern attribute — the format is
+        a documented business rule and belongs to the domain, which refuses a malformed key
+        with 422 ID_INVALID and reports it through this form's notice like every other rule.
+      */}
+      <label className={bad("jiraIssueKey")}>
+        <span>Jira issue key (optional)</span>
+        <input
+          name="jiraIssueKey"
+          type="text"
+          placeholder="PROJ-123"
+          autoComplete="off"
+          disabled={pending}
+          {...fieldProps(state, "jiraIssueKey", FORM_ID)}
+        />
+        <span className="hint">
+          The Jira task this run tests. When every run against the same key is finalized and
+          all of them pass, QAMS moves that issue to Done. Leave it blank if this run has no
+          Jira task — a failed or blocked run never moves the issue.
+        </span>
+      </label>
+
       <button className="btn" type="submit" disabled={pending || selected.size === 0}>
         {pending
           ? "Planning…"

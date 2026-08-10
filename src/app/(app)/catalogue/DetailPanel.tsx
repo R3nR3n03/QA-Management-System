@@ -12,7 +12,7 @@ import {
   EditProductButton,
   EditRequirementButton
 } from "./CatalogueEditForms";
-import { selectionHref, type SelectionKind } from "./selection";
+import { CHILD_PAGE_PARAM, selectionHref, type SelectionKind } from "./selection";
 
 /**
  * The right-hand panel: the selected record, what it is part of, and what is inside it.
@@ -32,7 +32,7 @@ const CHILD_NOUN = {
 /** The child level, once it is known to exist. A requirement has none. */
 type ChildKind = "module" | "feature" | "requirement";
 
-/** Every child level is selectable in the tree now that requirements are nodes. */
+/** Every child level is selectable, whether or not the tree draws it as a row. */
 const CHILD_SELECTION: Record<ChildKind, SelectionKind> = {
   module: "module",
   feature: "feature",
@@ -42,14 +42,15 @@ const CHILD_SELECTION: Record<ChildKind, SelectionKind> = {
 export function DetailPanel({
   detail,
   params,
-  requirementPage,
+  childPage,
   needle,
   totals,
   hasAnyProduct
 }: {
   detail: CatalogueDetail | null;
   params: ListSearchParams | undefined;
-  requirementPage: number;
+  /** The page of whatever child list this record has. One key, one list on screen. */
+  childPage: number;
   needle: string;
   totals: { products: number; modules: number; features: number; requirements: number };
   hasAnyProduct: boolean;
@@ -68,7 +69,7 @@ export function DetailPanel({
           detail={detail}
           childKind={detail.childKind}
           params={params}
-          requirementPage={requirementPage}
+          childPage={childPage}
         />
       )}
     </>
@@ -195,19 +196,27 @@ function EditFor({ detail }: { detail: CatalogueDetail }) {
 
 /* ---------- children ---------- */
 
+/**
+ * The selected record's children.
+ *
+ * All three levels are paged, and by ONE key. It used to be requirements alone, because
+ * they were the only level with the cardinality to need it; a product with 300 modules
+ * has the same problem and used to render all 300. The tree caps a branch at
+ * `DEFAULT_CHILD_LIMIT` rows and points the overflow here, so here has to be the place
+ * that can actually hold a long list — paged, timestamped, and editable in place.
+ */
 function ChildSection({
   detail,
   childKind,
   params,
-  requirementPage
+  childPage
 }: {
   detail: CatalogueDetail;
   childKind: ChildKind;
   params: ListSearchParams | undefined;
-  requirementPage: number;
+  childPage: number;
 }) {
   const noun = CHILD_NOUN[childKind];
-  const paged = childKind === "requirement";
 
   return (
     <section aria-label={`${noun.many} of ${detail.businessId}`}>
@@ -220,19 +229,16 @@ function ChildSection({
 
       <div className="card card-flush">
         {detail.children.length === 0 ? (
-          paged ? (
-            // A requirement list can be empty for two unrelated reasons and saying the
-            // wrong one is worse than saying nothing — see src/ui/list-empty.tsx.
-            <ListEmpty
-              total={detail.childTotal}
-              pathname="/catalogue"
-              params={params}
-              pageKey="req"
-              noMatch={<EmptyChild detail={detail} childKind={childKind} />}
-            />
-          ) : (
-            <EmptyChild detail={detail} childKind={childKind} />
-          )
+          // An empty page can mean two unrelated things — this record has no children, or
+          // you are past the end of a list that shrank — and saying the wrong one is worse
+          // than saying nothing. See src/ui/list-empty.tsx.
+          <ListEmpty
+            total={detail.childTotal}
+            pathname="/catalogue"
+            params={params}
+            pageKey={CHILD_PAGE_PARAM}
+            noMatch={<EmptyChild detail={detail} childKind={childKind} />}
+          />
         ) : (
           <ul className="row-list">
             {detail.children.map((child) => (
@@ -242,14 +248,14 @@ function ChildSection({
         )}
       </div>
 
-      {paged && detail.children.length > 0 ? (
+      {detail.children.length > 0 ? (
         <Pager
           total={detail.childTotal}
-          page={requirementPage}
+          page={childPage}
           pathname="/catalogue"
           params={params}
-          pageKey="req"
-          label="requirements"
+          pageKey={CHILD_PAGE_PARAM}
+          label={noun.many}
         />
       ) : null}
     </section>
@@ -272,16 +278,16 @@ function ChildRow({
     <li className="cat-child">
       <span className="bid">{child.businessId}</span>
 
-      {/* A module or feature row drills down; a requirement is a leaf and has nowhere to
-          go, so it is text rather than a link that would do nothing. */}
+      {/* Every child row selects. A requirement is the only level with no row in the tree,
+          which makes this link the way to reach one — its statement is a sentence, and the
+          panel is where a sentence is readable. */}
       <span className="cat-child-label">
-        {kind ? (
-          <Link className="row-link" href={selectionHref(params, { kind, businessId: child.businessId })}>
-            {child.label}
-          </Link>
-        ) : (
-          child.label
-        )}
+        <Link
+          className="row-link"
+          href={selectionHref(params, { kind, businessId: child.businessId })}
+        >
+          {child.label}
+        </Link>
       </span>
 
       {child.count === null ? (
@@ -401,7 +407,7 @@ function Overview({
         <Rich
           icon={<SearchX size={40} aria-hidden />}
           title={`Showing matches for “${needle}”.`}
-          body="Pick one on the left to see it. Search looks at business IDs, names and requirement statements across all four levels."
+          body="Pick a result on the left to read it. Search ranks business IDs, names and requirement statements across all four levels — an exact ID first."
         />
       </div>
     );
@@ -412,7 +418,7 @@ function Overview({
       <Rich
         icon={<FolderTree size={40} aria-hidden />}
         title="Pick something to see it."
-        body={`Choose a product, module or feature on the left. ${totals.products} products · ${totals.modules} modules · ${totals.features} features · ${totals.requirements} requirements.`}
+        body={`Choose a product, module or feature on the left — or search to reach a requirement. ${totals.products} products · ${totals.modules} modules · ${totals.features} features · ${totals.requirements} requirements.`}
       />
     </div>
   );

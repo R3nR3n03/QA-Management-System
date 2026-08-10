@@ -12,7 +12,8 @@ import {
   getModuleDetail,
   getProductDetail,
   getRequirementDetail,
-  listCatalogueTree
+  listCatalogueTree,
+  searchCatalogue
 } from "@/domain/catalogue";
 
 /**
@@ -137,7 +138,7 @@ describe("listCatalogueTree — browsing", () => {
     expect(tree.products.map((p) => p.businessId)).toEqual(["PROD001", "PROD002"]);
     expect(tree.products.map((p) => p.moduleCount)).toEqual([2, 1]);
     expect(tree.products.map((p) => p.modules)).toEqual([null, null]);
-    expect(tree.matchCount).toBeNull();
+    expect(tree.hiddenProducts).toBe(0);
   });
 
   it("loads only the open product's modules, with their feature counts", async () => {
@@ -173,103 +174,112 @@ describe("listCatalogueTree — browsing", () => {
     expect(tree.products[0].modules?.find((m) => m.businessId === "MOD001")?.features).toEqual([]);
   });
 
-  // The fourth level, and the reason it is affordable: one feature's requirements at a
-  // time, never the table.
-  it("loads the open feature's requirements and leaves its sibling closed", async () => {
+  // The tree stops at Feature. A feature is a leaf here, carrying only the count that
+  // says whether opening the record is worth it — the requirements themselves are read in
+  // the detail panel, which pages them. docs/adr/0001-catalogue-tree-stops-at-feature.md
+  it("draws a feature as a leaf with its requirement count", async () => {
     const tree = await listCatalogueTree({
       openProductId: await idOf("product", "PROD001"),
-      openModuleId: await idOf("module", "MOD002"),
-      openFeatureId: await idOf("feature", "FEAT001")
+      openModuleId: await idOf("module", "MOD002")
     });
     const [cardCapture, threeDS] = tree.products[0].modules?.[1].features ?? [];
 
-    expect(cardCapture.requirements?.map((r) => r.businessId)).toEqual(["REQ001", "REQ002"]);
-    // Labelled by statement — a requirement has no name of its own.
-    expect(cardCapture.requirements?.[0].name).toBe("A card number is validated before capture");
-    expect(threeDS.requirements).toBeNull();
+    expect(cardCapture.requirementCount).toBe(2);
+    expect(threeDS.requirementCount).toBe(1);
+    expect(Object.keys(cardCapture).sort()).toEqual([
+      "businessId",
+      "id",
+      "name",
+      "requirementCount"
+    ]);
   });
 
-  it("reports an opened feature with no requirements as empty", async () => {
+  // The cap, against a real database: a branch draws `childLimit` children and reports
+  // the rest, so one wide module cannot decide how big the whole tree is.
+  it("caps a branch and reports what it held back", async () => {
     const tree = await listCatalogueTree({
-      openProductId: await idOf("product", "PROD002"),
-      openModuleId: await idOf("module", "MOD003"),
-      openFeatureId: await idOf("feature", "FEAT003")
+      openProductId: await idOf("product", "PROD001"),
+      childLimit: 1
     });
-    expect(tree.products[1].modules?.[0].features?.[0].requirements).toEqual([]);
+    expect(tree.products[0].modules).toHaveLength(1);
+    expect(tree.products[0].hiddenModules).toBe(1);
+  });
+
+  it("caps the product list itself", async () => {
+    const tree = await listCatalogueTree({ childLimit: 1 });
+    expect(tree.products.map((p) => p.businessId)).toEqual(["PROD001"]);
+    expect(tree.hiddenProducts).toBe(1);
   });
 });
 
-describe("listCatalogueTree — searching", () => {
-  it("shows a matched feature under its real ancestors, expanded", async () => {
-    const tree = await listCatalogueTree({ q: "3-D Secure" });
+describe("searchCatalogue", () => {
+  const ids = (result: { hits: Array<{ businessId: string }> }) =>
+    result.hits.map((h) => h.businessId);
 
-    expect(tree.products.map((p) => p.businessId)).toEqual(["PROD001"]);
-    expect(tree.products[0].modules?.map((m) => m.businessId)).toEqual(["MOD002"]);
-    expect(tree.products[0].modules?.[0].features?.map((f) => f.businessId)).toEqual(["FEAT002"]);
-    expect(tree.matchCount).toBe(1);
+  it("finds a feature and carries its ancestry", async () => {
+    const result = await searchCatalogue("3-D Secure");
+
+    expect(ids(result)).toEqual(["FEAT002"]);
+    expect(result.hits[0].trail.map((t) => t.businessId)).toEqual(["PROD001", "MOD002"]);
+    expect(result.hits[0].trail.map((t) => t.kind)).toEqual(["product", "module"]);
+    expect(result.truncated).toBe(false);
   });
 
   it("matches a business ID as readily as a name, case-insensitively", async () => {
-    const tree = await listCatalogueTree({ q: "feat00" });
-    expect(tree.matchCount).toBe(3);
-    expect(tree.products.map((p) => p.businessId)).toEqual(["PROD001", "PROD002"]);
+    expect(ids(await searchCatalogue("feat00")).sort()).toEqual(["FEAT001", "FEAT002", "FEAT003"]);
   });
 
-  // A matched requirement is its own node, under its real ancestors, with the feature
-  // opened to reveal it.
-  it("shows a matched requirement under its opened feature", async () => {
-    const tree = await listCatalogueTree({ q: "expired card" });
+  // A requirement is a first-class result. It has no row in the tree, so search is the
+  // only way to reach one directly — and its whole statement is what was matched.
+  it("finds a requirement by its statement, with all three ancestors", async () => {
+    const result = await searchCatalogue("expired card");
 
-    expect(tree.products.map((p) => p.businessId)).toEqual(["PROD001"]);
-    const feature = tree.products[0].modules?.[0].features?.[0];
-    expect(feature?.businessId).toBe("FEAT001");
-    expect(feature?.requirements?.map((r) => r.businessId)).toEqual(["REQ002"]);
-    // The badge still reports everything in the feature, not just the match shown.
-    expect(feature?.requirementCount).toBe(2);
-    expect(tree.matchCount).toBe(1);
-  });
-
-  // The exception that keeps a fourth level affordable: the downward sweep stops at
-  // features, so a common needle cannot empty the requirement table into the tree.
-  it("does not unfold the requirements of a feature matched by name", async () => {
-    const tree = await listCatalogueTree({ q: "Card capture" });
-    const feature = tree.products[0].modules?.[0].features?.[0];
-    expect(feature?.businessId).toBe("FEAT001");
-    expect(feature?.requirements).toBeNull();
-    expect(feature?.requirementCount).toBe(2);
+    expect(ids(result)).toEqual(["REQ002"]);
+    expect(result.hits[0].label).toBe("An expired card is refused");
+    expect(result.hits[0].trail.map((t) => t.businessId)).toEqual([
+      "PROD001",
+      "MOD002",
+      "FEAT001"
+    ]);
   });
 
   it("matches a requirement by its business ID too", async () => {
-    const tree = await listCatalogueTree({ q: "REQ003" });
-    expect(tree.products[0].modules?.[0].features?.[0].requirements?.map((r) => r.businessId)).toEqual([
-      "REQ003"
-    ]);
-    expect(tree.matchCount).toBe(1);
+    expect(ids(await searchCatalogue("REQ003"))).toEqual(["REQ003"]);
   });
 
-  it("keeps a matched product's whole subtree", async () => {
-    const tree = await listCatalogueTree({ q: "Retail" });
-    expect(tree.products[0].modules?.map((m) => m.businessId)).toEqual(["MOD001", "MOD002"]);
-    expect(tree.matchCount).toBe(1);
+  // An exact business ID is a lookup, not a search — nothing outranks it, whatever level
+  // it is on. `MOD002` also appears inside no other record here, so this pins the ranking
+  // rather than the filtering.
+  it("ranks an exact business ID first", async () => {
+    const result = await searchCatalogue("MOD002");
+    expect(result.hits[0].businessId).toBe("MOD002");
   });
 
-  // In search mode the badge describes what is on screen, not the whole catalogue:
-  // PROD001 owns 2 modules but only 1 matches.
-  it("counts matching children, not every child", async () => {
-    const tree = await listCatalogueTree({ q: "Checkout" });
-    expect(tree.products[0].moduleCount).toBe(1);
+  // Interleaving is the thing four concatenated queries cannot do. "Card capture" is a
+  // feature name and the first words of a requirement statement; the feature wins on both
+  // score (prefix) and depth.
+  it("interleaves levels by how well each answers the needle", async () => {
+    const result = await searchCatalogue("card");
+    expect(result.hits[0].businessId).toBe("FEAT001");
+    expect(ids(result)).toContain("REQ001");
   });
 
   it("returns nothing for a needle that matches nothing", async () => {
-    const tree = await listCatalogueTree({ q: "zzz-no-such-thing" });
-    expect(tree.products).toEqual([]);
-    expect(tree.matchCount).toBe(0);
+    expect(await searchCatalogue("zzz-no-such-thing")).toEqual({ hits: [], truncated: false });
   });
 
-  it("treats a blank needle as browsing", async () => {
-    const tree = await listCatalogueTree({ q: "   " });
-    expect(tree.products).toHaveLength(2);
-    expect(tree.matchCount).toBeNull();
+  // A blank needle is not "everything" — it is not a search at all. Returning the whole
+  // catalogue would be exactly the unbounded read this replaced.
+  it("treats a blank needle as no search", async () => {
+    expect(await searchCatalogue("   ")).toEqual({ hits: [], truncated: false });
+  });
+
+  // The bound, and the honesty about it: a list that silently stops has told the viewer
+  // it found only that many.
+  it("cuts at the limit and says so", async () => {
+    const result = await searchCatalogue("00", { limit: 2 });
+    expect(result.hits).toHaveLength(2);
+    expect(result.truncated).toBe(true);
   });
 });
 

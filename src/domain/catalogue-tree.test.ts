@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   assembleTree,
-  countByParent,
-  narrowToMatches,
-  nodeMatches,
+  DEFAULT_CHILD_LIMIT,
   type FeatureRow,
   type ModuleRow,
-  type NodeRow,
-  type RequirementRow
+  type NodeRow
 } from "./catalogue-tree";
 
 const products: NodeRow[] = [
@@ -27,12 +24,6 @@ const features: FeatureRow[] = [
   { id: "f3", businessId: "FEAT003", name: "Rebalancing", moduleId: "m3" }
 ];
 
-const requirements: RequirementRow[] = [
-  { id: "r1", businessId: "REQ001", name: "A card number is validated before capture", featureId: "f1" },
-  { id: "r2", businessId: "REQ002", name: "An expired card is refused", featureId: "f1" },
-  { id: "r3", businessId: "REQ003", name: "A challenge is issued when flagged", featureId: "f2" }
-];
-
 const none = new Map<string, number>();
 
 function tree(over: Partial<Parameters<typeof assembleTree>[0]> = {}) {
@@ -40,7 +31,6 @@ function tree(over: Partial<Parameters<typeof assembleTree>[0]> = {}) {
     products,
     modules,
     features,
-    requirements,
     moduleCounts: new Map([
       ["p1", 2],
       ["p2", 1]
@@ -52,7 +42,6 @@ function tree(over: Partial<Parameters<typeof assembleTree>[0]> = {}) {
     ]),
     openProductIds: new Set(),
     openModuleIds: new Set(),
-    openFeatureIds: new Set(),
     ...over
   });
 }
@@ -96,7 +85,25 @@ describe("assembleTree", () => {
       openModuleIds: new Set(["m2"])
     });
     expect(checkoutOf(result)?.features?.map((f) => f.businessId)).toEqual(["FEAT001", "FEAT002"]);
-    expect(checkoutOf(result)?.features?.[0].requirementCount).toBe(2);
+  });
+
+  // A feature is the leaf of the tree, but the badge beside it still has to say how much
+  // is behind it — that number is what decides whether opening the record is worth it.
+  it("carries a feature's requirement count without loading requirements", () => {
+    const result = tree({
+      openProductIds: new Set(["p1"]),
+      openModuleIds: new Set(["m2"])
+    });
+    const [cardCapture, threeDS] = checkoutOf(result)?.features ?? [];
+    expect(cardCapture.requirementCount).toBe(2);
+    expect(threeDS.requirementCount).toBe(1);
+    // Nothing on a feature holds requirement rows — that is the point of stopping here.
+    expect(Object.keys(cardCapture).sort()).toEqual([
+      "businessId",
+      "id",
+      "name",
+      "requirementCount"
+    ]);
   });
 
   it("takes counts from the maps and falls back to zero", () => {
@@ -117,221 +124,121 @@ describe("assembleTree", () => {
     expect(result.products.map((p) => p.businessId)).toEqual(["PROD001", "PROD002"]);
     expect(result.products[0].modules?.map((m) => m.businessId)).toEqual(["MOD001", "MOD002"]);
   });
-
-  // null and 0 are different: nothing was searched, versus a search that found nothing.
-  it("reports no match count when nothing was searched", () => {
-    expect(tree().matchCount).toBeNull();
-    expect(tree({ matchCount: 0 }).matchCount).toBe(0);
-  });
 });
 
-describe("assembleTree — the requirement level", () => {
-  const opened = (openFeatureIds: Set<string>) =>
-    tree({
-      openProductIds: new Set(["p1"]),
-      openModuleIds: new Set(["m2"]),
-      openFeatureIds
-    });
+/**
+ * The cap is the reason a branch cannot decide how big the tree is. One module with 400
+ * features used to render 400 rows; now it renders `childLimit` of them and says how many
+ * it is holding back, and the detail panel — which pages every child list — reads the rest.
+ */
+describe("assembleTree — the child cap", () => {
+  const many = (n: number, parentId: string): ModuleRow[] =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `m${i}`,
+      businessId: `MOD${String(i).padStart(3, "0")}`,
+      name: `Module ${i}`,
+      productId: parentId
+    }));
 
-  // The same closed/empty distinction as every level above, and the reason the fourth
-  // level is affordable at all: at most one feature's worth is ever fetched.
-  it("reports a closed feature's requirements as null", () => {
-    const result = opened(new Set());
-    expect(checkoutOf(result)?.features?.every((f) => f.requirements === null)).toBe(true);
+  it("draws every child when the branch fits", () => {
+    const result = tree({ openProductIds: new Set(["p1"]), childLimit: 10 });
+    expect(result.products[0].modules).toHaveLength(2);
+    expect(result.products[0].hiddenModules).toBe(0);
   });
 
-  it("nests requirements under the one open feature", () => {
-    const result = opened(new Set(["f1"]));
-    const [cardCapture, threeDS] = checkoutOf(result)?.features ?? [];
-
-    expect(cardCapture.requirements?.map((r) => r.businessId)).toEqual(["REQ001", "REQ002"]);
-    // Its sibling stays closed — one feature open at a time.
-    expect(threeDS.requirements).toBeNull();
-  });
-
-  // A requirement's label is its statement. Carried through as `name` so every level of
-  // the tree has one row shape.
-  it("labels a requirement with its statement", () => {
-    const result = opened(new Set(["f1"]));
-    expect(checkoutOf(result)?.features?.[0].requirements?.[0].name).toBe(
-      "A card number is validated before capture"
-    );
-  });
-
-  it("reports an open feature with no requirements as empty", () => {
+  it("draws the first `childLimit` and reports the rest as hidden", () => {
     const result = tree({
-      requirements: [],
+      modules: many(120, "p1"),
+      moduleCounts: new Map([["p1", 120]]),
+      openProductIds: new Set(["p1"]),
+      childLimit: 25
+    });
+    expect(result.products[0].modules).toHaveLength(25);
+    expect(result.products[0].hiddenModules).toBe(95);
+  });
+
+  // The hidden number describes the CATALOGUE, not the fetch: it is what tells a QA Lead
+  // the branch is big enough to be worth opening as a record rather than as a twist.
+  it("measures hidden against the branch's real total", () => {
+    const result = tree({
+      modules: many(30, "p1"),
+      moduleCounts: new Map([["p1", 4000]]),
+      openProductIds: new Set(["p1"]),
+      childLimit: 10
+    });
+    expect(result.products[0].hiddenModules).toBe(3990);
+  });
+
+  // A stale or disagreeing count must not produce a negative "+ -3 more".
+  it("never reports a negative hidden count", () => {
+    const result = tree({
+      modules: many(30, "p1"),
+      moduleCounts: new Map([["p1", 2]]),
+      openProductIds: new Set(["p1"]),
+      childLimit: 10
+    });
+    expect(result.products[0].hiddenModules).toBe(0);
+  });
+
+  it("caps features the same way", () => {
+    const wide: FeatureRow[] = Array.from({ length: 80 }, (_, i) => ({
+      id: `f${i}`,
+      businessId: `FEAT${String(i).padStart(3, "0")}`,
+      name: `Feature ${i}`,
+      moduleId: "m2"
+    }));
+    const result = tree({
+      features: wide,
+      featureCounts: new Map([["m2", 80]]),
       openProductIds: new Set(["p1"]),
       openModuleIds: new Set(["m2"]),
-      openFeatureIds: new Set(["f1"])
+      childLimit: 12
     });
-    expect(checkoutOf(result)?.features?.[0].requirements).toEqual([]);
+    expect(checkoutOf(result)?.features).toHaveLength(12);
+    expect(checkoutOf(result)?.hiddenFeatures).toBe(68);
   });
 
-  // The count beside a feature is the full count, not the number currently rendered —
-  // it is what tells you whether opening the branch is worth it.
-  it("keeps the feature's requirement count independent of what is loaded", () => {
-    const result = opened(new Set(["f1"]));
-    const cardCapture = checkoutOf(result)?.features?.[0];
-    expect(cardCapture?.requirementCount).toBe(2);
-    expect(cardCapture?.requirements).toHaveLength(2);
-
-    const closed = opened(new Set());
-    expect(closed.products[0].modules?.[1].features?.[0].requirementCount).toBe(2);
-  });
-});
-
-describe("nodeMatches", () => {
-  it("matches business ID and name, case-insensitively", () => {
-    const row = { id: "f1", businessId: "FEAT001", name: "Card capture" };
-    expect(nodeMatches(row, "feat0")).toBe(true);
-    expect(nodeMatches(row, "CARD")).toBe(true);
-    expect(nodeMatches(row, "capture")).toBe(true);
-    expect(nodeMatches(row, "payment")).toBe(false);
-  });
-
-  it("treats a blank needle as no filter", () => {
-    const row = { id: "f1", businessId: "FEAT001", name: "Card capture" };
-    expect(nodeMatches(row, "")).toBe(true);
-    expect(nodeMatches(row, "   ")).toBe(true);
-  });
-});
-
-describe("narrowToMatches", () => {
-  const narrow = (needle: string, matchedRequirements: RequirementRow[] = []) =>
-    narrowToMatches({ products, modules, features, needle, matchedRequirements });
-
-  // The rule that makes search worth having: a matched node is shown where it lives,
-  // not as an orphan row — which is the exact reading failure the redesign removes.
-  it("pulls a matched feature's module and product in with it", () => {
-    const result = narrow("3-D Secure");
-    expect(result.features.map((f) => f.businessId)).toEqual(["FEAT002"]);
-    expect(result.modules.map((m) => m.businessId)).toEqual(["MOD002"]);
-    expect(result.products.map((p) => p.businessId)).toEqual(["PROD001"]);
-  });
-
-  // ...and everything it pulled in is expanded, or the result sits behind a closed
-  // chevron where nobody finds it.
-  it("expands every branch it kept", () => {
-    const result = narrow("3-D Secure");
-    expect(result.openProductIds.has("p1")).toBe(true);
-    expect(result.openModuleIds.has("m2")).toBe(true);
-  });
-
-  // Downward, the opposite direction: asking for a product means the product AND what is
-  // in it, so its modules are not filtered away for failing to match the needle themselves.
-  it("keeps every module of a matched product", () => {
-    const result = narrow("Retail");
-    expect(result.modules.map((m) => m.businessId)).toEqual(["MOD001", "MOD002"]);
-    expect(result.products.map((p) => p.businessId)).toEqual(["PROD001"]);
-  });
-
-  it("keeps every feature of a matched module", () => {
-    const result = narrow("Checkout");
-    expect(result.features.map((f) => f.businessId)).toEqual(["FEAT001", "FEAT002"]);
-  });
-
-  // THE EXCEPTION, and the reason a fourth level does not wreck search: the downward
-  // sweep stops at features. Searching a common word must not empty the requirement
-  // table into a 300px column.
-  it("does not unfold the requirements of a matched feature", () => {
-    const result = narrow("Card capture");
-    expect(result.features.map((f) => f.businessId)).toEqual(["FEAT001"]);
-    expect(result.requirements).toEqual([]);
-    expect(result.openFeatureIds.size).toBe(0);
-  });
-
-  it("does not unfold requirements for a matched module or product either", () => {
-    expect(narrow("Checkout").requirements).toEqual([]);
-    expect(narrow("Retail").openFeatureIds.size).toBe(0);
-  });
-
-  // A matched requirement, by contrast, IS shown — as its own row, under its real
-  // ancestors, with the feature opened to reveal it.
-  it("shows a matched requirement under its opened feature", () => {
-    const result = narrow("expired card", [requirements[1]]);
-
-    expect(result.requirements.map((r) => r.businessId)).toEqual(["REQ002"]);
-    expect(result.features.map((f) => f.businessId)).toEqual(["FEAT001"]);
-    expect(result.modules.map((m) => m.businessId)).toEqual(["MOD002"]);
-    expect(result.products.map((p) => p.businessId)).toEqual(["PROD001"]);
-    expect(result.openFeatureIds.has("f1")).toBe(true);
-  });
-
-  it("opens only the features that actually contain a match", () => {
-    const result = narrow("zzz", [requirements[2]]);
-    expect(result.openFeatureIds.has("f2")).toBe(true);
-    expect(result.openFeatureIds.has("f1")).toBe(false);
-  });
-
-  // A product matching must not inflate the count by its 40 descendants — the number is
-  // announced to screen readers as "N records match", and it has to mean that.
-  it("counts direct hits only, not the descendants they drag in", () => {
-    expect(narrow("Retail").matchCount).toBe(1);
-    expect(narrow("MOD00").matchCount).toBe(3);
-  });
-
-  // Each matched requirement is its own row now, so each counts. This is the behaviour
-  // that changed when requirements became tree nodes: they used to collapse into a
-  // single count for the feature above them.
-  it("counts each matched requirement as its own row", () => {
-    const result = narrow("zzz", [requirements[0], requirements[1]]);
-    expect(result.matchCount).toBe(2);
-  });
-
-  it("counts a feature and a requirement inside it separately", () => {
-    const result = narrow("Card capture", [requirements[0]]);
-    expect(result.matchCount).toBe(2);
-    expect(result.requirements.map((r) => r.businessId)).toEqual(["REQ001"]);
-  });
-
-  it("returns nothing when the needle matches nothing", () => {
-    const result = narrow("zzz");
-    expect(result.products).toEqual([]);
-    expect(result.modules).toEqual([]);
-    expect(result.features).toEqual([]);
-    expect(result.requirements).toEqual([]);
-    expect(result.matchCount).toBe(0);
-  });
-
-  // The narrowed rows feed assembleTree directly, so the two have to agree about what
-  // "open" means. This is the seam between them.
-  it("produces rows assembleTree renders as a fully expanded subtree", () => {
-    const narrowed = narrow("expired card", [requirements[1]]);
+  // The root is a branch like any other. A catalogue that grows to 400 products must not
+  // ship 400 rows before anyone has expanded anything.
+  it("caps the product list itself", () => {
+    const wide: NodeRow[] = Array.from({ length: 90 }, (_, i) => ({
+      id: `p${i}`,
+      businessId: `PROD${String(i).padStart(3, "0")}`,
+      name: `Product ${i}`
+    }));
     const result = assembleTree({
-      products: narrowed.products,
-      modules: narrowed.modules,
-      features: narrowed.features,
-      requirements: narrowed.requirements,
-      moduleCounts: countByParent(narrowed.modules, (m) => m.productId),
-      featureCounts: countByParent(narrowed.features, (f) => f.moduleId),
-      requirementCounts: new Map([["f1", 2]]),
-      openProductIds: narrowed.openProductIds,
-      openModuleIds: narrowed.openModuleIds,
-      openFeatureIds: narrowed.openFeatureIds,
-      matchCount: narrowed.matchCount
+      products: wide,
+      modules: [],
+      features: [],
+      moduleCounts: none,
+      featureCounts: none,
+      requirementCounts: none,
+      openProductIds: new Set(),
+      openModuleIds: new Set(),
+      childLimit: 20,
+      productTotal: 400
     });
-
-    const feature = result.products[0].modules?.[0].features?.[0];
-    expect(result.products).toHaveLength(1);
-    expect(result.products[0].moduleCount).toBe(1);
-    expect(feature?.businessId).toBe("FEAT001");
-    expect(feature?.requirements?.map((r) => r.businessId)).toEqual(["REQ002"]);
-    // The badge still reports everything in the feature, not just the match on screen.
-    expect(feature?.requirementCount).toBe(2);
-    expect(result.matchCount).toBe(1);
-  });
-});
-
-describe("countByParent", () => {
-  it("counts rows per parent key", () => {
-    expect([...countByParent(modules, (m) => m.productId)]).toEqual([
-      ["p1", 2],
-      ["p2", 1]
-    ]);
+    expect(result.products).toHaveLength(20);
+    expect(result.hiddenProducts).toBe(380);
   });
 
-  it("is empty for no rows", () => {
-    expect(countByParent([] as ModuleRow[], (m) => m.productId).size).toBe(0);
+  it("defaults the cap when the caller does not set one", () => {
+    expect(DEFAULT_CHILD_LIMIT).toBeGreaterThan(0);
+    const wide: ModuleRow[] = many(DEFAULT_CHILD_LIMIT + 5, "p1");
+    const result = tree({
+      modules: wide,
+      moduleCounts: new Map([["p1", wide.length]]),
+      openProductIds: new Set(["p1"])
+    });
+    expect(result.products[0].modules).toHaveLength(DEFAULT_CHILD_LIMIT);
+    expect(result.products[0].hiddenModules).toBe(5);
+  });
+
+  // A closed branch draws nothing, so it is holding nothing back — "+ 12 more" beside a
+  // chevron nobody has clicked would be a promise about a fetch that never happened.
+  it("reports no hidden children for a closed branch", () => {
+    const result = tree({ moduleCounts: new Map([["p1", 900]]) });
+    expect(result.products[0].modules).toBeNull();
+    expect(result.products[0].hiddenModules).toBe(0);
   });
 });

@@ -92,7 +92,16 @@ function ChildForm({
   nameLabel: string;
   parentField: string;
   parentLabel: string;
-  parents: Parent[];
+  /**
+   * Candidate parents, for the case where nothing has decided one.
+   *
+   * Empty in practice: `ContextualCreate` is the only caller and it always locks the
+   * parent. It stays a supported shape because a dropdown is the right control if this
+   * form is ever opened outside a selection — but nothing on this screen pays to fill it.
+   * Filling it used to cost three unbounded table reads on every page load, feeding a
+   * `<select>` that was never rendered.
+   */
+  parents?: Parent[];
   /**
    * The parent, when the explorer's selection already decided it. Adding a feature to
    * MOD004 should not open a dropdown of every module in the catalogue and ask which
@@ -126,7 +135,7 @@ function ChildForm({
             <option value="" disabled>
               Choose…
             </option>
-            {parents.map((parent) => (
+            {(parents ?? []).map((parent) => (
               <option key={parent.id} value={parent.id}>
                 {parent.businessId} · {parent.label}
               </option>
@@ -210,7 +219,7 @@ export function AddModuleModal({
   lockedParent,
   primary = false
 }: {
-  products: Parent[];
+  products?: Parent[];
   lockedParent?: Parent;
   primary?: boolean;
 }) {
@@ -250,7 +259,7 @@ export function AddFeatureModal({
   lockedParent,
   primary = false
 }: {
-  modules: Parent[];
+  modules?: Parent[];
   lockedParent?: Parent;
   primary?: boolean;
 }) {
@@ -290,7 +299,7 @@ export function AddRequirementModal({
   lockedParent,
   primary = false
 }: {
-  features: Parent[];
+  features?: Parent[];
   lockedParent?: Parent;
   primary?: boolean;
 }) {
@@ -335,18 +344,19 @@ export function AddRequirementModal({
  * in the catalogue, to add a feature to the module you were looking at.
  */
 export function ContextualCreate({
-  selection,
-  options
+  selection
 }: {
   selection: { kind: "product" | "module" | "feature"; parent: Parent } | null;
-  options: { products: Parent[]; modules: Parent[]; features: Parent[] };
 }) {
   if (selection === null) return <AddProductModal primary />;
+  // No candidate lists: every branch below locks the parent, so the dropdown those lists
+  // fed is never rendered. Fetching them cost three unbounded table reads on every load of
+  // the screen — see `listProductOptions` in `src/domain/catalogue.ts`.
   if (selection.kind === "product") {
-    return <AddModuleModal products={options.products} lockedParent={selection.parent} primary />;
+    return <AddModuleModal lockedParent={selection.parent} primary />;
   }
   if (selection.kind === "module") {
-    return <AddFeatureModal modules={options.modules} lockedParent={selection.parent} primary />;
+    return <AddFeatureModal lockedParent={selection.parent} primary />;
   }
-  return <AddRequirementModal features={options.features} lockedParent={selection.parent} primary />;
+  return <AddRequirementModal lockedParent={selection.parent} primary />;
 }

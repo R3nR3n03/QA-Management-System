@@ -41,6 +41,21 @@ Do not expose stack traces, SQL details, authorization rules, or internal identi
 - Store secrets in deployment-managed environment variables. Never commit them, return them from APIs, or include them in audit logs.
 - Sanitize displayed rich text as plain text in v1. Evidence is recorded as a reference string only; binary-upload storage is not defined in v1.
 - Rate limit authentication and import endpoints. Exact limits are deployment policy and are not defined here.
+- Store outbound-integration credentials encrypted at rest under a deployment-managed key. They are never returned by the API, rendered in a screen, logged, or written to an audit event — the same rule the password hash already carries.
+
+## Jira execution sync interface
+
+**Status: approved policy, not yet implemented.** See `architecture.md#Jira execution sync` for the behavior this secures.
+
+Outbound only. QAMS calls Jira; Jira has no endpoint into QAMS, no webhook, and no credential here. There is nothing inbound to authorize.
+
+Each user connects their own Jira identity through OAuth, so a transition is attributed to the person whose test run caused it. Because the push is retryable and may run long after the request that triggered it, QAMS stores that user's refresh token and uses it offline. A user may revoke their connection at any time.
+
+A push that cannot use the triggering user's credential — never connected, revoked, expired, or unauthorized on that Jira project — falls back to a deployment-configured service account so that one person's token can never strand an issue permanently. Where the fallback is used, Jira records the service account and the QAMS audit event remains the only record of the real actor. The fallback may be disabled by deployment configuration, in which case such a push is a terminal failure requiring manual action.
+
+QAMS resolves the target transition by Jira's `done` status category rather than by status name, because status names are user-editable text and categories are not. A deployment may override the transition per Jira project.
+
+Every sync attempt is audited with actor, execution, issue key, and outcome. Credential material never appears in that event.
 
 ## Workbook import interface
 

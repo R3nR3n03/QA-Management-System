@@ -138,6 +138,17 @@ export const NAV: readonly NavItem[] = [
     basis: "roles-workflows.md:16"
   },
   {
+    href: "/admin/integrations",
+    label: "Integrations",
+    group: "Administration",
+    roles: LEAD_ONLY,
+    // Read-only: the Jira connection is deployment configuration, not something a Lead
+    // edits here (docs/api-and-security.md#Jira execution sync interface). It is Lead-only
+    // anyway because whether the sync is wired up is an administration question, and the
+    // same escalated reasoning as /catalogue applies.
+    basis: "NOT IN THE MATRIX - read-only deployment status for the Jira sync. Escalated."
+  },
+  {
     href: "/release-readiness",
     label: "Release readiness",
     group: "Administration",

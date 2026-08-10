@@ -9,6 +9,26 @@ as **[needs a decision]** rather than assumed.
 
 ---
 
+## ⚠ Partly superseded — read this first
+
+This document describes the explorer **as first designed and built**. It is kept because
+the reasoning in it still explains most of the screen, but it is no longer accurate about
+the tree or about search. Two decisions taken while making the screen hold a larger
+catalogue overrode it:
+
+| This document says | What is built now | Why |
+| --- | --- | --- |
+| The tree has four levels; requirements are nodes (§1, §2, §6, §7) | The tree draws **Product → Module → Feature**. Requirements are read in the detail panel and reached through search | [ADR-0001](docs/adr/0001-catalogue-tree-stops-at-feature.md) |
+| Search filters the tree in place, pulling ancestors in and expanding everything that survives (§1, §3) | Search **replaces** the tree with a flat, ranked, `LIMIT`-bounded list; each hit carries its ancestry on one line | [ADR-0002](docs/adr/0002-catalogue-search-is-a-flat-ranked-list.md) |
+| Branches draw every child they have | Every branch — including the product list — draws at most `DEFAULT_CHILD_LIMIT` children and reports the rest | One 400-feature module must not decide how big the tree is |
+| Only the requirement list is paged (`?req=`) | **Every** child list in the detail panel is paged, under one key (`?c=`) | The overflow row points at the panel, so the panel has to be able to hold a long list |
+| The explorer is a fixed 300px column | 340px by default and **resizable**, persisted per viewer | Truncation is the tree's real failure mode at scale |
+
+Everything else here still holds: the master-detail shape, selection in the URL, the two
+links per row, the contextual create button, the ARIA contract and the empty states.
+
+---
+
 ## 0. Seven corrections to the brief
 
 The brief was written from a screenshot. Reading the code changes seven things. Taking them

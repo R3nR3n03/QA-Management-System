@@ -2554,9 +2554,14 @@ dialog.modal::backdrop {
    the header's height varies with the stat cards wrapping, and a `calc(100dvh - 190px)`
    would be wrong at every width but one. */
 .cat-screen {
-  --tree-indent: 18px;
+  --tree-indent: 16px;
   --tree-row-h: 34px;
-  --explorer-w: 300px;
+  /* The default, not the value: `ExplorerResizer` overwrites this property on the drag,
+     and restores it from localStorage on mount. Wider than the 300px it shipped at,
+     because the tree's failure mode at scale is truncation — `MOD006 System
+     Configuration` and `MOD007 Reports Syncronization` are the same fourteen readable
+     characters, and every level of indent takes another 16px from the label. */
+  --explorer-w: 340px;
   display: flex;
   flex-direction: column;
   /* dvh, not vh: on a phone the retracting browser chrome would otherwise leave the last
@@ -2607,14 +2612,50 @@ dialog.modal::backdrop {
   font-variant-numeric: tabular-nums;
 }
 
+/* Explorer, drag handle, detail. Three columns rather than two, because the handle is a
+   real focusable control between them and not a border pretending to be one.
+
+   `clamp` on the explorer so a stored width from a wide monitor cannot swallow a narrow
+   one: the viewer's preference is honoured between sane bounds and ignored outside them. */
 .cat {
   flex: 1;
   display: grid;
-  grid-template-columns: clamp(260px, 28%, var(--explorer-w)) minmax(0, 1fr);
-  gap: var(--sp-5);
+  grid-template-columns: clamp(240px, var(--explorer-w), 46vw) auto minmax(0, 1fr);
+  gap: var(--sp-2);
   padding-top: var(--sp-4);
   /* Lets the panels scroll instead of the grid growing to fit its tallest child. */
   min-height: 0;
+}
+
+/* ---------- the drag handle ---------- */
+
+/* A 12px target around a 1px line: the line is what the eye needs and 1px is not what a
+   hand needs. Focusable, and the arrow keys move it — a resize only a mouse can perform
+   is a control some people simply do not have. */
+.cat-resizer {
+  align-self: stretch;
+  width: 12px;
+  cursor: col-resize;
+  background: none;
+  border: none;
+  position: relative;
+  border-radius: var(--radius-sm);
+  touch-action: none;
+}
+.cat-resizer::before {
+  content: "";
+  position: absolute;
+  inset: 0 5px;
+  border-radius: 1px;
+  background: var(--line);
+  transition: background var(--ease);
+}
+.cat-resizer:hover::before,
+.cat-resizer[data-dragging]::before {
+  background: var(--accent);
+}
+.cat-resizer:focus-visible::before {
+  background: var(--accent);
 }
 
 /* ---------- explorer panel ---------- */
@@ -2663,6 +2704,28 @@ dialog.modal::backdrop {
      link, so the chevron sits in the gutter the indent opens up — as it does in a file
      explorer — instead of the label being pushed out of line with it. */
   padding-left: calc(var(--cat-level, 0) * var(--tree-indent));
+}
+
+/* An OPEN branch pins itself to the top of the scroller while its children are on screen.
+
+   This is the whole answer to "which module am I inside?" forty rows down a tree, and it
+   costs no JavaScript: the sticky element's containing block is its own <li>, which holds
+   the branch and everything under it, so the row pins when the branch scrolls up and
+   leaves when the branch ends. Each level parks one row-height lower than the one above,
+   so an open product and an open module stack rather than overlap.
+
+   Only open branches (`data-pin`, set by the component). A leaf's <li> is exactly one row
+   tall, so pinning it would be an opaque background for no movement — and a closed branch
+   has no children to lose track of.
+
+   Shallower wins the overlap: when a level-1 <li> is ending, its row is being pushed out
+   by the rows below and must pass UNDER nothing. */
+.cat-row[data-pin] {
+  position: sticky;
+  top: calc(var(--cat-level, 0) * var(--tree-row-h));
+  z-index: calc(4 - var(--cat-level, 0));
+  /* Opaque, or the rows travelling underneath show through it. */
+  background: var(--surface);
 }
 
 /* The node link. A real link, so middle-click, Back, and rendering before hydration all
@@ -2792,6 +2855,49 @@ dialog.modal::backdrop {
   opacity: 0.55;
 }
 
+/* The last row of a capped branch: "+ 187 more features".
+
+   Deliberately quieter than a record row and italic, so it never reads as a record with a
+   strange name. It is a link to the parent, whose panel holds the full paged list — the
+   tree shows shape, and a branch that has to scroll has stopped showing shape. */
+.cat-node-more {
+  font-style: italic;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+a.cat-node-more:hover {
+  color: var(--ink);
+}
+/* The root overflow is a statement, not a link — there is no parent record to open. */
+span.cat-node-more {
+  cursor: default;
+}
+
+/* Collapse-all. Sits between the search box and the tree, and only when there is
+   something to collapse — a permanently visible control that does nothing most of the
+   time is one more thing to read past. */
+.cat-tree-tools {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--sp-2) var(--sp-3) 0;
+}
+.cat-collapse {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--ink-3);
+  text-decoration: none;
+  transition: background var(--ease), color var(--ease);
+}
+.cat-collapse:hover {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
 /* The needle, and what it matched. */
 .cat-explorer > .list-toolbar {
   margin: var(--sp-3) var(--sp-3) 0;
@@ -2810,6 +2916,116 @@ dialog.modal::backdrop {
    take no space. */
 .cat-tree-note:empty {
   padding: 0;
+}
+/* The "nothing matched" line is the panel's whole content, so it gets room to breathe
+   rather than sitting flush under the box that produced it. */
+.cat-tree-empty {
+  padding: var(--sp-5) var(--sp-4);
+  line-height: 1.5;
+}
+
+/* ---------- search results ---------- */
+
+/* What the needle found, as a ranked list rather than a filtered tree.
+
+   Not `role="tree"` and not indented: a flat result set has no levels to indent, and
+   dressing one up as a tree promises expansion and arrow-key traversal that are not
+   there. Each row carries its own ancestry on a second line instead, which is the same
+   information the expanded branches used to convey — in one line rather than four rows,
+   and legible at any depth. See docs/adr/0002. */
+.cat-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-2);
+}
+
+.cat-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background var(--ease), color var(--ease);
+}
+.cat-result:hover {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+.cat-result:focus-visible {
+  outline-offset: -2px;
+}
+/* `aria-current`, not `aria-selected`: a result list is not a selection widget. Same
+   visual treatment as a selected tree row, so the two modes agree about what "this is the
+   one you are reading" looks like. */
+.cat-result[aria-current] {
+  background: var(--accent-wash);
+  color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.cat-result-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  font-size: 13.5px;
+}
+/* Two lines, then ellipsis. A requirement's label is a whole sentence and it is what was
+   searched — truncating it to one line would hide the very words that matched. */
+.cat-result-label {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* The ancestry. The reason a flat list is enough — and why it is quiet: it answers "where
+   does this live", it is not the thing you came for. */
+.cat-result-trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding-left: 22px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.cat-crumb {
+  white-space: nowrap;
+}
+.cat-crumb-sep {
+  vertical-align: -1px;
+  opacity: 0.5;
+}
+
+/* The matched substring. The browser default is a yellow this palette has no place for;
+   an underline carries the same information without colour having to. */
+.cat-result mark {
+  background: var(--accent-wash);
+  color: inherit;
+  font-weight: 600;
+  border-radius: 2px;
+  padding: 0 1px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The bound, stated. A list that silently stops at forty has told the viewer it found
+   forty things, which is the one reading that is certainly wrong. */
+.cat-result-more {
+  padding: var(--sp-3) var(--sp-2) var(--sp-2);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  border-top: 1px solid var(--line);
+  margin-top: var(--sp-2);
 }
 
 /* ---------- detail panel ---------- */
@@ -2934,6 +3150,12 @@ dialog.modal::backdrop {
 @media (max-width: 1099px) {
   .cat {
     grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-4);
+  }
+  /* One column: there is no vertical edge left to drag, and a splitter that resizes
+     nothing is a focus stop that lies about what it does. */
+  .cat-resizer {
+    display: none;
   }
   .cat-explorer {
     max-height: 50vh;
@@ -2941,6 +3163,8 @@ dialog.modal::backdrop {
   .cat-detail {
     overflow-y: visible;
   }
+  /* Pinned rows still work: the explorer keeps a max-height, so `.cat-tree` is still the
+     scroller they stick inside. */
 }
 
 /* Phone: the rail is already a top bar at this width (see above), so pinning the screen to

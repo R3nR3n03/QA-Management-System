@@ -58,6 +58,19 @@ function sessionSecret(): string {
   return value;
 }
 
+/**
+ * The same secret, for signing other short-lived server-issued values — currently the Jira
+ * OAuth `state` (`src/lib/oauth-state.ts`).
+ *
+ * Sharing it is deliberate: a second secret would be a second thing to configure, rotate and
+ * forget, for values that live ten minutes. The consequence, stated plainly: rotating
+ * `SESSION_SECRET` invalidates any Jira connect flow already in progress as well as signing
+ * everyone out. Both recover by retrying, and neither loses data.
+ */
+export function sessionSigningSecret(): string {
+  return sessionSecret();
+}
+
 function sign(payload: string): string {
   return createHmac("sha256", sessionSecret()).update(payload).digest("hex");
 }

@@ -138,14 +138,22 @@ describe("the match announcement", () => {
     render(<CatalogueSearch matchCount={0} needle="" />);
     expect(region().textContent).toBe("");
   });
+
+  // The search is bounded, so the count on screen is a floor and not a total. Reporting
+  // the cap as the answer — "40 records match" for a needle that matched four hundred —
+  // is the one reading that is certainly wrong.
+  it("says the list was cut rather than reporting the cap as a total", () => {
+    render(<CatalogueSearch matchCount={40} truncated needle="00" />);
+    expect(region().textContent).toBe("Showing the closest 40 of more matches for “00”.");
+  });
 });
 
 describe("the URL it writes", () => {
   // The toolbar drops one page key per commit so a narrowed list cannot strand the viewer
-  // past its end. On this screen that key is `req` — the requirement list's page. Without
+  // past its end. On this screen that key is `c` — the detail panel's child list. Without
   // it: page to requirement 3, search, land on an empty page 3 of a shorter list.
-  it("clears the requirement page when the needle changes", () => {
-    nav.search = "sel=f%3AFEAT011&req=3";
+  it("clears the child page when the needle changes", () => {
+    nav.search = "sel=f%3AFEAT011&c=3";
     render(<CatalogueSearch matchCount={null} needle="" />);
 
     fireEvent.change(input(), { target: { value: "card" } });
@@ -154,10 +162,10 @@ describe("the URL it writes", () => {
     expect(nav.replace).toHaveBeenCalledTimes(1);
     const url = nav.replace.mock.calls[0][0] as string;
     expect(url).toContain("q=card");
-    expect(url).not.toContain("req=");
+    expect(url).not.toContain("c=");
   });
 
-  // Search filters the tree; it does not close the record being read.
+  // Search replaces the tree with a result list; it does not close the record being read.
   it("keeps the selection", () => {
     nav.search = "sel=f%3AFEAT011";
     render(<CatalogueSearch matchCount={null} needle="" />);
