@@ -1,6 +1,6 @@
 # Jira sync is decoupled from finalize
 
-Status: proposed
+Status: accepted
 
 Finalizing a test execution never calls Jira. The finalize transaction commits on QAMS data
 alone, and the Jira transition is attempted afterwards as a separate, retryable unit of work
@@ -79,9 +79,17 @@ categories, so resolving by the `done` category works on a workflow nobody confi
   deliberately non-unique and indexed. Reading one execution is no longer enough to decide
   whether to push.
 
-## Open
+## Resolved: the fallback is a deployment choice, not a default
 
-**The service-account fallback needs QA Lead ratification.** The QA Lead chose per-user OAuth;
-this record makes the fallback the default, which softens that choice by allowing some
-transitions to be attributed to a bot. Status stays `proposed` until that is confirmed or the
-fallback is turned off by default.
+This record originally sat at `proposed` because making the service-account fallback the
+default softened the QA Lead's choice of per-user OAuth, and that was not ours to assume.
+
+It is no longer a fork in the code. The fallback exists exactly where a service-account
+credential is configured (`JIRA_SERVICE_ACCOUNT_TOKEN`), so the decision is made per
+environment by whoever deploys it, and the choice cannot disagree with the credential that
+would make it possible. Unset — the default — is per-user OAuth only, which is what the QA
+Lead asked for: every transition attributed to a real person, and an expired token strands
+that issue until someone intervenes. Set trades some bot-attributed writes for never
+stranding an issue.
+
+Ratified by the QA Lead on 2026-08-10.

@@ -127,8 +127,10 @@ export function ensureIssueKeyMutable(state: ExecutionLifecycleState): void {
  * would otherwise hold a tester's response open for the socket timeout — after their work is
  * already committed. A deadline is what keeps "Jira must never cost a tester their work"
  * true against a slow Jira as well as a broken one.
+ *
+ * The value is deployment configuration (`JIRA_TRANSITION_TIMEOUT_MS`), read through
+ * `jiraConfig()`; this module keeps only the type it flows through.
  */
-export const JIRA_TRANSITION_TIMEOUT_MS = 5_000;
 
 /** What the caller asks the transport to do. */
 export type JiraTransitionRequest = {
@@ -165,18 +167,33 @@ export type JiraTransport = {
   transitionToDone(request: JiraTransitionRequest): Promise<JiraTransitionResult>;
 };
 
-let transport: JiraTransport | null = null;
+/**
+ * The transport singleton, pinned to `globalThis`.
+ *
+ * NOT a module-scope `let`, which is what this was and was wrong. Next compiles route
+ * handlers (the node layer) and pages/server actions (the react-server layer) into
+ * **separate bundles**, and a module imported by both is instantiated **once per bundle** —
+ * so a transport installed during startup in one bundle would leave `getJiraTransport()`
+ * returning `null` in the other, and finalize would silently never sync on half the entry
+ * points. `src/lib/rate-limit.ts` hit exactly this and documents it at length; the fix is
+ * the same.
+ *
+ * Unlike `src/lib/db.ts`, this must NOT be gated on `NODE_ENV`: the bundle split happens in
+ * production too, and gating it would fix development while shipping the defect.
+ */
+declare global {
+  var jiraTransportGlobal: JiraTransport | null | undefined;
+}
 
 /**
  * Install the transport. Nothing calls this yet.
  *
  * The HTTP implementation is the half of this feature that is NOT built: it needs the Jira
  * OAuth authorization flow, encrypted refresh-token storage, the `done`-status-category
- * transition lookup, a retry worker and the service-account fallback whose default is still
- * awaiting QA Lead ratification (ADR-0003, "Open").
+ * transition lookup and a retry worker.
  */
 export function setJiraTransport(next: JiraTransport | null): void {
-  transport = next;
+  globalThis.jiraTransportGlobal = next;
 }
 
 /**
@@ -187,5 +204,33 @@ export function setJiraTransport(next: JiraTransport | null): void {
  * false row in an append-only table, which is worse than recording nothing.
  */
 export function getJiraTransport(): JiraTransport | null {
-  return transport;
+  return globalThis.jiraTransportGlobal ?? null;
+}
+
+/**
+ * Strips credential material out of a transport failure before it is stored or audited.
+ *
+ * `JiraSyncAttempt.failureReason` and its audit event are read by a QA Lead and kept
+ * forever, and the string comes from someone else's HTTP client — which routinely embeds the
+ * request URL, and sometimes an `Authorization` header, in its error message. The schema
+ * comment promised this carries no token material; before this it promised and enforced
+ * nothing.
+ *
+ * `redact()` in `src/lib/logging.ts` cannot help here: it masks forbidden KEYS in an object
+ * graph, and this is one flat string.
+ *
+ * Deliberately blunt. Over-redacting costs a Lead some detail in a failure they will retry
+ * anyway; under-redacting writes a bearer token into an append-only table that is never
+ * deleted (`docs/api-and-security.md#Authorization and security`).
+ */
+export function sanitizeFailureReason(raw: string): string {
+  return raw
+    // `Bearer eyJ…`, `Basic dXNl…` — the header forms.
+    .replace(/\b(bearer|basic)\s+[\w\-._~+/=]+/gi, "$1 [REDACTED]")
+    // `token=…`, `access_token=…`, `client_secret=…`, `api_key=…` in a query or body.
+    .replace(/\b([\w-]*(?:token|secret|password|api[_-]?key))=[^\s&]+/gi, "$1=[REDACTED]")
+    // Any remaining query string: Jira errors quote the request URL, and its params are not
+    // worth the risk of whatever a future endpoint puts in them.
+    .replace(/(\?)[^\s]*/g, "$1[REDACTED]")
+    .slice(0, 500);
 }

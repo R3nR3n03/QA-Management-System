@@ -4,6 +4,7 @@ import { AppError } from "@/lib/errors";
 import {
   ensureIssueKeyMutable,
   normalizeJiraIssueKey,
+  sanitizeFailureReason,
   shouldTransitionIssue,
   type SyncCandidate
 } from "./jira-sync";
@@ -118,6 +119,46 @@ describe("normalizeJiraIssueKey", () => {
       expect(appError.code).toBe("ID_INVALID");
       expect(appError.field).toBe("jiraIssueKey");
     }
+  });
+});
+
+describe("sanitizeFailureReason", () => {
+  // The string comes from someone else's HTTP client and is stored forever in an
+  // append-only table a QA Lead reads (`docs/api-and-security.md`).
+  it("masks a bearer token", () => {
+    const cleaned = sanitizeFailureReason("401 from Authorization: Bearer eyJhbGciOiJIUzI1NiJ9");
+    expect(cleaned).not.toContain("eyJhbGciOiJIUzI1NiJ9");
+    expect(cleaned).toContain("[REDACTED]");
+  });
+
+  it("masks basic auth", () => {
+    expect(sanitizeFailureReason("Basic dXNlcjpwYXNz rejected")).not.toContain("dXNlcjpwYXNz");
+  });
+
+  it.each([
+    ["access_token=abc123", "abc123"],
+    ["client_secret=shhh", "shhh"],
+    ["api_key=k-9", "k-9"],
+    ["password=hunter2", "hunter2"]
+  ])("masks %s", (input, secret) => {
+    expect(sanitizeFailureReason(input)).not.toContain(secret);
+  });
+
+  it("strips a query string from a quoted request URL", () => {
+    const cleaned = sanitizeFailureReason(
+      "GET https://acme.atlassian.net/rest/api/3/issue?jwt=leaky failed"
+    );
+    expect(cleaned).not.toContain("leaky");
+  });
+
+  it("keeps an ordinary message readable", () => {
+    expect(sanitizeFailureReason("Transition 31 is not valid from status In Progress")).toBe(
+      "Transition 31 is not valid from status In Progress"
+    );
+  });
+
+  it("bounds the length", () => {
+    expect(sanitizeFailureReason("x".repeat(2000)).length).toBe(500);
   });
 });
 

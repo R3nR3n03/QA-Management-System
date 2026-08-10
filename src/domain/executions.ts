@@ -20,11 +20,12 @@ import { defectIdFormat } from "@/domain/defects";
 import {
   ensureIssueKeyMutable,
   getJiraTransport,
-  JIRA_TRANSITION_TIMEOUT_MS,
   normalizeJiraIssueKey,
+  sanitizeFailureReason,
   shouldTransitionIssue,
   type JiraTransitionResult
 } from "@/domain/jira-sync";
+import { jiraConfig } from "@/lib/jira-config";
 import { logRequest } from "@/lib/logging";
 import { runPaged, type PageRequest } from "@/lib/pagination";
 
@@ -603,7 +604,7 @@ async function settleJiraSync(
         issueKey,
         executionId: execution.id,
         actorId: actor.userId,
-        timeoutMs: JIRA_TRANSITION_TIMEOUT_MS
+        timeoutMs: jiraConfig().timeoutMs
       });
     } catch (error) {
       result = {
@@ -622,7 +623,9 @@ async function settleJiraSync(
           executionId: execution.id,
           jiraIssueKey: issueKey,
           outcome: result.outcome,
-          failureReason: result.failureReason ?? null,
+          // Sanitized on the resolved path too, not only the thrown one: a transport that
+          // reports its own failure is quoting the same third-party client.
+          failureReason: result.failureReason ? sanitizeFailureReason(result.failureReason) : null,
           actorId: result.actorId ?? null
         }
       });
@@ -660,9 +663,15 @@ async function settleJiraSync(
   }
 }
 
-/** A short, safe description of a thrown value. Never carries credential material. */
+/**
+ * A short description of a thrown value, with credential material stripped.
+ *
+ * The message originates in a third-party HTTP client and is stored in an append-only table
+ * and an audit event, both of which are kept forever and read by a QA Lead — so it is
+ * sanitized rather than trusted (`sanitizeFailureReason`).
+ */
 function failureReasonOf(error: unknown): string {
-  if (error instanceof Error) return error.message.slice(0, 500);
+  if (error instanceof Error) return sanitizeFailureReason(error.message);
   return "Unknown transport failure.";
 }
 
