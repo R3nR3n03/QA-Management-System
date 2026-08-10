@@ -22,6 +22,7 @@ import {
   getJiraTransport,
   normalizeJiraIssueKey,
   sanitizeFailureReason,
+  setJiraTransport,
   shouldTransitionIssue,
   type JiraTransitionResult
 } from "@/domain/jira-sync";
@@ -559,13 +560,20 @@ async function settleJiraSync(
   if (!issueKey) return;
 
   try {
-    // The transport is the half of this feature that is not built: performing the
-    // transition needs the Jira OAuth flow, a stored refresh token and a retry worker
-    // (`docs/api-and-security.md#Jira execution sync interface`). Until one is configured
-    // there is nothing to attempt, and recording an attempt that never happened would put a
-    // lie in an append-only table. Checked first so an unconfigured deployment does no
-    // queries at all.
-    const transport = getJiraTransport();
+    // Installed lazily on first use rather than at startup. `instrumentation.ts` cannot do it:
+    // the transport reaches `src/lib/db.ts` and therefore `pg` and `node:fs`, and that file is
+    // compiled for the Edge runtime too. Here we are already inside a database transaction's
+    // worth of Node-only code, so the import is safe.
+    //
+    // A deployment with no Jira configuration installs nothing and does no queries at all —
+    // eligibility is still evaluated, but there is nothing to attempt, and recording an
+    // attempt that never happened would put a lie in an append-only table.
+    let transport = getJiraTransport();
+    if (!transport && jiraConfig().enabled) {
+      const { createJiraTransport } = await import("@/domain/jira-transport");
+      transport = createJiraTransport();
+      setJiraTransport(transport);
+    }
     if (!transport) return;
 
     const siblings = await prisma.testExecution.findMany({

@@ -32,17 +32,15 @@ export async function register(): Promise<void> {
   // "fail at boot" contract.
   const config = jiraConfig();
 
-  // Installs the transport that actually calls Jira. Without this the port stays null and
-  // finalizing a run evaluates eligibility and then does nothing — which is the correct
-  // behaviour for a deployment that has not configured Jira, and was the behaviour for every
-  // deployment until now.
-  if (config.enabled) {
-    const [{ setJiraTransport }, { createJiraTransport }] = await Promise.all([
-      import("@/domain/jira-sync"),
-      import("@/domain/jira-transport")
-    ]);
-    setJiraTransport(createJiraTransport());
-  }
+  // The Jira transport is deliberately NOT installed here. It reaches `src/lib/db.ts`, which
+  // constructs PrismaPg at module scope and pulls in `pg` and `node:fs` — and this file is
+  // compiled for the Edge runtime as well as Node, where none of that resolves. A dynamic
+  // import does not save it: webpack resolves the module graph at build time regardless of
+  // the runtime guard above. The same trap `src/middleware.ts` documents, and the same one
+  // `jira-config.ts` hit with `node:crypto`.
+  //
+  // It is installed lazily on first use instead, from `settleJiraSync` in
+  // `src/domain/executions.ts`, which is Node-only and already talks to the database.
 
   logRequest({
     occurredAt: new Date().toISOString(),
