@@ -60,4 +60,18 @@ The web interface is server-rendered by the same Next.js application, not a sepa
 
 ## V1 exclusions
 
-No live external issue-tracker synchronization, CI ingestion, automation-framework integration, email notification workflow, or direct AI mutations are included. New integrations require an approved policy and interface update.
+No CI ingestion, automation-framework integration, email notification workflow, or direct AI mutations are included. New integrations require an approved policy and interface update.
+
+External issue-tracker synchronization is excluded **except** for the one-way Jira execution sync defined below, approved by the QA Lead on 2026-08-10. Jira never writes back to QAMS.
+
+## Jira execution sync
+
+**Status: approved policy, not yet implemented.** Until the implementation ships, the copilot must not claim this capability is live, and must answer questions about it as documented policy rather than current behavior.
+
+A test execution may record the Jira issue key of the task it is run against. QAMS transitions that issue to a status in Jira's `done` status category only when **every** execution carrying that key is Finalized **and** every one of them derived `Pass`. No other outcome transitions the issue.
+
+A Finalized execution whose derived result is `Fail` or `Blocked` causes no Jira write at all. QAMS never moves an issue backwards and never reopens one: "not done" is a statement about what QAMS must not claim, not an instruction to move the issue somewhere else.
+
+The sync is never part of the finalize transaction. Finalization commits whether or not Jira is reachable, and the push is recorded as a separate, retryable attempt. An unreachable or failing Jira must never prevent a tester from recording test results, and no external call is made while a database transaction is open.
+
+Because a Finalized execution is immutable, the outcome of a sync attempt is held in its own append-only record and never as mutable state on the execution.

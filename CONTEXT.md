@@ -77,3 +77,17 @@ _Avoid_: match, result, row
 **Needle**:
 The text a viewer typed into a search box, before anything has been matched with it.
 _Avoid_: query, term, filter
+
+## Jira
+
+**Jira issue key**:
+The identifier of the Jira task an execution is run against — `PROJ-123`. The only thing
+QAMS records about Jira, and the whole of the link between the two systems.
+_Avoid_: backlog ID, ticket number, issue ID, Jira reference. A *backlog* is a Jira view,
+not an identifier, so "backlog ID" names nothing that exists.
+
+**Transition**:
+The act of moving a Jira issue from one status to another. Jira has no way to *set* a
+status — a transition is executed, and a workflow may refuse one that is not legal from
+the issue's current status. Say "transition the issue", never "set the status".
+_Avoid_: set status, update status, change state

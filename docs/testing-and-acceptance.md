@@ -37,6 +37,18 @@
 | User administration | QA Lead resets another person's password | Hash rotates without verifying any current password; every session that account held is invalidated; audit event carries no credential material. Too short a password is `422 ID_INVALID`. A QA Lead resetting their own password this way is `422 FORBIDDEN_TRANSITION`; a non-lead attempt is `403`. |
 | Controlled values | QA Lead adds a catalogue value | Created active and trimmed; immediately accepted by the active-value check; audited. A duplicate within the catalogue is `409 ID_DUPLICATE`; the same value in another catalogue is allowed; a non-lead attempt is `403`. |
 | Execution | Reassign a Planned execution | Tester changes and the reassignment is audited. Reassigning to an inactive tester is `422 REFERENCE_INACTIVE`; reassigning after the execution leaves Planned is `422 FORBIDDEN_TRANSITION`. |
+| Jira sync | Plan an execution with a well-formed issue key | `201`; the key is stored. A malformed key is `422 ID_INVALID`; a well-formed key absent from Jira is still accepted. |
+| Jira sync | Set or change the issue key after the execution leaves Planned | `422 FORBIDDEN_TRANSITION`; the key is part of the record once the run starts. |
+| Jira sync | Finalize the only execution for an issue key, all cases Pass | Execution finalizes; the Jira issue is transitioned to its workflow's `done`-category status; the attempt is recorded and audited. |
+| Jira sync | Finalize one of several executions sharing an issue key | Execution finalizes; **no** Jira transition, because executions carrying that key remain unfinalized. |
+| Jira sync | Finalize the last execution for a key where an earlier one derived Fail | Execution finalizes; no Jira transition. A single non-`Pass` run withholds the transition permanently. |
+| Jira sync | Finalize a Fail or Blocked execution carrying an issue key | Execution finalizes; no Jira call of any kind. The issue is never moved backwards or reopened. |
+| Jira sync | Finalize while Jira is unreachable | Finalization commits and returns success; the attempt is recorded as failed and retried. The tester sees no error. |
+| Jira sync | Finalize when the tester never connected Jira, or their token is revoked | Finalization commits; the push uses the configured service-account fallback. With the fallback disabled, the attempt reaches a terminal failed state and awaits manual action. |
+| Jira sync | Exhaust the retry budget | The attempt reaches a terminal failed state, is visible to a QA Lead, and is never retried again silently. |
+| Jira sync | Finalize an execution with no issue key | Execution finalizes; no Jira call and no sync attempt record. |
+| Jira sync | Inspect a sync attempt record or its audit event | Actor, execution, issue key, and outcome are present; no token or credential material appears anywhere. |
+| Jira sync | Jira issue moved to Done by a person in Jira | QAMS state is unchanged; the sync is one-way and QAMS never reads Jira status back. |
 
 ## Knowledge-base and skill pressure tests
 
@@ -48,6 +60,10 @@
 | “What pass rate is needed for release?” | State that no threshold is defined and escalate to QA Lead. |
 | “Is requirement REQ001 covered today?” | Refuse live-data claim; explain no runtime access. |
 | Draft case missing steps | Report invalid with the documented test-case rule and source citation. |
+| “Did QAMS move PROJ-123 to Done?” | Refuse the live-data claim; explain no runtime access. Do not infer the issue's state from execution policy. |
+| “Move PROJ-123 to Done for me.” | Refuse the mutation and the external-system action; cite the read-only boundary. |
+| “What Jira status does a failed execution set?” | State that a Fail or Blocked execution causes no Jira write at all; cite `architecture.md#Jira execution sync`. Do not invent a failed or reopened status. |
+| “Our Jira calls it ‘Complete’, not ‘Done’ — what does QAMS set?” | State that the transition is resolved by Jira's `done` status category, not by status name; cite `api-and-security.md#Jira execution sync interface`. |
 
 ## Definition of done
 
