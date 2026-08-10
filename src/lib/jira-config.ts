@@ -1,4 +1,5 @@
 import { AppError } from "./errors";
+import { parseEncryptionKey } from "./secret-box";
 
 /**
  * Deployment configuration for the Jira execution sync
@@ -31,6 +32,15 @@ export type JiraEnv = {
   JIRA_BASE_URL?: string;
   JIRA_OAUTH_CLIENT_ID?: string;
   JIRA_OAUTH_CLIENT_SECRET?: string;
+  /** Where Jira sends the user back. Must match the OAuth app's registered callback. */
+  JIRA_REDIRECT_URI?: string;
+  /**
+   * Base64, 32 bytes, encrypting stored refresh tokens (`src/lib/secret-box.ts`). Required
+   * whenever Jira is configured: without it a connected account cannot be stored, and there
+   * is no safe default — a generated key would make every stored credential undecryptable
+   * on the next restart.
+   */
+  JIRA_ENCRYPTION_KEY?: string;
   /** Presence alone enables the service-account fallback. See `serviceAccountFallback`. */
   JIRA_SERVICE_ACCOUNT_TOKEN?: string;
   JIRA_TRANSITION_TIMEOUT_MS?: string;
@@ -46,7 +56,9 @@ export const TRANSITION_OVERRIDE_PREFIX = "JIRA_TRANSITION_OVERRIDE_";
 const REQUIRED_KEYS = [
   "JIRA_BASE_URL",
   "JIRA_OAUTH_CLIENT_ID",
-  "JIRA_OAUTH_CLIENT_SECRET"
+  "JIRA_OAUTH_CLIENT_SECRET",
+  "JIRA_REDIRECT_URI",
+  "JIRA_ENCRYPTION_KEY"
 ] as const;
 
 export type JiraConfig = {
@@ -66,6 +78,9 @@ export type JiraConfig = {
    */
   serviceAccountFallback: boolean;
   serviceAccountToken: string | null;
+  redirectUri: string | null;
+  /** Decoded and length-checked at boot, so a bad key fails there rather than at connect. */
+  encryptionKey: Buffer | null;
   timeoutMs: number;
   /** Jira project key -> transition id. Empty unless a deployment overrides one. */
   transitionOverrides: Map<string, string>;
@@ -145,6 +160,8 @@ export function jiraConfig(env: JiraEnv & Record<string, string | undefined> = p
       clientSecret: null,
       serviceAccountFallback: false,
       serviceAccountToken: null,
+      redirectUri: null,
+      encryptionKey: null,
       timeoutMs: parseTimeout(env.JIRA_TRANSITION_TIMEOUT_MS),
       transitionOverrides: new Map()
     };
@@ -172,6 +189,10 @@ export function jiraConfig(env: JiraEnv & Record<string, string | undefined> = p
 
   const serviceAccountToken = present(env.JIRA_SERVICE_ACCOUNT_TOKEN);
 
+  // Decoded here so a malformed key stops the process at boot rather than at the moment a
+  // tester clicks Connect. `parseEncryptionKey` throws its own explanatory message.
+  const encryptionKey = parseEncryptionKey(present(env.JIRA_ENCRYPTION_KEY) ?? undefined);
+
   return {
     enabled: true,
     baseUrl,
@@ -179,6 +200,8 @@ export function jiraConfig(env: JiraEnv & Record<string, string | undefined> = p
     clientSecret: present(env.JIRA_OAUTH_CLIENT_SECRET),
     serviceAccountFallback: serviceAccountToken !== null,
     serviceAccountToken,
+    redirectUri: present(env.JIRA_REDIRECT_URI),
+    encryptionKey,
     timeoutMs: parseTimeout(env.JIRA_TRANSITION_TIMEOUT_MS),
     transitionOverrides: parseTransitionOverrides(env)
   };

@@ -1,5 +1,6 @@
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
+import { jiraConnectionRoster } from "@/domain/jira-credentials";
 import { jiraConnectionStatus } from "@/lib/jira-config";
 import { requireSession } from "@/ui/session";
 
@@ -25,6 +26,11 @@ export default async function IntegrationsPage() {
   if (auth.role !== QamsRole.QA_LEAD) notFound();
 
   const jira = jiraConnectionStatus();
+  const roster = await jiraConnectionRoster({
+    userId: auth.userId,
+    role: auth.role,
+    requestId: "page"
+  });
 
   return (
     <>
@@ -72,6 +78,43 @@ export default async function IntegrationsPage() {
             <code>docs/architecture.md</code> for what the sync does once configured.
           </p>
         )}
+      </div>
+
+      {/*
+        Who has connected — state only. Deliberately no Jira account, email or identity of
+        any kind: a Lead needs to know who still has to connect, and never needs to know
+        which third-party account someone linked in order to chase them (Q5).
+      */}
+      <div className="card" style={{ marginTop: "var(--sp-4)" }}>
+        <h2 style={{ marginTop: 0 }}>Jira connections</h2>
+        <p className="muted">
+          {roster.connectedCount} of {roster.total} active people have connected their Jira
+          account.{" "}
+          {jira.serviceAccountFallback
+            ? "Runs finalized by anyone else fall back to the service account."
+            : "Runs finalized by anyone else cannot sync until they connect."}
+        </p>
+
+        <table className="table" style={{ marginTop: "var(--sp-3)" }}>
+          <thead>
+            <tr>
+              <th scope="col">Person</th>
+              <th scope="col">Jira</th>
+            </tr>
+          </thead>
+          <tbody>
+            {roster.rows.map((row) => (
+              <tr key={row.userId}>
+                <td>{row.displayName}</td>
+                <td>{row.connected ? "Connected" : "Not connected"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <p className="muted" style={{ marginTop: "var(--sp-3)" }}>
+          People connect their own account from their Account page; it cannot be done for them.
+        </p>
       </div>
     </>
   );

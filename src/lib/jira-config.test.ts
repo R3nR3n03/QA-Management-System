@@ -10,7 +10,9 @@ import {
 const complete: JiraEnv = {
   JIRA_BASE_URL: "https://acme.atlassian.net",
   JIRA_OAUTH_CLIENT_ID: "client-abc",
-  JIRA_OAUTH_CLIENT_SECRET: "secret-xyz"
+  JIRA_OAUTH_CLIENT_SECRET: "secret-xyz",
+  JIRA_REDIRECT_URI: "https://qams.example.com/api/v1/jira/callback",
+  JIRA_ENCRYPTION_KEY: Buffer.alloc(32, 3).toString("base64")
 };
 
 describe("isJiraConfigured", () => {
@@ -50,7 +52,9 @@ describe("jiraConfig", () => {
   it.each([
     ["JIRA_OAUTH_CLIENT_SECRET"],
     ["JIRA_OAUTH_CLIENT_ID"],
-    ["JIRA_BASE_URL"]
+    ["JIRA_BASE_URL"],
+    ["JIRA_REDIRECT_URI"],
+    ["JIRA_ENCRYPTION_KEY"]
   ])("refuses to start when %s is missing but Jira is otherwise configured", (missing) => {
     const partial = { ...complete };
     delete partial[missing as keyof JiraEnv];
@@ -66,6 +70,17 @@ describe("jiraConfig", () => {
       expect(message).toContain("JIRA_OAUTH_CLIENT_ID");
       expect(message).toContain("JIRA_OAUTH_CLIENT_SECRET");
     }
+  });
+
+  // The key is decoded at boot so a bad one fails there, not when a tester clicks Connect.
+  it("rejects an encryption key that is not 32 bytes", () => {
+    expect(() =>
+      jiraConfig({ ...complete, JIRA_ENCRYPTION_KEY: Buffer.alloc(16, 3).toString("base64") })
+    ).toThrow();
+  });
+
+  it("decodes the encryption key", () => {
+    expect(jiraConfig(complete).encryptionKey).toHaveLength(32);
   });
 
   it("rejects a base URL that is not http(s)", () => {
