@@ -1,8 +1,10 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { jiraConfig } from "@/lib/jira-config";
+import { JIRA_CONNECT_COOKIE } from "@/lib/jira-oauth";
 import { authorizeUrl } from "@/lib/jira-oauth";
-import { createOAuthState } from "@/lib/oauth-state";
-import { sessionSigningSecret } from "@/lib/session";
+import { createOAuthState, OAUTH_STATE_TTL_MS } from "@/lib/oauth-state";
+import { sessionCookieOptions, sessionSigningSecret } from "@/lib/session";
 import { requireSession } from "@/ui/session";
 
 /**
@@ -29,5 +31,29 @@ export async function GET() {
   }
 
   const state = createOAuthState(auth.userId, sessionSigningSecret());
+
+  /**
+   * The state is also parked in its own cookie, and this is load-bearing.
+   *
+   * The session cookie is `SameSite=Strict` (`sessionCookieOptions`), which browsers withhold
+   * on every cross-site request INCLUDING top-level navigation — so the callback arriving from
+   * auth.atlassian.com carries no session at all, and `requireSession()` there would bounce the
+   * user to /login with the authorization thrown away. That is not a bug in the Strict setting;
+   * it is what Strict is for, and loosening it app-wide to rescue one feature would trade a
+   * deliberate CSRF defence for convenience.
+   *
+   * `Lax` is the correct scope for THIS cookie: it is sent on exactly one kind of cross-site
+   * request — a top-level GET navigation — which is precisely the callback and nothing else.
+   * It lives for the length of the consent round trip and carries no authority of its own; it
+   * proves only that the browser completing the flow is the browser that began it.
+   */
+  (await cookies()).set(JIRA_CONNECT_COOKIE, state, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: sessionCookieOptions().secure,
+    path: "/api/v1/jira",
+    maxAge: Math.floor(OAUTH_STATE_TTL_MS / 1000)
+  });
+
   redirect(authorizeUrl(config.clientId, config.redirectUri, state));
 }

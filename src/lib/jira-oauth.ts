@@ -15,6 +15,15 @@
  * it.
  */
 
+/**
+ * Holds the signed OAuth state for the length of the consent round trip.
+ *
+ * Separate from the session cookie because the two need different SameSite scopes: the
+ * session is `Strict` and is therefore absent on the callback, while this one is `Lax` so it
+ * arrives on exactly that top-level navigation and nothing else.
+ */
+export const JIRA_CONNECT_COOKIE = "qams_jira_connect";
+
 /** Atlassian's 3LO endpoints. Fixed, and not per-site — the Jira site is chosen by consent. */
 const AUTHORIZE_ENDPOINT = "https://auth.atlassian.com/authorize";
 const TOKEN_ENDPOINT = "https://auth.atlassian.com/oauth/token";

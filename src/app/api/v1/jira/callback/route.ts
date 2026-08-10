@@ -1,11 +1,12 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { connectJiraAccount } from "@/domain/jira-credentials";
+import { prisma } from "@/lib/db";
 import { jiraConfig } from "@/lib/jira-config";
-import { exchangeCodeForRefreshToken } from "@/lib/jira-oauth";
+import { exchangeCodeForRefreshToken, JIRA_CONNECT_COOKIE } from "@/lib/jira-oauth";
 import { logRequest } from "@/lib/logging";
 import { verifyOAuthState } from "@/lib/oauth-state";
 import { sessionSigningSecret } from "@/lib/session";
-import { requireSession } from "@/ui/session";
 
 /**
  * Where Atlassian sends the user back after consent.
@@ -28,15 +29,31 @@ import { requireSession } from "@/ui/session";
  * failure is logged server-side instead.
  */
 export async function GET(request: Request) {
-  const auth = await requireSession();
   const url = new URL(request.url);
+  const jar = await cookies();
+
+  /**
+   * Identity comes from the signed state and the connect cookie, NOT from the session.
+   *
+   * The session cookie is `SameSite=Strict` and is therefore not sent on this request at all
+   * — it arrives as a top-level navigation from auth.atlassian.com. Calling `requireSession()`
+   * here would redirect every successful authorization to /login and silently discard it,
+   * which is exactly the bug this replaces.
+   *
+   * The two checks that remain are the two that matter: the state must carry a valid QAMS
+   * signature and be unexpired, and the same value must come back in the cookie set when the
+   * flow began. The first proves QAMS issued it; the second proves this is the browser it was
+   * issued to. An attacker needs both, and the cookie is httpOnly.
+   */
+  const cookieState = jar.get(JIRA_CONNECT_COOKIE)?.value;
 
   const failure = (reason: string, detail: string): never => {
+    // The cookie is cleared on every exit so a spent or rejected state cannot be replayed.
+    jar.delete(JIRA_CONNECT_COOKIE);
     logRequest({
       occurredAt: new Date().toISOString(),
       requestId: url.searchParams.get("state")?.slice(0, 8) ?? "jira-callback",
       status: 400,
-      actorId: auth.userId,
       action: "JIRA_CONNECT_FAILED",
       message: detail
     });
@@ -55,11 +72,13 @@ export async function GET(request: Request) {
   const verified = verifyOAuthState(state as string, sessionSigningSecret());
   if (!verified) failure("invalid", "Callback state was forged, tampered with, or expired.");
 
-  // The second check. A valid state issued to somebody else is not a licence to connect an
-  // account to the person currently signed in.
-  if (verified!.userId !== auth.userId) {
-    failure("invalid", "Callback state was issued to a different user.");
+  // The second check: the browser finishing the flow must be the one that started it. A valid
+  // state on its own is not enough — it travels in a URL, and URLs leak.
+  if (!cookieState || cookieState !== state) {
+    failure("invalid", "Callback state did not match the cookie set when the flow began.");
   }
+
+  const userId = verified!.userId;
 
   const config = jiraConfig();
   if (!config.enabled || !config.clientId || !config.clientSecret || !config.redirectUri) {
@@ -81,11 +100,19 @@ export async function GET(request: Request) {
     return;
   }
 
+  // The role is read from the database rather than a session, for the same reason the whole
+  // codebase resolves it server-side: it is never taken from the caller. `connectJiraAccount`
+  // stores against this id and audits it.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, active: true } });
+  if (!user || !user.active) failure("invalid", "The state named a user who cannot connect.");
+
   await connectJiraAccount(refreshToken, {
-    userId: auth.userId,
-    role: auth.role,
+    userId,
+    role: user!.role,
     requestId: "jira-callback"
   });
 
+  // Spent: one authorization, one connection.
+  jar.delete(JIRA_CONNECT_COOKIE);
   redirect("/account?jira=connected");
 }

@@ -32,6 +32,18 @@ export async function register(): Promise<void> {
   // "fail at boot" contract.
   const config = jiraConfig();
 
+  // Installs the transport that actually calls Jira. Without this the port stays null and
+  // finalizing a run evaluates eligibility and then does nothing — which is the correct
+  // behaviour for a deployment that has not configured Jira, and was the behaviour for every
+  // deployment until now.
+  if (config.enabled) {
+    const [{ setJiraTransport }, { createJiraTransport }] = await Promise.all([
+      import("@/domain/jira-sync"),
+      import("@/domain/jira-transport")
+    ]);
+    setJiraTransport(createJiraTransport());
+  }
+
   logRequest({
     occurredAt: new Date().toISOString(),
     requestId: "startup",

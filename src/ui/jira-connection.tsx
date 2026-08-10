@@ -62,8 +62,15 @@ export function JiraConnectionPanel({
               ? "Until you do, they are made by the service account instead."
               : "Until you do, runs you finalize cannot update Jira at all."}
           </p>
-          {/* A link, not a button: this is a redirect off-origin to Atlassian's consent screen. */}
-          <Link className="btn" href="/api/v1/jira/connect">
+          {/*
+            A link, not a button: this is a redirect off-origin to Atlassian's consent screen.
+
+            Opens in a new tab so the consent round trip never takes over the page someone was
+            working on. `rel="noopener"` is not optional with `target="_blank"`: without it the
+            opened page gets a `window.opener` handle back into this one, and the page we are
+            handing control to is a third party's login screen.
+          */}
+          <Link className="btn" href="/api/v1/jira/connect" target="_blank" rel="noopener noreferrer">
             Connect Jira
           </Link>
         </>
