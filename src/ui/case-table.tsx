@@ -167,17 +167,21 @@ export function CaseTable({
             pathname={pathname}
             params={params}
             pageKey={pageKey}
-            noMatch={(() => {
-              const scopeNames = [product !== "" ? "this product" : null, feature !== "" ? "this feature" : null].filter(
-                (name): name is string => name !== null
-              );
-              if (query !== "") {
-                const scopeSuffix = scopeNames.length > 0 ? ` in ${scopeNames.join(" and ")}` : "";
-                return `Nothing matches “${query}”${scopeSuffix}.`;
-              }
-              if (product !== "" && feature !== "") return `No test case belongs to ${scopeNames.join(" and ")}.`;
-              return feature !== "" ? featureEmptyText : productEmptyText;
-            })()}
+            noMatch={
+              <p>
+                {(() => {
+                  const scopeNames = [product !== "" ? "this product" : null, feature !== "" ? "this feature" : null].filter(
+                    (name): name is string => name !== null
+                  );
+                  if (query !== "") {
+                    const scopeSuffix = scopeNames.length > 0 ? ` in ${scopeNames.join(" and ")}` : "";
+                    return `Nothing matches “${query}”${scopeSuffix}.`;
+                  }
+                  if (product !== "" && feature !== "") return `No test case belongs to ${scopeNames.join(" and ")}.`;
+                  return feature !== "" ? featureEmptyText : productEmptyText;
+                })()}
+              </p>
+            }
           />
         ) : (
           <ul className="row-list">

@@ -48,7 +48,8 @@ Provide read-only, evidence-based assistance for the QAMS. The Markdown knowledg
 - Required fields, invariants, errors, import, and metrics: `../../business-rules-and-validation.md`
 - Execution coverage, per-case results, and the derived execution result: `../../business-rules-and-validation.md` and `../../data-model.md`
 - Jira execution sync — when an issue is transitioned, and what a failed run does not do: `../../architecture.md` and `../../api-and-security.md`
-- Business ID formats and system allocation: `../../business-rules-and-validation.md` and `../../data-model.md`
+- Business ID formats and system allocation — including that a create request may omit the ID and have one generated, and that the four catalogue levels are three digits while executions, defects and test cases are four: `../../business-rules-and-validation.md` and `../../data-model.md`
+- Who may create or edit a catalogue record — the split between Requirement (QA Engineer and up) and Product / Module / Feature (QA Lead), ratified 2026-08-10: `../../roles-workflows.md`
 - User procedures: `../../sops.md`
 - Entities and relationships: `../../data-model.md`
 - Workbook mapping: `../../excel-source-map.md`

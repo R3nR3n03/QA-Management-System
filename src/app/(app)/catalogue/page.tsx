@@ -15,6 +15,7 @@ import {
 } from "@/domain/catalogue";
 import type { SearchResults as Results } from "@/domain/catalogue-search";
 import { AppError } from "@/lib/errors";
+import { RoleSets } from "@/lib/rbac";
 import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
 import { requireSession } from "@/ui/session";
 import { CatalogueSearch } from "./CatalogueSearch";
@@ -107,9 +108,20 @@ export default async function CataloguePage({
 }) {
   const params = await searchParams;
   const auth = await requireSession();
-  // Lead-only screen: absent rather than present-and-rejecting for other roles
-  // (the domain services behind it refuse them regardless).
-  if (auth.role !== QamsRole.QA_LEAD) notFound();
+  /* Authors and up (RATIFIED 2026-08-10, `docs/roles-workflows.md` catalogue rows). It was
+     QA-Lead-only, matching `RoleSets.canAdmin`; requirements are now `canWriteRequirements`,
+     so a QA Engineer has to be able to open the screen that creates one. A QA Tester authors
+     nothing and is still absent rather than present-and-rejecting.
+
+     `mayAdminCatalogue` is what keeps the screen honest for the roles in between: they get
+     the tree, the detail panels and the requirement form, and the Product / Module / Feature
+     create and edit affordances are not rendered. The domain refuses them regardless — this
+     only decides whether a control they cannot use is on screen. */
+  const mayAdminCatalogue = auth.role === QamsRole.QA_LEAD;
+  const mayWriteRequirements = (RoleSets.canWriteRequirements as readonly QamsRole[]).includes(
+    auth.role
+  );
+  if (!mayWriteRequirements) notFound();
 
   const selection = readSelection(params);
   const needle = readParam(params, "q");
@@ -190,8 +202,11 @@ export default async function CataloguePage({
             <h1>Catalogue</h1>
             <p className="muted">Product → Module → Feature → Requirement</p>
           </div>
-          {/* One call to action, and what it creates follows the selection. */}
-          <ContextualCreate selection={createUnder} />
+          {/* One call to action, and what it creates follows the selection. The role decides
+              how many levels its caret offers — presentation only; every gate is the
+              domain's (`RoleSets.canAdmin` for the three structural levels,
+              `canWriteRequirements` for requirements). */}
+          <ContextualCreate selection={createUnder} mayAdminCatalogue={mayAdminCatalogue} />
         </div>
         <dl className="cat-stats">
           <div className="cat-stat">
@@ -272,6 +287,7 @@ export default async function CataloguePage({
             needle={needle}
             totals={totals}
             hasAnyProduct={totals.products > 0}
+            mayAdminCatalogue={mayAdminCatalogue}
           />
         </section>
       </div>

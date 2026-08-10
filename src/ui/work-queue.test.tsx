@@ -59,7 +59,11 @@ const FINALIZED_AT = new Date("2026-01-07T14:45:00.000Z");
 
 const pad = (n: number) => String(n).padStart(4, "0");
 
-function makeWorkRows(count: number, state: WorkRowData["state"] = "PLANNED"): WorkRowData[] {
+function makeWorkRows(
+  count: number,
+  state: WorkRowData["state"] = "PLANNED",
+  jiraIssueKey: string | null = null
+): WorkRowData[] {
   return Array.from({ length: count }, (_, index) => {
     const n = index + 1;
     return {
@@ -69,13 +73,17 @@ function makeWorkRows(count: number, state: WorkRowData["state"] = "PLANNED"): W
       caseBusinessIds: [`TC-FIX-${pad(n)}`],
       caseTitle: `Execution title ${n}`,
       priority: "High",
+      jiraIssueKey,
       plannedAt: PLANNED_AT,
       startedAt: state === "IN_PROGRESS" ? STARTED_AT : null
     };
   });
 }
 
-function makeFinalizedRows(count: number): FinalizedRowData[] {
+function makeFinalizedRows(
+  count: number,
+  overrides: Partial<FinalizedRowData> = {}
+): FinalizedRowData[] {
   return Array.from({ length: count }, (_, index) => {
     const n = index + 1;
     return {
@@ -84,7 +92,10 @@ function makeFinalizedRows(count: number): FinalizedRowData[] {
       result: "FAIL" as const,
       caseBusinessIds: [`TC-FIX-${pad(n)}`],
       caseTitle: `Finalized title ${n}`,
-      finalizedAt: FINALIZED_AT
+      jiraIssueKey: null,
+      caseResults: ["FAIL" as const],
+      finalizedAt: FINALIZED_AT,
+      ...overrides
     };
   });
 }
@@ -319,6 +330,55 @@ describe("WorkQueue", () => {
     expect(nav.refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the Jira issue a run is testing, as text rather than a link", () => {
+    render(
+      <WorkQueue
+        rows={makeWorkRows(1, "PLANNED", "PROJ-412")}
+        total={1}
+        counts={COUNTS}
+        page={1}
+        pathname="/my-work"
+        params={{}}
+        jiraConfigured
+      />
+    );
+
+    // The needle in the page header matches Jira keys, so a row returned by one has to say
+    // so. Text and not an anchor: the row's one click target is its title.
+    const key = screen.getByText("PROJ-412");
+    expect(key.tagName).toBe("SPAN");
+    expect(screen.queryByRole("link", { name: /PROJ-412/ })).toBe(null);
+  });
+
+  it("says a run has no Jira issue only where the deployment has Jira", () => {
+    const { rerender } = render(
+      <WorkQueue
+        rows={makeWorkRows(1)}
+        total={1}
+        counts={COUNTS}
+        page={1}
+        pathname="/my-work"
+        params={{}}
+        jiraConfigured
+      />
+    );
+    expect(screen.getByText(/No Jira issue/)).toBeTruthy();
+
+    // With no JIRA_* configuration no run could ever carry a key, so the words would be
+    // reporting the deployment rather than the run — on every row, forever.
+    rerender(
+      <WorkQueue
+        rows={makeWorkRows(1)}
+        total={1}
+        counts={COUNTS}
+        page={1}
+        pathname="/my-work"
+        params={{}}
+      />
+    );
+    expect(screen.queryByText(/No Jira issue/)).toBe(null);
+  });
+
   it("says the page overshot rather than blaming a filter", () => {
     render(
       <WorkQueue
@@ -357,11 +417,45 @@ describe("FinalizedRecap", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("stripes each row with the outcome its chip names", () => {
+  it("marks each row with the outcome its chip names", () => {
     const { container } = render(<FinalizedRecap rows={makeFinalizedRows(1)} total={1} />);
-    expect(container.querySelector('[data-outcome="FAIL"]')).toBeTruthy();
+    // The marker replaced the edge stripe; the chip still carries the word beside it, so
+    // the outcome survives greyscale and colour-blindness either way.
+    expect(container.querySelector('.work-mark[data-tone="fail"]')).toBeTruthy();
     expect(screen.getByText("Fail")).toBeTruthy();
     expect(screen.getByText("2026-01-07 14:45 UTC")).toBeTruthy();
+  });
+
+  it("names the run's cases and its Jira issue, like the queue above it", () => {
+    render(
+      <FinalizedRecap
+        rows={makeFinalizedRows(1, { jiraIssueKey: "PROJ-77" })}
+        total={1}
+        jiraConfigured
+      />
+    );
+
+    // The recap used to name no case at all: a finished run could be identified here only
+    // by its own execution ID.
+    expect(screen.getByText("TC-FIX-0001")).toBeTruthy();
+    expect(screen.getByText("PROJ-77")).toBeTruthy();
+  });
+
+  it("breaks a multi-case run down, because one chip cannot say how many failed", () => {
+    const { rerender } = render(
+      <FinalizedRecap
+        rows={makeFinalizedRows(1, {
+          caseBusinessIds: ["TC-FIX-0001", "TC-FIX-0002", "TC-FIX-0003"],
+          caseResults: ["PASS", "FAIL", "PASS"]
+        })}
+        total={1}
+      />
+    );
+    expect(screen.getByText(/\+2 more \(2 passed, 1 failed\)/)).toBeTruthy();
+
+    // A single-case run needs none: its chip already IS the one case's result.
+    rerender(<FinalizedRecap rows={makeFinalizedRows(1)} total={1} />);
+    expect(screen.queryByText(/failed\)/)).toBe(null);
   });
 
   it("states the cap only when it hides something", () => {

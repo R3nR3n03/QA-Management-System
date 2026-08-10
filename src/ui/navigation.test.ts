@@ -5,15 +5,50 @@ import { NAV, navFor, navGroupsFor, roleLabel } from "./navigation";
 const hrefs = (role: QamsRole) => navFor(role).map((i) => i.href);
 
 describe("navFor", () => {
-  // The security property: administration screens must not appear for anyone but a
-  // QA Lead. roles-workflows.md:16-17 confines controlled values, users, import
-  // reconciliation and release readiness to that role. Enforcement is server-side
-  // in the domain services either way - this asserts the shell agrees with it.
-  it("shows no administration item to any role below QA Lead", () => {
+  /**
+   * The security property, restated 2026-08-10. It used to be "no administration item below
+   * QA Lead", which the catalogue ratification made false — but the property that actually
+   * matters is narrower and is asserted by name here, so widening one screen cannot quietly
+   * widen the rest. roles-workflows.md:16-17 confines controlled values, users, import
+   * reconciliation and release readiness to the QA Lead. Enforcement is server-side in the
+   * domain services either way; this asserts the shell agrees with it.
+   */
+  const LEAD_ONLY_ADMIN = [
+    "/admin/controlled-values",
+    "/admin/users",
+    "/admin/imports",
+    "/admin/integrations",
+    "/release-readiness"
+  ];
+
+  it("keeps every Lead-only administration screen out of every lower role's shell", () => {
     for (const role of [QamsRole.QA_TESTER, QamsRole.QA_ENGINEER, QamsRole.SENIOR_QA_ENGINEER]) {
-      const admin = navFor(role).filter((i) => i.group === "Administration");
-      expect(admin).toEqual([]);
+      for (const href of LEAD_ONLY_ADMIN) {
+        expect(hrefs(role)).not.toContain(href);
+      }
     }
+    // And the list above is the whole of Administration bar the catalogue — so a new
+    // Lead-only screen added without being listed here fails this test rather than
+    // silently escaping it.
+    const adminHrefs = navFor(QamsRole.QA_LEAD)
+      .filter((i) => i.group === "Administration")
+      .map((i) => i.href);
+    expect(adminHrefs.sort()).toEqual([...LEAD_ONLY_ADMIN, "/catalogue"].sort());
+  });
+
+  /**
+   * The catalogue is the one administration screen an author may open (RATIFIED 2026-08-10):
+   * requirements are `canWriteRequirements`, so a QA Engineer must be able to reach the screen
+   * that creates one. A QA Tester authors nothing and still may not.
+   *
+   * The screen is mixed for an author — Product / Module / Feature CRUD stays `canAdmin` in
+   * `src/domain/catalogue.ts` — and that split is the domain's to enforce, not the nav's.
+   */
+  it("opens the catalogue to authors, but not to a QA Tester", () => {
+    expect(hrefs(QamsRole.QA_TESTER)).not.toContain("/catalogue");
+    expect(hrefs(QamsRole.QA_ENGINEER)).toContain("/catalogue");
+    expect(hrefs(QamsRole.SENIOR_QA_ENGINEER)).toContain("/catalogue");
+    expect(hrefs(QamsRole.QA_LEAD)).toContain("/catalogue");
   });
 
   it("gives the QA Lead every item", () => {

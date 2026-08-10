@@ -21,6 +21,18 @@ import { hrefWith, type ListSearchParams } from "./list-params";
  *
  * This is reachable without touching a URL: hold page 2 of the review queue while
  * colleagues approve it down to one page.
+ *
+ * ## The caller owns the ELEMENT, not just the sentence
+ *
+ * `noMatch` used to be wrapped here in a `<p>`. That is fine for the four lists that pass a
+ * phrase and invalid for the catalogue, which passes a rich empty state — a `<div>` with an
+ * `<h3>` and a `<p>` of its own. `<h3>` cannot descend from `<p>`, so the browser closed the
+ * paragraph early, the client tree and the server tree disagreed, and the catalogue threw a
+ * hydration error on any feature with no requirements.
+ *
+ * So the wrapper is gone and every caller passes a complete element. That also fails in the
+ * safe direction: a future caller who passes a bare string gets an unstyled line — visible
+ * immediately, and not a broken render.
  */
 export function ListEmpty({
   total,
@@ -34,7 +46,10 @@ export function ListEmpty({
   pathname: string;
   params: ListSearchParams | undefined;
   pageKey?: string;
-  /** What to say when the filters genuinely matched nothing. */
+  /**
+   * What to say when the filters genuinely matched nothing — as a complete element, not a
+   * bare phrase. A one-line message is `<p>…</p>`; `.empty p` styles it. See the note above.
+   */
   noMatch: React.ReactNode;
 }) {
   if (total > 0) {
@@ -51,9 +66,5 @@ export function ListEmpty({
     );
   }
 
-  return (
-    <div className="empty">
-      <p>{noMatch}</p>
-    </div>
-  );
+  return <div className="empty">{noMatch}</div>;
 }

@@ -19,25 +19,46 @@ import { AppError } from "./errors";
  * used costs nothing.
  */
 
-/** The documented number space: four-digit suffix, `0001`-`9999`. */
-const SUFFIX_WIDTH = 4;
-const MAX_SUFFIX = 9999;
+/**
+ * The default number space: four-digit suffix, `0001`-`9999` — `EXE-`, `BUG-` and
+ * `TC-<product>-`.
+ *
+ * Not the only one. The four catalogue levels are three digits (`PROD###`, `MOD###`,
+ * `FEAT###`, `REQ###`), so width is a parameter rather than a constant. It was a constant
+ * for as long as the allocator served only the four-digit entities, and that is exactly why
+ * the catalogue services never used it: a four-digit allocator emits `REQ0001`, which
+ * `BUSINESS_ID_PATTERNS.requirement` rejects. They asked for a hand-typed ID instead, in
+ * breach of `docs/data-model.md:5`.
+ */
+const DEFAULT_SUFFIX_WIDTH = 4;
+
+/** `999` for width 3, `9999` for width 4 — the largest number the format can express. */
+function maxSuffix(width: number): number {
+  return 10 ** width - 1;
+}
 
 /**
- * `prefix + zero-padded number` (e.g. `("EXE-", 7)` → `EXE-0007`). Numbers past the
- * documented four-digit space are refused — a documented limit, not handled specially
- * (`docs/data-model.md`, "allocation past 9999 is refused").
+ * `prefix + zero-padded number` (e.g. `("EXE-", 7)` → `EXE-0007`, `("REQ", 7, 3)` → `REQ007`).
+ * Numbers past the format's own space are refused — a documented limit, not handled
+ * specially (`docs/data-model.md`, "allocation past 9999 is refused").
  */
-export function formatBusinessId(prefix: string, n: number): string {
-  if (!Number.isInteger(n) || n < 1 || n > MAX_SUFFIX) {
+export function formatBusinessId(
+  prefix: string,
+  n: number,
+  width: number = DEFAULT_SUFFIX_WIDTH
+): string {
+  const max = maxSuffix(width);
+  if (!Number.isInteger(n) || n < 1 || n > max) {
     throw new AppError(
       422,
       "ID_INVALID",
-      `The ${prefix}#### number space is exhausted; no free ID below ${MAX_SUFFIX + 1}.`,
+      // The hash run matches the width, so the message names the space that is actually
+      // exhausted rather than one the format could not produce anyway.
+      `The ${prefix}${"#".repeat(width)} number space is exhausted; no free ID below ${max + 1}.`,
       "businessId"
     );
   }
-  return `${prefix}${String(n).padStart(SUFFIX_WIDTH, "0")}`;
+  return `${prefix}${String(n).padStart(width, "0")}`;
 }
 
 /**
@@ -60,6 +81,11 @@ export function highestSuffix(prefix: string, ids: string[]): number {
 export type AllocatorFormat = {
   /** Everything before the number, e.g. `"EXE-"` or `` `TC-${productBusinessId}-` ``. */
   prefix: string;
+  /**
+   * Digits in the zero-padded suffix. Omit for the four-digit default (`EXE-`, `BUG-`,
+   * `TC-<product>-`); the catalogue levels pass 3.
+   */
+  width?: number;
   /** True when this candidate ID is already persisted (or created earlier in this tx). */
   isTaken: (candidate: string) => Promise<boolean>;
   /** Max numeric suffix currently in use for this prefix — the lazy counter seed. */
@@ -75,6 +101,7 @@ export async function allocateBusinessId(
   key: string,
   format: AllocatorFormat
 ): Promise<string> {
+  const width = format.width ?? DEFAULT_SUFFIX_WIDTH;
   // Lock-and-increment. RETURNING gives the incremented value; the number this call
   // owns is the value BEFORE the increment. An empty result means the key has never
   // been used — seed it and try once more (ON CONFLICT tolerates a concurrent seeder;
@@ -97,12 +124,17 @@ export async function allocateBusinessId(
   if (claimed === undefined) {
     // Two failed passes can only mean the row vanished between them — nothing deletes
     // counter rows, so surface it rather than loop.
-    throw new AppError(422, "ID_INVALID", `Could not allocate an ID for ${format.prefix}####.`, "businessId");
+    throw new AppError(
+      422,
+      "ID_INVALID",
+      `Could not allocate an ID for ${format.prefix}${"#".repeat(width)}.`,
+      "businessId"
+    );
   }
 
   // Probe past numbers occupied ahead of the counter (imports, hand-supplied IDs).
   let candidate = claimed;
-  while (await format.isTaken(formatBusinessId(format.prefix, candidate))) {
+  while (await format.isTaken(formatBusinessId(format.prefix, candidate, width))) {
     candidate += 1;
   }
 
@@ -112,5 +144,5 @@ export async function allocateBusinessId(
     await tx.idSequence.update({ where: { key }, data: { next: candidate + 1 } });
   }
 
-  return formatBusinessId(format.prefix, candidate);
+  return formatBusinessId(format.prefix, candidate, width);
 }

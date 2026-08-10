@@ -45,7 +45,8 @@ export function DetailPanel({
   childPage,
   needle,
   totals,
-  hasAnyProduct
+  hasAnyProduct,
+  mayAdminCatalogue
 }: {
   detail: CatalogueDetail | null;
   params: ListSearchParams | undefined;
@@ -54,6 +55,16 @@ export function DetailPanel({
   needle: string;
   totals: { products: number; modules: number; features: number; requirements: number };
   hasAnyProduct: boolean;
+  /**
+   * True for a QA Lead. False hides the Product / Module / Feature edit affordances, which
+   * `RoleSets.canAdmin` refuses for anyone else — the screen opened to authors on 2026-08-10
+   * so they could write REQUIREMENTS, and a requirement's own edit button stays for them.
+   *
+   * Presentation only. `updateProduct` and friends gate themselves; this decides whether a
+   * control that would 403 is on screen at all, which is the rule `src/ui/navigation.ts`
+   * states for nav items and `docs/testing-and-acceptance.md` now states for this screen.
+   */
+  mayAdminCatalogue: boolean;
 }) {
   if (detail === null) {
     return <Overview needle={needle} totals={totals} hasAnyProduct={hasAnyProduct} />;
@@ -61,7 +72,7 @@ export function DetailPanel({
 
   return (
     <>
-      <RecordHeader detail={detail} params={params} />
+      <RecordHeader detail={detail} params={params} mayAdminCatalogue={mayAdminCatalogue} />
       {/* A requirement is a leaf: nothing hangs off it, so there is no child section
           rather than an empty one claiming something is missing. */}
       {detail.childKind === null ? null : (
@@ -70,6 +81,7 @@ export function DetailPanel({
           childKind={detail.childKind}
           params={params}
           childPage={childPage}
+          mayAdminCatalogue={mayAdminCatalogue}
         />
       )}
     </>
@@ -80,10 +92,12 @@ export function DetailPanel({
 
 function RecordHeader({
   detail,
-  params
+  params,
+  mayAdminCatalogue
 }: {
   detail: CatalogueDetail;
   params: ListSearchParams | undefined;
+  mayAdminCatalogue: boolean;
 }) {
   const inherited = detail.kind !== "product";
 
@@ -107,7 +121,7 @@ function RecordHeader({
             <span className="bid">{detail.businessId}</span>
           </p>
         </div>
-        <EditFor detail={detail} />
+        <EditFor detail={detail} mayAdminCatalogue={mayAdminCatalogue} />
       </div>
 
       <dl className="fact-grid">
@@ -151,7 +165,16 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function EditFor({ detail }: { detail: CatalogueDetail }) {
+function EditFor({
+  detail,
+  mayAdminCatalogue
+}: {
+  detail: CatalogueDetail;
+  mayAdminCatalogue: boolean;
+}) {
+  /* A requirement's edit is `canWriteRequirements`, so it survives for an author; the three
+     structural levels are `canAdmin` and their button is absent rather than rejecting. */
+  if (detail.kind !== "requirement" && !mayAdminCatalogue) return null;
   if (detail.kind === "product") {
     return (
       <EditProductButton
@@ -209,12 +232,14 @@ function ChildSection({
   detail,
   childKind,
   params,
-  childPage
+  childPage,
+  mayAdminCatalogue
 }: {
   detail: CatalogueDetail;
   childKind: ChildKind;
   params: ListSearchParams | undefined;
   childPage: number;
+  mayAdminCatalogue: boolean;
 }) {
   const noun = CHILD_NOUN[childKind];
 
@@ -237,12 +262,24 @@ function ChildSection({
             pathname="/catalogue"
             params={params}
             pageKey={CHILD_PAGE_PARAM}
-            noMatch={<EmptyChild detail={detail} childKind={childKind} />}
+            noMatch={
+              <EmptyChild
+                detail={detail}
+                childKind={childKind}
+                mayAdminCatalogue={mayAdminCatalogue}
+              />
+            }
           />
         ) : (
           <ul className="row-list">
             {detail.children.map((child) => (
-              <ChildRow key={child.id} child={child} childKind={childKind} params={params} />
+              <ChildRow
+                key={child.id}
+                child={child}
+                childKind={childKind}
+                params={params}
+                mayAdminCatalogue={mayAdminCatalogue}
+              />
             ))}
           </ul>
         )}
@@ -265,11 +302,13 @@ function ChildSection({
 function ChildRow({
   child,
   childKind,
-  params
+  params,
+  mayAdminCatalogue
 }: {
   child: DetailChild;
   childKind: ChildKind;
   params: ListSearchParams | undefined;
+  mayAdminCatalogue: boolean;
 }) {
   const kind = CHILD_SELECTION[childKind];
   const grandchildNoun = childKind === "module" ? "feature" : "requirement";
@@ -306,12 +345,23 @@ function ChildRow({
         {formatUtcMinute(child.updatedAt)}
       </time>
 
-      <EditChild child={child} childKind={childKind} />
+      <EditChild child={child} childKind={childKind} mayAdminCatalogue={mayAdminCatalogue} />
     </li>
   );
 }
 
-function EditChild({ child, childKind }: { child: DetailChild; childKind: ChildKind }) {
+function EditChild({
+  child,
+  childKind,
+  mayAdminCatalogue
+}: {
+  child: DetailChild;
+  childKind: ChildKind;
+  mayAdminCatalogue: boolean;
+}) {
+  // Same split as `EditFor`: a requirement row keeps its edit for an author, a module or
+  // feature row does not get one it cannot use.
+  if (childKind !== "requirement" && !mayAdminCatalogue) return null;
   if (childKind === "module") {
     return (
       <EditModuleButton
@@ -352,13 +402,29 @@ function EditChild({ child, childKind }: { child: DetailChild; childKind: ChildK
  * to the header's contextual button — which already offers exactly this, so repeating it
  * here would put two primary buttons on screen competing for the same click.
  */
-function EmptyChild({ detail, childKind }: { detail: CatalogueDetail; childKind: ChildKind }) {
+function EmptyChild({
+  detail,
+  childKind,
+  mayAdminCatalogue
+}: {
+  detail: CatalogueDetail;
+  childKind: ChildKind;
+  mayAdminCatalogue: boolean;
+}) {
+  /* "Add the first one from the button above" is only true for someone who HAS that button.
+     Modules and features are `canAdmin`, so for an author the sentence would point at a
+     control that is not on screen — worse than saying nothing, because it reads as the screen
+     being broken rather than as a permission they do not hold. */
+  const addFromAbove = mayAdminCatalogue
+    ? " Add the first one from the button above."
+    : " Ask a QA Lead to add the first one.";
+
   if (childKind === "module") {
     return (
       <Rich
         icon={<Package size={40} aria-hidden />}
         title={`${detail.businessId} has no modules yet.`}
-        body="A module groups the features of one product. Add the first one from the button above."
+        body={`A module groups the features of one product.${addFromAbove}`}
       />
     );
   }
@@ -367,7 +433,7 @@ function EmptyChild({ detail, childKind }: { detail: CatalogueDetail; childKind:
       <Rich
         icon={<Component size={40} aria-hidden />}
         title={`${detail.businessId} has no features yet.`}
-        body="Features are what test cases are written against. Add the first one from the button above."
+        body={`Features are what test cases are written against.${addFromAbove}`}
       />
     );
   }

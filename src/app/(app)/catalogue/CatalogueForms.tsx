@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { ChevronDown, Plus } from "lucide-react";
 import { FormNotice } from "@/ui/notice";
 import { Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
@@ -13,6 +13,7 @@ import {
   createProductAction,
   createRequirementAction
 } from "./actions";
+import { FeaturePicker } from "./FeaturePicker";
 
 type Parent = { id: string; businessId: string; label: string };
 
@@ -42,14 +43,10 @@ export function ProductForm({ onDone }: { onDone: () => void }) {
     <form action={formAction}>
       <FormNotice state={state} id={noticeId(PRODUCT_FORM_ID)} />
       <div className="form-grid-2">
-        <label className={bad("businessId")}>
-          <span>Product ID</span>
-          <input name="businessId" placeholder="PROD001" required disabled={pending} autoFocus {...fieldProps(state, "businessId", PRODUCT_FORM_ID)} />
-          <span className="hint">Format PROD### — immutable once created.</span>
-        </label>
+        {/* No Product ID field — see the note in ChildForm. */}
         <label className={bad("name")}>
           <span>Name</span>
-          <input name="name" required disabled={pending} {...fieldProps(state, "name", PRODUCT_FORM_ID)} />
+          <input name="name" required disabled={pending} autoFocus {...fieldProps(state, "name", PRODUCT_FORM_ID)} />
         </label>
         <label className={bad("versionTag")}>
           <span>Version</span>
@@ -63,6 +60,7 @@ export function ProductForm({ onDone }: { onDone: () => void }) {
           </select>
         </label>
       </div>
+      <p className="hint id-hint">Product ID is assigned automatically, in the format PROD###.</p>
       <button className="btn" type="submit" disabled={pending}>
         {pending ? "Adding…" : "Add product"}
       </button>
@@ -82,6 +80,7 @@ function ChildForm({
   parentLabel,
   parents,
   lockedParent,
+  parentPicker,
   submitLabel,
   onDone
 }: {
@@ -109,6 +108,12 @@ function ChildForm({
    * hidden input; the domain re-checks the parent exists either way.
    */
   lockedParent?: Parent;
+  /**
+   * Search for the parent instead of selecting it from a list. Only `"feature"` exists,
+   * because requirements are the level whose parent is worth searching for: a feature is
+   * reached through two levels of tree, and there can be hundreds of them.
+   */
+  parentPicker?: "feature";
   submitLabel: string;
   onDone: () => void;
 }) {
@@ -118,7 +123,16 @@ function ChildForm({
   return (
     <form action={formAction}>
       <FormNotice state={state} id={noticeId(CHILD_FORM_ID)} />
-      {lockedParent ? (
+      {parentPicker && !lockedParent ? (
+        <FeaturePicker
+          name={parentField}
+          label={parentLabel}
+          formId={CHILD_FORM_ID}
+          disabled={pending}
+          invalid={bad(parentField).includes("field-bad")}
+          describedBy={noticeId(CHILD_FORM_ID)}
+        />
+      ) : lockedParent ? (
         <>
           <input type="hidden" name={parentField} value={lockedParent.id} />
           <div className="field">
@@ -143,17 +157,20 @@ function ChildForm({
           </select>
         </label>
       )}
-      <div className="form-grid-2">
-        <label className={bad("businessId")}>
-          <span>{idLabel}</span>
-          {/* Takes the focus when the parent select is not there to take it. */}
-          <input name="businessId" placeholder={idPlaceholder} required disabled={pending} autoFocus={Boolean(lockedParent)} {...fieldProps(state, "businessId", CHILD_FORM_ID)} />
-        </label>
-        <label className={bad(nameField)}>
-          <span>{nameLabel}</span>
-          <input name={nameField} required disabled={pending} {...fieldProps(state, nameField, CHILD_FORM_ID)} />
-        </label>
-      </div>
+      {/* No business-ID field. The form omits `businessId` entirely, which is the request
+          to generate one (`docs/data-model.md:5`); the ID appears on the record afterwards.
+          A supplied ID is still honoured by the service and by `POST /api/v1/…`, which is
+          what the workbook import uses — but offering the field here would invite a
+          hand-picked number that collides with the counter and leaves the allocator probing
+          past it. `bad("businessId")` is deliberately still reachable: a duplicate or
+          exhausted space comes back as a `businessId` error with no field to attach it to,
+          so `FormNotice` above carries it. */}
+      <label className={bad(nameField)}>
+        <span>{nameLabel}</span>
+        {/* Takes the focus when the parent control is not there to take it. */}
+        <input name={nameField} required disabled={pending} autoFocus={Boolean(lockedParent)} {...fieldProps(state, nameField, CHILD_FORM_ID)} />
+      </label>
+      <p className="hint id-hint">{idLabel} is assigned automatically, in the format {idPlaceholder.replace(/\d/g, "#")}.</p>
       <button className="btn" type="submit" disabled={pending}>
         {pending ? "Adding…" : submitLabel}
       </button>
@@ -167,6 +184,7 @@ function AddModal({
   description,
   toastMessage,
   primary = false,
+  alsoOffer,
   children
 }: {
   buttonLabel: string;
@@ -175,6 +193,11 @@ function AddModal({
   toastMessage: string;
   /** The screen's single call to action wears the filled treatment. */
   primary?: boolean;
+  /**
+   * Levels this button is not the default for, revealed behind a caret. See
+   * `ContextualCreate` for why the caret exists at all.
+   */
+  alsoOffer?: React.ReactNode;
   children: (onDone: () => void) => React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -183,16 +206,20 @@ function AddModal({
     setOpen(false);
     toast(toastMessage);
   };
+  const trigger = (
+    <button
+      type="button"
+      className={primary ? "btn" : "btn btn-secondary"}
+      onClick={() => setOpen(true)}
+    >
+      <Plus size={14} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
+      {buttonLabel}
+    </button>
+  );
+
   return (
     <>
-      <button
-        type="button"
-        className={primary ? "btn" : "btn btn-secondary"}
-        onClick={() => setOpen(true)}
-      >
-        <Plus size={14} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
-        {buttonLabel}
-      </button>
+      {alsoOffer ? <SplitButton trigger={trigger} menu={alsoOffer} /> : trigger}
       <Modal open={open} onClose={() => setOpen(false)} title={title} description={description}>
         {children(done)}
       </Modal>
@@ -200,7 +227,84 @@ function AddModal({
   );
 }
 
-export function AddProductModal({ primary = false }: { primary?: boolean }) {
+/**
+ * A default action with a caret holding the rest.
+ *
+ * Not a `<select>` and not a nav menu: each item in the panel is another `AddModal`'s own
+ * trigger button, so opening one is the same code path as clicking it when it is the default.
+ * That is what keeps "one call to action" true — there is one control, and the alternatives
+ * live inside it rather than beside it.
+ *
+ * Escape closes and returns focus to the caret; a pointer press outside closes it. Both are
+ * hand-rolled because this is a disclosure of two buttons, not a `<dialog>` — `Modal` already
+ * owns focus trapping for the layer this opens.
+ */
+function SplitButton({ trigger, menu }: { trigger: React.ReactNode; menu: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const caret = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      // Only ours: once a modal is open it owns Escape, and closing this panel underneath
+      // would leave the dialog up with its opener gone.
+      if (document.querySelector("dialog[open]")) return;
+      setOpen(false);
+      caret.current?.focus();
+    }
+    function onPointerDown(event: PointerEvent) {
+      if (event.target instanceof Node && wrap.current?.contains(event.target)) return;
+      setOpen(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="split-btn" ref={wrap}>
+      {trigger}
+      <button
+        type="button"
+        ref={caret}
+        className="btn split-btn-caret"
+        aria-expanded={open}
+        aria-label="More things to add"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <ChevronDown size={14} aria-hidden />
+      </button>
+      {/* Left in the DOM only while open: a hidden panel of buttons is a set of tab stops that
+          lead nowhere.
+
+          It must NOT close itself when an item is clicked. Each item is a whole `AddModal` —
+          its trigger AND its `<Modal>`, which `src/ui/modal.tsx` renders inline rather than
+          through a portal. Closing on the bubbled click unmounted this branch in the same
+          batch as the item's own `setOpen(true)`, destroying the state that had just been set
+          (and running Modal's cleanup, which calls `close()`), so the caret's items opened
+          nothing at all. Keeping the panel mounted is what lets the dialog exist.
+
+          The dialog is a DOM descendant of the wrapper, so the outside-pointerdown handler
+          above does not treat interacting with it as an outside press either. The panel is
+          then dismissed the way it was opened — Escape or a press outside — once the dialog
+          it launched has gone. */}
+      {open ? <div className="split-btn-menu">{menu}</div> : null}
+    </div>
+  );
+}
+
+export function AddProductModal({
+  primary = false,
+  alsoOffer
+}: {
+  primary?: boolean;
+  alsoOffer?: React.ReactNode;
+}) {
   return (
     <AddModal
       buttonLabel="New product"
@@ -208,6 +312,7 @@ export function AddProductModal({ primary = false }: { primary?: boolean }) {
       description="A new top-level product in the catalogue hierarchy."
       toastMessage="Product added."
       primary={primary}
+      alsoOffer={alsoOffer}
     >
       {(onDone) => <ProductForm onDone={onDone} />}
     </AddModal>
@@ -217,11 +322,13 @@ export function AddProductModal({ primary = false }: { primary?: boolean }) {
 export function AddModuleModal({
   products,
   lockedParent,
-  primary = false
+  primary = false,
+  alsoOffer
 }: {
   products?: Parent[];
   lockedParent?: Parent;
   primary?: boolean;
+  alsoOffer?: React.ReactNode;
 }) {
   return (
     <AddModal
@@ -234,6 +341,7 @@ export function AddModuleModal({
       }
       toastMessage="Module added."
       primary={primary}
+      alsoOffer={alsoOffer}
     >
       {(onDone) => (
         <ChildForm
@@ -257,11 +365,13 @@ export function AddModuleModal({
 export function AddFeatureModal({
   modules,
   lockedParent,
-  primary = false
+  primary = false,
+  alsoOffer
 }: {
   modules?: Parent[];
   lockedParent?: Parent;
   primary?: boolean;
+  alsoOffer?: React.ReactNode;
 }) {
   return (
     <AddModal
@@ -274,6 +384,7 @@ export function AddFeatureModal({
       }
       toastMessage="Feature added."
       primary={primary}
+      alsoOffer={alsoOffer}
     >
       {(onDone) => (
         <ChildForm
@@ -326,6 +437,10 @@ export function AddRequirementModal({
           parentLabel="Feature"
           parents={features}
           lockedParent={lockedParent}
+          /* The one form whose parent can be chosen here rather than navigated to. With no
+             selection the tree has not named a feature, so instead of the `<select>` of every
+             feature that `parents` would need, the picker searches for one. */
+          parentPicker={lockedParent ? undefined : "feature"}
           submitLabel="Add requirement"
           onDone={onDone}
         />
@@ -342,21 +457,55 @@ export function AddRequirementModal({
  * Four permanent Add buttons made the reader choose WHICH before choosing WHAT, and every
  * one of them then asked for a parent the screen already knew — a dropdown of every module
  * in the catalogue, to add a feature to the module you were looking at.
+ *
+ * ## The escape hatch, added 2026-08-10
+ *
+ * Contextual alone meant the ONLY route to a requirement was selecting its feature first,
+ * which is two levels of tree to expand before the form opens — and from a cold start the
+ * button offered "Add product", which is not what anyone came to do. `alsoOffer` is the
+ * caret: the default click stays contextual, and the menu reaches the other levels directly,
+ * each with its parent searched for rather than navigated to. One control, so the reasoning
+ * above survives; the drill-down does not.
+ *
+ * `mayAdminCatalogue` is presentation, never the gate. Product, Module and Feature CRUD is
+ * `canAdmin` in `src/domain/catalogue.ts` and Requirement is `canWriteRequirements`; for an
+ * author the three structural options are absent rather than present-and-rejecting, the same
+ * rule `src/ui/navigation.ts` applies to nav items.
  */
 export function ContextualCreate({
-  selection
+  selection,
+  mayAdminCatalogue
 }: {
   selection: { kind: "product" | "module" | "feature"; parent: Parent } | null;
+  /** True for a QA Lead. False hides every option except Add requirement. */
+  mayAdminCatalogue: boolean;
 }) {
-  if (selection === null) return <AddProductModal primary />;
-  // No candidate lists: every branch below locks the parent, so the dropdown those lists
-  // fed is never rendered. Fetching them cost three unbounded table reads on every load of
-  // the screen — see `listProductOptions` in `src/domain/catalogue.ts`.
+  // An author has exactly one thing they may create, so there is nothing for a caret to
+  // hold: a split button whose menu offers its own default action is a worse plain button.
+  if (!mayAdminCatalogue) {
+    return (
+      <AddRequirementModal
+        lockedParent={selection?.kind === "feature" ? selection.parent : undefined}
+        primary
+      />
+    );
+  }
+
+  // No candidate lists: each branch below either locks the parent from the selection or
+  // searches for it. Fetching them cost three unbounded table reads on every load of the
+  // screen — see `listProductOptions` in `src/domain/catalogue.ts`.
+  if (selection === null) {
+    return <AddProductModal primary alsoOffer={<AddRequirementModal />} />;
+  }
   if (selection.kind === "product") {
-    return <AddModuleModal lockedParent={selection.parent} primary />;
+    return (
+      <AddModuleModal lockedParent={selection.parent} primary alsoOffer={<AddRequirementModal />} />
+    );
   }
   if (selection.kind === "module") {
-    return <AddFeatureModal lockedParent={selection.parent} primary />;
+    return (
+      <AddFeatureModal lockedParent={selection.parent} primary alsoOffer={<AddRequirementModal />} />
+    );
   }
   return <AddRequirementModal lockedParent={selection.parent} primary />;
 }

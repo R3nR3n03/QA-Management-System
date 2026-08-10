@@ -5,6 +5,7 @@ import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureVersion, requireNonBlank, requireNonBlankIfProvided } from "@/lib/validation";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
+import { allocateBusinessId, highestSuffix, type AllocatorFormat } from "@/lib/id-allocator";
 import { appendAudit } from "@/lib/audit";
 import { containsAny, runPaged, type PageRequest } from "@/lib/pagination";
 import {
@@ -48,6 +49,97 @@ function runInTransaction<T>(
   fn: (client: TxClient) => Promise<T>
 ): Promise<T> {
   return tx ? fn(tx) : prisma.$transaction(fn);
+}
+
+/**
+ * Allocator wiring for the four catalogue levels.
+ *
+ * ## Why these exist now
+ *
+ * `docs/data-model.md:5` has always required it: "Business IDs are allocated by the system
+ * when the creating request does not supply one." Executions, defects and test cases have
+ * done that since the allocator was written; the four catalogue levels never did, and
+ * `requireNonBlank(input.businessId, …)` made a hand-typed ID mandatory instead. That was a
+ * standing breach of the rule, not a policy choice.
+ *
+ * The blocker was arithmetic. All four levels are THREE digits — `PROD###`, `MOD###`,
+ * `FEAT###`, `REQ###` — while the allocator hard-coded a four-digit suffix, so it would have
+ * produced `REQ0001` and `ensureBusinessIdFormat` would have rejected it on the next line.
+ * `AllocatorFormat.width` is what unblocked this.
+ *
+ * ## The 999 ceiling
+ *
+ * Three digits caps each level at 999 records. That is a real limit and it bites requirements
+ * first — `docs/adr/0001-catalogue-tree-stops-at-feature.md` notes they "outnumber the other
+ * three levels several times over, and that ratio grows". Widening to `REQ####` is a change
+ * to `docs/data-model.md` and belongs to the QA Lead, so it is deliberately NOT smuggled in
+ * here: an exhausted space surfaces as `ID_INVALID` naming the ceiling, which is the honest
+ * failure rather than a silently different format.
+ *
+ * One sequence per level, keyed by entity type, matching the `"defect"` / `"execution"` keys.
+ */
+function catalogueIdFormat(
+  prefix: string,
+  ids: () => Promise<string[]>,
+  isTaken: (candidate: string) => Promise<boolean>
+): AllocatorFormat {
+  // Width 3 for every catalogue level; see the note above.
+  return { prefix, width: 3, isTaken, currentMax: async () => highestSuffix(prefix, await ids()) };
+}
+
+function productIdFormat(tx: TxClient): AllocatorFormat {
+  return catalogueIdFormat(
+    "PROD",
+    async () => (await tx.product.findMany({ select: { businessId: true } })).map((r) => r.businessId),
+    async (candidate) =>
+      (await tx.product.findUnique({ where: { businessId: candidate }, select: { id: true } })) !== null
+  );
+}
+
+function moduleIdFormat(tx: TxClient): AllocatorFormat {
+  return catalogueIdFormat(
+    "MOD",
+    async () => (await tx.module.findMany({ select: { businessId: true } })).map((r) => r.businessId),
+    async (candidate) =>
+      (await tx.module.findUnique({ where: { businessId: candidate }, select: { id: true } })) !== null
+  );
+}
+
+function featureIdFormat(tx: TxClient): AllocatorFormat {
+  return catalogueIdFormat(
+    "FEAT",
+    async () => (await tx.feature.findMany({ select: { businessId: true } })).map((r) => r.businessId),
+    async (candidate) =>
+      (await tx.feature.findUnique({ where: { businessId: candidate }, select: { id: true } })) !== null
+  );
+}
+
+function requirementIdFormat(tx: TxClient): AllocatorFormat {
+  return catalogueIdFormat(
+    "REQ",
+    async () => (await tx.requirement.findMany({ select: { businessId: true } })).map((r) => r.businessId),
+    async (candidate) =>
+      (await tx.requirement.findUnique({ where: { businessId: candidate }, select: { id: true } })) !== null
+  );
+}
+
+/**
+ * The supplied business ID, validated — or `undefined`, meaning "allocate one".
+ *
+ * `undefined` and `""` are different requests and must stay different. Omitting the field
+ * asks the system to generate an ID; sending a blank string is a form submitting an empty
+ * input, which is a mistake and is still rejected. Both used to be rejected together.
+ */
+function suppliedBusinessId(
+  raw: string | undefined,
+  pattern: RegExp,
+  documentedFormat: string,
+  blankMessage: string
+): string | undefined {
+  if (raw === undefined) return undefined;
+  requireNonBlank(raw, "businessId", blankMessage);
+  ensureBusinessIdFormat(raw, pattern, "businessId", documentedFormat);
+  return raw.trim();
 }
 
 /**
@@ -413,6 +505,69 @@ export async function searchCatalogue(
   return rankHits(hits, trimmed, limit);
 }
 
+/** A feature offered as a create target, with the ancestry that tells two apart. */
+export type FeatureChoice = {
+  id: string;
+  businessId: string;
+  name: string;
+  /** `PROD001 Portal › MOD004 Upload` — the parent chain, already assembled for display. */
+  path: string;
+};
+
+/**
+ * Features matching a needle, for the requirement form's parent picker.
+ *
+ * ## Why not `listFeatureOptions`
+ *
+ * That returns every feature in one unpaged read and no ancestry. Both halves are wrong here.
+ * `FEAT007 Upload` alone does not identify a feature once two products both have an upload
+ * feature, and filing a requirement under the wrong one puts it in front of the wrong test
+ * cases — so the path is not decoration, it is the disambiguator. And the tree caps branches
+ * at `DEFAULT_CHILD_LIMIT` precisely because one module can hold hundreds of features
+ * (`docs/adr/0001`), so a flat list of all of them is the read that was deleted from this
+ * screen once already for being unbounded.
+ *
+ * ## Why not `searchCatalogue`
+ *
+ * That searches all four levels and ranks them together, which is right for the results list
+ * and wasteful here: three of its four queries return rows this caller throws away. Same
+ * `containsAny` predicate, same bounded `take`, one level.
+ *
+ * ## A blank needle lists the first page rather than nothing
+ *
+ * The opposite of `searchCatalogue`, deliberately. There, an empty needle is not a search and
+ * returning the whole catalogue would be wrong. Here the picker opens before anything is
+ * typed, and an empty picker cannot be browsed — someone who does not know the feature they
+ * want (which is the case this exists for) has nothing to type yet. Bounded by the same
+ * `limit`, so this is a first page, never the table.
+ */
+export async function searchFeatures(
+  needle: string,
+  options: { limit?: number } = {}
+): Promise<FeatureChoice[]> {
+  const trimmed = needle.trim();
+  const limit = options.limit ?? DEFAULT_SEARCH_LIMIT;
+
+  const rows = await prisma.feature.findMany({
+    where: trimmed === "" ? undefined : containsAny(trimmed, ["businessId", "name"]),
+    select: {
+      id: true,
+      businessId: true,
+      name: true,
+      module: { select: { businessId: true, name: true, product: { select: { businessId: true, name: true } } } }
+    },
+    orderBy: BY_BUSINESS_ID,
+    take: limit
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    businessId: row.businessId,
+    name: row.name,
+    path: `${row.module.product.businessId} ${row.module.product.name} › ${row.module.businessId} ${row.module.name}`
+  }));
+}
+
 /** One row of the detail panel's child list. */
 export type DetailChild = {
   id: string;
@@ -751,28 +906,35 @@ export async function getProduct(id: string) {
 }
 
 export async function createProduct(
-  input: { businessId: string; name: string; versionTag: string; status: string },
+  input: { businessId?: string; name: string; versionTag: string; status: string },
   actor: Actor,
   txClient?: TxClient
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
-  requireNonBlank(input.businessId, "businessId", "Product ID is required.");
   requireNonBlank(input.name, "name", "Product name is required.");
   requireNonBlank(input.versionTag, "versionTag", "Version is required.");
   requireNonBlank(input.status, "status", "Status is required.");
-  ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.product, "businessId", "PROD###");
+  const suppliedId = suppliedBusinessId(
+    input.businessId,
+    BUSINESS_ID_PATTERNS.product,
+    "PROD###",
+    "Product ID cannot be blank."
+  );
 
-  const existing = await (txClient ?? prisma).product.findUnique({
-    where: { businessId: input.businessId }
-  });
-  if (existing) {
-    throw new AppError(409, "ID_DUPLICATE", "Product ID already exists.", "businessId");
+  if (suppliedId) {
+    const existing = await (txClient ?? prisma).product.findUnique({
+      where: { businessId: suppliedId }
+    });
+    if (existing) {
+      throw new AppError(409, "ID_DUPLICATE", "Product ID already exists.", "businessId");
+    }
   }
 
   return runInTransaction(txClient, async (tx) => {
+    const businessId = suppliedId ?? (await allocateBusinessId(tx, "product", productIdFormat(tx)));
     const created = await tx.product.create({
       data: {
-        businessId: input.businessId.trim(),
+        businessId,
         name: input.name.trim(),
         versionTag: input.versionTag.trim(),
         status: input.status.trim(),
@@ -845,26 +1007,33 @@ export async function listModules(options: PageRequest = {}) {
 }
 
 export async function createModule(
-  input: { businessId: string; name: string; productId: string },
+  input: { businessId?: string; name: string; productId: string },
   actor: Actor,
   txClient?: TxClient
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
-  requireNonBlank(input.businessId, "businessId", "Module ID is required.");
   requireNonBlank(input.name, "name", "Module name is required.");
-  ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.module, "businessId", "MOD###");
+  const suppliedId = suppliedBusinessId(
+    input.businessId,
+    BUSINESS_ID_PATTERNS.module,
+    "MOD###",
+    "Module ID cannot be blank."
+  );
 
   const db = txClient ?? prisma;
   const product = await db.product.findUnique({ where: { id: input.productId } });
   if (!product) throw new AppError(404, "REFERENCE_NOT_FOUND", "Product not found.", "productId");
 
-  const existing = await db.module.findUnique({ where: { businessId: input.businessId } });
-  if (existing) throw new AppError(409, "ID_DUPLICATE", "Module ID already exists.", "businessId");
+  if (suppliedId) {
+    const existing = await db.module.findUnique({ where: { businessId: suppliedId } });
+    if (existing) throw new AppError(409, "ID_DUPLICATE", "Module ID already exists.", "businessId");
+  }
 
   return runInTransaction(txClient, async (tx) => {
+    const businessId = suppliedId ?? (await allocateBusinessId(tx, "module", moduleIdFormat(tx)));
     const created = await tx.module.create({
       data: {
-        businessId: input.businessId.trim(),
+        businessId,
         name: input.name.trim(),
         productId: input.productId,
         createdBy: actor.userId,
@@ -922,26 +1091,33 @@ export async function listFeatures(options: PageRequest = {}) {
 }
 
 export async function createFeature(
-  input: { businessId: string; name: string; moduleId: string },
+  input: { businessId?: string; name: string; moduleId: string },
   actor: Actor,
   txClient?: TxClient
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
-  requireNonBlank(input.businessId, "businessId", "Feature ID is required.");
   requireNonBlank(input.name, "name", "Feature name is required.");
-  ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.feature, "businessId", "FEAT###");
+  const suppliedId = suppliedBusinessId(
+    input.businessId,
+    BUSINESS_ID_PATTERNS.feature,
+    "FEAT###",
+    "Feature ID cannot be blank."
+  );
 
   const db = txClient ?? prisma;
   const parentModule = await db.module.findUnique({ where: { id: input.moduleId } });
   if (!parentModule) throw new AppError(404, "REFERENCE_NOT_FOUND", "Module not found.", "moduleId");
 
-  const existing = await db.feature.findUnique({ where: { businessId: input.businessId } });
-  if (existing) throw new AppError(409, "ID_DUPLICATE", "Feature ID already exists.", "businessId");
+  if (suppliedId) {
+    const existing = await db.feature.findUnique({ where: { businessId: suppliedId } });
+    if (existing) throw new AppError(409, "ID_DUPLICATE", "Feature ID already exists.", "businessId");
+  }
 
   return runInTransaction(txClient, async (tx) => {
+    const businessId = suppliedId ?? (await allocateBusinessId(tx, "feature", featureIdFormat(tx)));
     const created = await tx.feature.create({
       data: {
-        businessId: input.businessId.trim(),
+        businessId,
         name: input.name.trim(),
         moduleId: input.moduleId,
         createdBy: actor.userId,
@@ -999,26 +1175,34 @@ export async function listRequirements(options: PageRequest = {}) {
 }
 
 export async function createRequirement(
-  input: { businessId: string; statement: string; featureId: string },
+  input: { businessId?: string; statement: string; featureId: string },
   actor: Actor,
   txClient?: TxClient
 ) {
-  ensureRole([...RoleSets.canAdmin], actor.role);
-  requireNonBlank(input.businessId, "businessId", "Requirement ID is required.");
+  ensureRole([...RoleSets.canWriteRequirements], actor.role);
   requireNonBlank(input.statement, "statement", "Requirement statement is required.");
-  ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.requirement, "businessId", "REQ###");
+  const suppliedId = suppliedBusinessId(
+    input.businessId,
+    BUSINESS_ID_PATTERNS.requirement,
+    "REQ###",
+    "Requirement ID cannot be blank."
+  );
 
   const db = txClient ?? prisma;
   const feature = await db.feature.findUnique({ where: { id: input.featureId } });
   if (!feature) throw new AppError(404, "REFERENCE_NOT_FOUND", "Feature not found.", "featureId");
 
-  const existing = await db.requirement.findUnique({ where: { businessId: input.businessId } });
-  if (existing) throw new AppError(409, "ID_DUPLICATE", "Requirement ID already exists.", "businessId");
+  if (suppliedId) {
+    const existing = await db.requirement.findUnique({ where: { businessId: suppliedId } });
+    if (existing) throw new AppError(409, "ID_DUPLICATE", "Requirement ID already exists.", "businessId");
+  }
 
   return runInTransaction(txClient, async (tx) => {
+    const businessId =
+      suppliedId ?? (await allocateBusinessId(tx, "requirement", requirementIdFormat(tx)));
     const created = await tx.requirement.create({
       data: {
-        businessId: input.businessId.trim(),
+        businessId,
         statement: input.statement.trim(),
         featureId: input.featureId,
         createdBy: actor.userId,
@@ -1042,7 +1226,11 @@ export async function updateRequirement(
   input: { statement?: string; version?: number },
   actor: Actor
 ) {
-  ensureRole([...RoleSets.canAdmin], actor.role);
+  /* Same set as the create, not the admin set the other three levels use. An author who may
+     write a requirement may correct one — the alternative is a QA Engineer who can commit a
+     typo and then cannot fix it, which is not a permission model, it is a trap. Matches
+     "Create or edit Draft test case and steps", which grants both halves together. */
+  ensureRole([...RoleSets.canWriteRequirements], actor.role);
   requireNonBlankIfProvided(input.statement, "statement", "Requirement statement cannot be blank.");
   const current = await prisma.requirement.findUnique({ where: { id } });
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Requirement not found.", "id");

@@ -105,16 +105,23 @@ export const NAV: readonly NavItem[] = [
     basis: "roles-workflows.md:9 - view authorized QA records and dashboards"
   },
   {
-    // NOTE for the QA Lead: the matrix has NO row for catalogue CRUD. The
-    // implementation gates it to QA Lead (`src/domain/catalogue.ts` uses
-    // RoleSets.canAdmin), which is a conservative choice but is invented policy -
-    // see IMPLEMENTATION-AUDIT-2026-07-31.md section 6 note 1. The nav mirrors the code
-    // rather than guessing differently; if the QA Lead widens it, change both.
+    /* RATIFIED 2026-08-10: the matrix now has a catalogue row, and it is split. Requirements
+       are `canWriteRequirements` (QA Engineer and up); Product, Module and Feature remain
+       `canAdmin` (QA Lead). The escalation this note used to carry — "the matrix has NO row
+       for catalogue CRUD", IMPLEMENTATION-AUDIT-2026-07-31.md §6 note 1 — is closed.
+
+       The screen therefore opens to AUTHORS, because a QA Engineer who may write a
+       requirement has to be able to reach the screen that creates one. It is a MIXED
+       screen for them: the create control offers requirements only, and the Product /
+       Module / Feature edit affordances are absent rather than present-and-rejecting —
+       the same rule this module applies to nav items. Every gate is still the domain's;
+       hiding a control is presentation, never the permission. */
     href: "/catalogue",
     label: "Catalogue",
     group: "Administration",
-    roles: LEAD_ONLY,
-    basis: "NOT IN THE MATRIX - mirrors src/domain/catalogue.ts RoleSets.canAdmin. Escalated."
+    roles: AUTHORS,
+    basis:
+      "roles-workflows.md - Create or edit Requirement (QA Engineer and up). Product/Module/Feature CRUD stays QA Lead in the domain."
   },
   {
     href: "/admin/controlled-values",

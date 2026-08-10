@@ -11,6 +11,52 @@ import {
 } from "./catalogue";
 import { schemaIssueField } from "./issues";
 
+/**
+ * `docs/data-model.md:5` — "Business IDs are allocated by the system when the creating request
+ * does not supply one." All four catalogue creates therefore accept an OMITTED `businessId`
+ * and still reject a BLANK one, and those two cases must never collapse into each other: a
+ * missing key is a request for a generated ID, an empty string is a form posting an empty
+ * input. Asserted once across all four rather than four times over, because the property is
+ * the same property and a divergence between levels is the bug worth catching.
+ */
+describe("catalogue creates and the generated-ID contract", () => {
+  const bodies = [
+    ["createProductSchema", createProductSchema, { name: "CRM", versionTag: "1.0", status: "Active" }],
+    ["createModuleSchema", createModuleSchema, { name: "Billing", productId: "product-1" }],
+    ["createFeatureSchema", createFeatureSchema, { name: "Upload", moduleId: "module-1" }],
+    [
+      "createRequirementSchema",
+      createRequirementSchema,
+      { statement: "The system shall issue invoices.", featureId: "feature-1" }
+    ]
+  ] as const;
+
+  it("accepts a body with no businessId at all — that is the request to allocate one", () => {
+    for (const [name, schema, body] of bodies) {
+      const result = schema.safeParse(body);
+      expect(result.success, name).toBe(true);
+      // The key must be absent rather than present-and-undefined, so the domain's
+      // `raw === undefined` branch is reached rather than a blank check on "".
+      expect("businessId" in result.data!, name).toBe(false);
+    }
+  });
+
+  it("still rejects a blank businessId, which is an empty input and not a request", () => {
+    for (const [name, schema, body] of bodies) {
+      expect(schema.safeParse({ ...body, businessId: "" }).success, name).toBe(false);
+    }
+  });
+
+  it("still accepts a supplied businessId, which imports depend on", () => {
+    const supplied = ["PROD001", "MOD001", "FEAT001", "REQ001"];
+    bodies.forEach(([name, schema, body], index) => {
+      const result = schema.safeParse({ ...body, businessId: supplied[index] });
+      expect(result.success, name).toBe(true);
+      expect(result.data!.businessId, name).toBe(supplied[index]);
+    });
+  });
+});
+
 describe("createProductSchema", () => {
   const valid = { businessId: "PROD001", name: "CRM", versionTag: "1.0", status: "Active" };
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS, clampPage, pageCount, pageRangeLabel, pageTokens } from "./paging";
 import { hrefWith, type ListSearchParams } from "./list-params";
+import { PageSizeSelect } from "./page-size-select";
 
 /**
  * The canonical list pager (DESIGN-SYSTEM.md § Components): "Showing X–Y of N" plus
@@ -55,30 +56,21 @@ export function Pager({
   // Page 1 drops the key entirely rather than writing `?page=1`.
   const href = (target: number) =>
     hrefWith(pathname, params, { [pageKey]: target <= 1 ? null : target });
-  // Changing the page size changes what page 1 even means, so it returns to the start
-  // rather than stranding the viewer at an offset that no longer lines up.
-  const sizeHref = (size: number) =>
-    hrefWith(pathname, params, { [sizeKey]: size === PAGE_SIZE ? null : size, [pageKey]: null });
 
   return (
     <nav className="row" aria-label={`Pages of the ${label}`} style={{ padding: "var(--sp-3) var(--sp-4)" }}>
       <span className="muted row-main">{pageRangeLabel(total, current, pageSize)}</span>
 
+      {/* One dropdown rather than a button per size — see `PageSizeSelect` for why, and for
+          what the change costs. The page links below stay links. */}
       {sizeOptions ? (
-        <span className="cluster" role="group" aria-label={`Rows per page of the ${label}`}>
-          <span className="muted">Rows</span>
-          {sizeOptions.map((size) =>
-            size === pageSize ? (
-              <span key={size} className="btn btn-sm" aria-current="true">
-                {size}
-              </span>
-            ) : (
-              <Link key={size} className="btn btn-secondary btn-sm" href={sizeHref(size)} scroll={false}>
-                {size}
-              </Link>
-            )
-          )}
-        </span>
+        <PageSizeSelect
+          options={sizeOptions}
+          pageSize={pageSize}
+          sizeKey={sizeKey}
+          pageKey={pageKey}
+          label={label}
+        />
       ) : null}
 
       {last > 1 ? (

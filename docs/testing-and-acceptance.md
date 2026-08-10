@@ -15,8 +15,16 @@
 | Test design | Senior QA Engineer approves another author’s valid review | State becomes Approved; audit event exists. |
 | Test design | Edit an Approved case | Rejected; revision workflow required. |
 | Identity | Create a test case, execution, or defect without `businessId` | `201`; the record carries the next generated ID in its documented format, test cases numbered per owning product. |
+| Identity | Create a product, module, feature, or requirement without `businessId` | `201`; the record carries the next generated ID zero-padded to the three digits its format declares (`PROD007`, `MOD007`, `FEAT007`, `REQ007`) — never the four-digit shape the execution and defect sequences use. |
+| Identity | Create a catalogue record with `businessId: ""` | `422 ID_INVALID` on `businessId`. An omitted key asks for a generated ID; an empty string is an empty input and is not the same request. |
+| Identity | Generated catalogue numbers exhaust the three-digit space | `422 ID_INVALID` naming the exhausted space (`REQ###`, no free ID below 1000). The format is not silently widened to four digits. |
 | Identity | Generation reaches a number occupied by an imported record | The occupied number is skipped; no duplicate is created and import IDs stay preserved. |
 | Identity | Create with a supplied `businessId` that already exists | `409 ID_DUPLICATE`, unchanged. |
+| Catalogue | QA Engineer creates a requirement under an existing feature | `201`; audit event `REQUIREMENT_CREATED` exists. Ratified 2026-08-10 — see the catalogue rows in `roles-workflows.md`. |
+| Catalogue | QA Engineer edits an existing requirement's statement | `200`; version increments. Editing is granted with creating, so an author can correct their own record. |
+| Catalogue | QA Tester creates or edits a requirement | `403`; a QA Tester authors nothing. |
+| Catalogue | QA Engineer creates or edits a product, module, or feature | `403`; the three structural levels stay QA Lead. The catalogue screen is therefore mixed for an author, and the controls they cannot use are absent rather than present-and-rejecting. |
+| Catalogue | Create a requirement under a `featureId` that does not exist | `404 REFERENCE_NOT_FOUND` on `featureId`; nothing is created and no ID is consumed. |
 | Execution | Create an execution covering N Approved cases | `201`; one execution with one link row per case. |
 | Execution | Create an execution including any non-Approved case | `422 FORBIDDEN_TRANSITION`; nothing is created. |
 | Execution | Start an assigned execution over Approved cases | State becomes In Progress and `startedAt` is set. |
