@@ -32,6 +32,15 @@ enum ExecutionOutcome {
   BLOCKED
 }
 
+/// The outcome of one attempt to transition a Jira issue
+/// (`docs/architecture.md#Jira execution sync`). ABANDONED is terminal: the retry budget is
+/// spent and only a person can move it forward.
+enum JiraSyncOutcome {
+  SUCCEEDED
+  FAILED
+  ABANDONED
+}
+
 enum DefectLifecycleState {
   NEW
   TRIAGED
@@ -60,6 +69,8 @@ model User {
   sessionsValidFrom DateTime?
 
   executions TestExecution[] @relation("ExecutionTester")
+  jiraCredential JiraCredential?
+  jiraSyncAttempts JiraSyncAttempt[] @relation("JiraSyncActor")
 }
 
 model ControlledValue {
@@ -266,10 +277,17 @@ model TestExecution {
   updatedAt        DateTime                @updatedAt
   updatedBy        String
 
+  /// The Jira issue this run is testing (`docs/data-model.md`). Optional, deliberately NOT
+  /// unique -- a browser matrix, a re-run and a regression pass all carry the same key, and
+  /// that is exactly why one finalized execution is never enough to transition the issue.
+  /// Settable only while Planned; see `ensureIssueKeyMutable` in src/domain/jira-sync.ts.
+  jiraIssueKey     String?
+
   tester     User               @relation("ExecutionTester", fields: [testerId], references: [id], onDelete: Restrict)
   cases      ExecutionTestCase[]
   history    ExecutionHistory[]
   defects    DefectExecutionLink[]
+  jiraSyncAttempts JiraSyncAttempt[]
 
   /// My work: the tester's open queue (`where testerId, state != FINALIZED`) and their
   /// full run list. Leading `testerId` serves the testerId-only query too.
@@ -278,6 +296,56 @@ model TestExecution {
   @@index([state])
   /// The execution list sorts newest-first.
   @@index([createdAt])
+  /// `shouldTransitionIssue` needs every execution sharing an issue key, so this is read on
+  /// each finalize of a linked run rather than only by a report.
+  @@index([jiraIssueKey])
+}
+
+/// One attempt to transition a Jira issue, and how it went
+/// (`docs/data-model.md`, `docs/architecture.md#Jira execution sync`).
+///
+/// Its own table rather than columns on TestExecution because a Finalized execution is
+/// immutable: there is nowhere on the execution to record an outcome that arrives after it
+/// finalized, and nowhere to update when a retry changes that outcome. Append-only, on the
+/// same rule as ExecutionHistory.
+model JiraSyncAttempt {
+  id            String          @id @default(uuid())
+  executionId   String
+  jiraIssueKey  String
+  attemptedAt   DateTime        @default(now())
+  outcome       JiraSyncOutcome
+  /// Why it failed, for a QA Lead reading the failure list. Never carries token material.
+  failureReason String?
+  /// The user whose credential performed the write, or null when the service-account
+  /// fallback did. Null is how a reader tells a bot-attributed transition from a human one.
+  /// A real foreign key, like every other actor reference here: docs/data-model.md relies on
+  /// actor references staying resolvable forever, and the QA Lead failure view joins this to
+  /// a display name. No user row is ever deleted, so Restrict never fires in practice.
+  actorId       String?
+
+  execution TestExecution @relation(fields: [executionId], references: [id], onDelete: Restrict)
+  actor     User?         @relation("JiraSyncActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([executionId])
+  /// The QA Lead failure view filters on the terminal state.
+  @@index([outcome])
+  @@index([jiraIssueKey])
+}
+
+/// One user's stored Jira connection (`docs/data-model.md`).
+///
+/// The refresh token is encrypted at rest and is the first third-party secret QAMS holds --
+/// until now the only secret at rest was a password hash. It is never returned by the API,
+/// rendered in a screen, or written to an audit event
+/// (`docs/api-and-security.md#Authorization and security`).
+model JiraCredential {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  encryptedRefreshToken String
+  connectedAt           DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// One covered test case of an execution (`docs/data-model.md:25`). The per-case

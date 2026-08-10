@@ -1,4 +1,11 @@
-import { ExecutionLifecycleState, ExecutionOutcome, Prisma, QamsRole, TestCaseLifecycleState } from "@prisma/client";
+import {
+  ExecutionLifecycleState,
+  ExecutionOutcome,
+  JiraSyncOutcome,
+  Prisma,
+  QamsRole,
+  TestCaseLifecycleState
+} from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
@@ -10,6 +17,15 @@ import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
 import { defectIdFormat } from "@/domain/defects";
+import {
+  ensureIssueKeyMutable,
+  getJiraTransport,
+  JIRA_TRANSITION_TIMEOUT_MS,
+  normalizeJiraIssueKey,
+  shouldTransitionIssue,
+  type JiraTransitionResult
+} from "@/domain/jira-sync";
+import { logRequest } from "@/lib/logging";
 import { runPaged, type PageRequest } from "@/lib/pagination";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
@@ -94,10 +110,14 @@ export async function listExecutions(options: ExecutionListOptions = {}) {
  * `ExecutionTestCase` row; per-case results arrive only at finalize.
  */
 export async function createExecution(
-  input: { businessId?: string; testCaseIds: string[]; testerId: string },
+  input: { businessId?: string; testCaseIds: string[]; testerId: string; jiraIssueKey?: string | null },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canExecute], actor.role);
+
+  // Shape only, and absence is legal — a run need not test a Jira task at all. Verifying the
+  // issue exists would let a Jira outage block planning (`src/domain/jira-sync.ts`).
+  const jiraIssueKey = normalizeJiraIssueKey(input.jiraIssueKey);
 
   // `businessId` is optional (`docs/business-rules-and-validation.md:11`): supplied IDs
   // are validated exactly as before; when absent the transaction allocates the next
@@ -157,6 +177,7 @@ export async function createExecution(
         businessId,
         testerId: input.testerId,
         state: ExecutionLifecycleState.PLANNED,
+        jiraIssueKey,
         createdBy: actor.userId,
         updatedBy: actor.userId,
         cases: {
@@ -190,7 +211,7 @@ export async function createExecution(
  */
 export async function updateExecution(
   executionId: string,
-  input: { testerId: string; version?: number },
+  input: { testerId: string; version?: number; jiraIssueKey?: string | null },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canExecute], actor.role);
@@ -202,6 +223,14 @@ export async function updateExecution(
   }
   const expectedVersion = ensureVersion(execution.version, input.version);
 
+  // Only re-point the issue key when the caller actually supplied the field, so a
+  // reassignment that says nothing about Jira leaves the key alone. The state check is
+  // redundant with the Planned guard above and kept anyway — it is the rule's own home, and
+  // it keeps the guarantee true if this function ever accepts a later state.
+  const changingIssueKey = input.jiraIssueKey !== undefined;
+  if (changingIssueKey) ensureIssueKeyMutable(execution.state);
+  const jiraIssueKey = changingIssueKey ? normalizeJiraIssueKey(input.jiraIssueKey) : undefined;
+
   const tester = await prisma.user.findUnique({ where: { id: input.testerId } });
   if (!tester || !tester.active) {
     throw new AppError(422, "REFERENCE_INACTIVE", "Assigned tester is invalid.", "testerId");
@@ -210,16 +239,46 @@ export async function updateExecution(
   return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.testExecution.update({
       where: { id: executionId, version: expectedVersion },
-      data: { testerId: input.testerId, version: { increment: 1 }, updatedBy: actor.userId }
+      data: {
+        testerId: input.testerId,
+        ...(changingIssueKey ? { jiraIssueKey } : {}),
+        version: { increment: 1 },
+        updatedBy: actor.userId
+      }
     });
-    await appendAudit(tx, {
-      actorId: actor.userId,
-      action: "EXECUTION_REASSIGNED",
-      entityType: "Execution",
-      entityId: executionId,
-      requestId: actor.requestId,
-      beforeAfterJson: { before: { testerId: execution.testerId }, after: { testerId: updated.testerId } }
-    });
+    // A re-pointed Jira issue is not a reassignment. Auditing both under one action would
+    // show an auditor filtering for EXECUTION_REASSIGNED a change that moved no work between
+    // people — and hide the issue-key change from anyone looking for it.
+    const testerChanged = updated.testerId !== execution.testerId;
+    const issueKeyChanged = updated.jiraIssueKey !== execution.jiraIssueKey;
+
+    if (testerChanged || !issueKeyChanged) {
+      await appendAudit(tx, {
+        actorId: actor.userId,
+        action: "EXECUTION_REASSIGNED",
+        entityType: "Execution",
+        entityId: executionId,
+        requestId: actor.requestId,
+        beforeAfterJson: {
+          before: { testerId: execution.testerId },
+          after: { testerId: updated.testerId }
+        }
+      });
+    }
+
+    if (issueKeyChanged) {
+      await appendAudit(tx, {
+        actorId: actor.userId,
+        action: "EXECUTION_JIRA_ISSUE_KEY_CHANGED",
+        entityType: "Execution",
+        entityId: executionId,
+        requestId: actor.requestId,
+        beforeAfterJson: {
+          before: { jiraIssueKey: execution.jiraIssueKey },
+          after: { jiraIssueKey: updated.jiraIssueKey }
+        }
+      });
+    }
     return updated;
   }));
 }
@@ -379,7 +438,7 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
 
   const derivedResult = deriveExecutionResult(input.results);
 
-  return withVersionCheck(() => prisma.$transaction(async (tx) => {
+  const finalized = await withVersionCheck(() => prisma.$transaction(async (tx) => {
     const finalizedAt = new Date();
 
     for (const [index, entry] of input.results.entries()) {
@@ -465,6 +524,146 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
     });
     return updated;
   }));
+
+  // Deliberately AFTER the transaction has committed. QAMS is the system of record for test
+  // results and Jira is a projection of them: no external call may run while a database
+  // transaction is open, and an unreachable Jira must never cost a tester their work
+  // (`docs/architecture.md#Jira execution sync`, ADR-0003).
+  //
+  // It IS awaited — a fire-and-forget promise is not safe here, because the server may finish
+  // the response and stop executing before it settles. What keeps the tester's request short
+  // is the transport's deadline (`JIRA_TRANSITION_TIMEOUT_MS`), not the absence of an await,
+  // and `settleJiraSync` never throws.
+  await settleJiraSync(finalized, actor);
+
+  return finalized;
+}
+
+/**
+ * Decide whether finalizing this run completes its Jira issue, and act on it.
+ *
+ * Never throws. Every failure path here is a Jira problem, and a Jira problem must not
+ * surface as a failed finalize — the execution is already committed by the time this runs,
+ * and a Finalized execution is immutable, so there is nothing a thrown error could roll back.
+ *
+ * The decision needs EVERY execution carrying the key, not just this one: several runs share
+ * one Jira task, so finalizing this one is necessary but not sufficient
+ * (`shouldTransitionIssue`).
+ */
+async function settleJiraSync(
+  execution: { id: string; jiraIssueKey: string | null },
+  actor: Actor
+): Promise<void> {
+  const issueKey = execution.jiraIssueKey;
+  if (!issueKey) return;
+
+  try {
+    // The transport is the half of this feature that is not built: performing the
+    // transition needs the Jira OAuth flow, a stored refresh token and a retry worker
+    // (`docs/api-and-security.md#Jira execution sync interface`). Until one is configured
+    // there is nothing to attempt, and recording an attempt that never happened would put a
+    // lie in an append-only table. Checked first so an unconfigured deployment does no
+    // queries at all.
+    const transport = getJiraTransport();
+    if (!transport) return;
+
+    const siblings = await prisma.testExecution.findMany({
+      where: { jiraIssueKey: issueKey },
+      select: { state: true, result: true }
+    });
+
+    if (!shouldTransitionIssue(siblings)) return;
+
+    /**
+     * Transition once per issue, ever.
+     *
+     * Eligibility is a property of the whole key, not of this run, so it stays true forever
+     * once met — a regression re-run planned against the same key and finalized Pass would
+     * satisfy it again and fire a second transition. That would silently re-close a ticket a
+     * person had deliberately moved back to In Progress.
+     *
+     * This narrows but does not fully close the concurrent case: two runs for the same key
+     * finalizing at the same instant can both read "no success yet". Closing that completely
+     * needs a partial unique index on `(jiraIssueKey) WHERE outcome = 'SUCCEEDED'`, which
+     * Prisma's schema language cannot express; the duplicate would be a second SUCCEEDED row
+     * and a repeat transition Jira treats as a no-op.
+     */
+    const alreadyTransitioned = await prisma.jiraSyncAttempt.findFirst({
+      where: { jiraIssueKey: issueKey, outcome: JiraSyncOutcome.SUCCEEDED },
+      select: { id: true }
+    });
+    if (alreadyTransitioned) return;
+
+    // A transport that REJECTS is the normal shape of a network failure, and it must be
+    // recorded exactly like one that resolves `FAILED` — otherwise the QA Lead failure list
+    // this feature exists to feed stays empty precisely when Jira is down.
+    let result: JiraTransitionResult;
+    try {
+      result = await transport.transitionToDone({
+        issueKey,
+        executionId: execution.id,
+        actorId: actor.userId,
+        timeoutMs: JIRA_TRANSITION_TIMEOUT_MS
+      });
+    } catch (error) {
+      result = {
+        outcome: JiraSyncOutcome.FAILED,
+        failureReason: failureReasonOf(error),
+        actorId: null
+      };
+    }
+
+    // The attempt row and its audit event are written together: `docs/api-and-security.md`
+    // requires every sync attempt to be audited, and a row without an event would leave a
+    // Jira transition with no trace in the append-only log.
+    await prisma.$transaction(async (tx) => {
+      const attempt = await tx.jiraSyncAttempt.create({
+        data: {
+          executionId: execution.id,
+          jiraIssueKey: issueKey,
+          outcome: result.outcome,
+          failureReason: result.failureReason ?? null,
+          actorId: result.actorId ?? null
+        }
+      });
+      await appendAudit(tx, {
+        actorId: actor.userId,
+        action: "JIRA_SYNC_ATTEMPTED",
+        entityType: "Execution",
+        entityId: execution.id,
+        requestId: actor.requestId,
+        beforeAfterJson: {
+          after: {
+            jiraIssueKey: issueKey,
+            outcome: attempt.outcome,
+            failureReason: attempt.failureReason,
+            // Null means the service-account fallback performed the write rather than a
+            // person; this event is then the only record of who caused it.
+            performedByUserId: attempt.actorId
+          }
+        }
+      });
+    });
+  } catch (error) {
+    // This function cannot fail a finalize: the execution is already committed and is
+    // immutable, so there is nothing a thrown error could undo. It must still be visible —
+    // a silent failure here is how QAMS and Jira drift apart unobserved. Logged, never
+    // rethrown.
+    logRequest({
+      occurredAt: new Date().toISOString(),
+      requestId: actor.requestId,
+      status: 500,
+      actorId: actor.userId,
+      action: "JIRA_SYNC_FAILED",
+      message: `Jira sync could not be settled for ${issueKey}: ${failureReasonOf(error)}`
+    });
+  }
+}
+
+/** A short, safe description of a thrown value. Never carries credential material. */
+function failureReasonOf(error: unknown): string {
+  if (error instanceof Error) return error.message.slice(0, 500);
+  return "Unknown transport failure.";
 }
 
 export async function executionHistory(executionId: string) {
