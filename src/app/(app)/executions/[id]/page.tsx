@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ExecutionLifecycleState, ExecutionOutcome, QamsRole } from "@prisma/client";
+import { ExecutionLifecycleState, ExecutionOutcome, JiraCommentOutcome, QamsRole } from "@prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarDays, CircleCheckBig, Clock, FileText } from "lucide-react";
@@ -113,6 +113,8 @@ export default async function ExecutionPage({
      and a run carrying no key. */
   const jira = jiraConnectionStatus();
   const jiraIssueHref = jiraIssueUrl(jira.baseUrl, execution.jiraIssueKey);
+  /* The latest result-comment attempt, or undefined when none was ever made. */
+  const commentAttempt = execution.jiraCommentAttempts[0];
 
   const controlled = await listControlledValues();
   const priorities = controlled
@@ -270,6 +272,28 @@ export default async function ExecutionPage({
                  run, with nowhere to send the reader. */
               <span className="jira-key">{execution.jiraIssueKey}</span>
             )}
+            {/* Whether the result comment reached Jira.
+
+                Nothing renders when there is no attempt row, which covers every "we never
+                tried" case at once: commenting switched off, the run finalized before the
+                feature existed, or the run not finalized yet. Absence must never read as a
+                failure.
+
+                A failure is shown to anyone who can open the run, reason included. It is
+                sanitized of credential material by contract (`sanitizeFailureReason`), and the
+                person who typed a wrong issue key is the one best placed to notice — hiding it
+                behind a role would turn a self-service fix into a support request. Nothing
+                retries it, so this line is the whole recovery story. */}
+            {commentAttempt ? (
+              commentAttempt.outcome === JiraCommentOutcome.SUCCEEDED ? (
+                <span className="muted"> · Results posted to Jira</span>
+              ) : (
+                <span className="muted-warn">
+                  {" · Results not posted to Jira"}
+                  {commentAttempt.failureReason ? `: ${commentAttempt.failureReason}` : ""}
+                </span>
+              )
+            ) : null}
           </>
         ) : jira.connected ? (
           " · No Jira issue"

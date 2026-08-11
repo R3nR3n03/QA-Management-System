@@ -1,6 +1,7 @@
 import {
   ExecutionLifecycleState,
   ExecutionOutcome,
+  JiraCommentOutcome,
   JiraSyncOutcome,
   Prisma,
   QamsRole,
@@ -25,8 +26,11 @@ import {
   sanitizeFailureReason,
   setJiraTransport,
   shouldTransitionIssue,
+  type JiraCommentResult,
   type JiraTransitionResult
 } from "@/domain/jira-sync";
+import { buildResultComment, type ResultCommentCase } from "@/domain/jira-comment";
+import { appBaseUrl, executionUrl } from "@/lib/app-config";
 import { jiraConfig } from "@/lib/jira-config";
 import { logRequest } from "@/lib/logging";
 import { runPaged, type PageRequest } from "@/lib/pagination";
@@ -614,10 +618,206 @@ export async function finalizeExecution(executionId: string, input: FinalizeInpu
   // It IS awaited — a fire-and-forget promise is not safe here, because the server may finish
   // the response and stop executing before it settles. What keeps the tester's request short
   // is the transport's deadline (`JIRA_TRANSITION_TIMEOUT_MS`), not the absence of an await,
-  // and `settleJiraSync` never throws.
+  // and neither of these ever throws.
+  //
+  // The comment goes FIRST so a reader scrolling the Jira issue finds "here is what was
+  // verified" immediately above the status change, which is the order that reads correctly.
+  // The two are independent: each has its own deadline, and a comment that could not post must
+  // never cost the transition, which is the half that carries meaning (ADR-0004).
+  await settleJiraComment(finalized, actor);
   await settleJiraSync(finalized, actor);
 
   return finalized;
+}
+
+/**
+ * The Jira transport, installed on first use, or `null` when Jira is not configured.
+ *
+ * Installed lazily rather than at startup because `instrumentation.ts` cannot do it: the
+ * transport reaches `src/lib/db.ts` and therefore `pg` and `node:fs`, and that file is compiled
+ * for the Edge runtime too. Everything calling this is Node-only code that already talks to the
+ * database, so the import is safe here.
+ *
+ * A deployment with no Jira configuration installs nothing and does no queries at all —
+ * eligibility is still evaluated, but there is nothing to attempt, and recording an attempt
+ * that never happened would put a lie in an append-only table.
+ */
+async function installedJiraTransport() {
+  const existing = getJiraTransport();
+  if (existing) return existing;
+  if (!jiraConfig().enabled) return null;
+
+  const { createJiraTransport } = await import("@/domain/jira-transport");
+  const transport = createJiraTransport();
+  setJiraTransport(transport);
+  return transport;
+}
+
+/**
+ * Post the result comment for this run, and record the attempt.
+ *
+ * Never throws, for the same reason `settleJiraSync` never throws: the execution is already
+ * committed and immutable by the time this runs, so there is nothing a thrown error could undo,
+ * and a Jira problem must not surface as a failed finalize.
+ *
+ * ## Why this fires where the transition would not
+ *
+ * Every finalize of a run carrying an issue key, whatever the run's derived result. A comment
+ * REPORTS — "EXE-0042 finished: 9 passed, 2 failed" is true the moment it is written and stays
+ * true whatever the sibling runs do — while a transition CLAIMS the work is finished, which is
+ * why that one waits for every execution sharing the key. Gating the comment the same way
+ * would make it useless in the case it is most wanted: it could only ever appear on a ticket
+ * already moved to Done, and could never once mention a failure
+ * (`docs/architecture.md#Jira execution sync`, ADR-0004).
+ *
+ * There is no retry and no recovery. A missing comment is cosmetic — QAMS is the system of
+ * record and holds the results either way — so the attempt is recorded, surfaced on the run
+ * screen, and never chased.
+ */
+async function settleJiraComment(
+  execution: { id: string; jiraIssueKey: string | null },
+  actor: Actor
+): Promise<void> {
+  const issueKey = execution.jiraIssueKey;
+  if (!issueKey) return;
+
+  // Off unless a deployment opted in. Checked before anything else is read: a deployment that
+  // only ever asked for transitions must not pay a query for a feature it has not enabled.
+  if (!jiraConfig().commentOnFinalize) return;
+
+  try {
+    const transport = await installedJiraTransport();
+    if (!transport) return;
+
+    // Read AFTER the transaction rather than joined into it. The finalize transaction writes a
+    // tester's work and must stay as short as it already is; nothing here is needed to decide
+    // whether that work commits.
+    const detail = await prisma.testExecution.findUnique({
+      where: { id: execution.id },
+      select: {
+        businessId: true,
+        purpose: true,
+        result: true,
+        finalizedAt: true,
+        tester: { select: { displayName: true } },
+        cases: {
+          select: {
+            result: true,
+            actualResult: true,
+            blockReason: true,
+            testCase: { select: { id: true, businessId: true, title: true } }
+          }
+        },
+        defects: { select: { defect: { select: { businessId: true, testCaseId: true } } } }
+      }
+    });
+
+    // Both nulls are unreachable through `finalizeExecution`, which always derives a result and
+    // stamps the instant. Refused rather than defaulted: a comment reporting an unknown outcome
+    // or an invented timestamp would be worse than no comment.
+    if (!detail || detail.result === null || detail.finalizedAt === null) return;
+
+    // A defect belongs to a test case, so the link back to the case it explains goes through
+    // `testCaseId`. First match wins: a case with two defects names one, and the run link
+    // carries the rest.
+    const defectFor = new Map<string, string>();
+    for (const link of detail.defects) {
+      if (!defectFor.has(link.defect.testCaseId)) {
+        defectFor.set(link.defect.testCaseId, link.defect.businessId);
+      }
+    }
+
+    const cases: ResultCommentCase[] = detail.cases.flatMap((one) =>
+      // A finalized run has a result on every covered case; one without is an unknown outcome
+      // and is left out rather than reported as something it is not.
+      one.result === null
+        ? []
+        : [
+            {
+              businessId: one.testCase.businessId,
+              title: one.testCase.title,
+              result: one.result,
+              actualResult: one.actualResult ?? "",
+              blockReason: one.blockReason ?? null,
+              defectBusinessId: defectFor.get(one.testCase.id) ?? null
+            }
+          ]
+    );
+
+    const body = buildResultComment({
+      executionBusinessId: detail.businessId,
+      purpose: detail.purpose,
+      testerName: detail.tester.displayName,
+      result: detail.result,
+      finalizedAt: detail.finalizedAt,
+      cases,
+      runUrl: executionUrl(appBaseUrl(), execution.id)
+    });
+
+    // A transport that REJECTS is the ordinary shape of a network failure and is recorded
+    // exactly like one that resolves FAILED — otherwise the record stays empty precisely when
+    // Jira is down.
+    let result: JiraCommentResult;
+    try {
+      result = await transport.postComment({
+        issueKey,
+        executionId: execution.id,
+        actorId: actor.userId,
+        body,
+        timeoutMs: jiraConfig().timeoutMs
+      });
+    } catch (error) {
+      result = {
+        outcome: JiraCommentOutcome.FAILED,
+        failureReason: failureReasonOf(error),
+        actorId: null
+      };
+    }
+
+    // Row and audit event written together, on the same rule as a sync attempt:
+    // `docs/api-and-security.md` requires every attempt to reach Jira to be audited.
+    await prisma.$transaction(async (tx) => {
+      const attempt = await tx.jiraCommentAttempt.create({
+        data: {
+          executionId: execution.id,
+          jiraIssueKey: issueKey,
+          outcome: result.outcome,
+          jiraCommentId: result.commentId ?? null,
+          // Sanitized on the resolved path too, not only the thrown one: a transport reporting
+          // its own failure is quoting the same third-party client.
+          failureReason: result.failureReason ? sanitizeFailureReason(result.failureReason) : null,
+          actorId: result.actorId ?? null
+        }
+      });
+      await appendAudit(tx, {
+        actorId: actor.userId,
+        action: "JIRA_COMMENT_ATTEMPTED",
+        entityType: "Execution",
+        entityId: execution.id,
+        requestId: actor.requestId,
+        beforeAfterJson: {
+          after: {
+            jiraIssueKey: issueKey,
+            outcome: attempt.outcome,
+            jiraCommentId: attempt.jiraCommentId,
+            failureReason: attempt.failureReason,
+            performedByUserId: attempt.actorId
+          }
+        }
+      });
+    });
+  } catch (error) {
+    // Cannot fail a finalize: the execution is committed and immutable. Must still be visible,
+    // because a silent failure here is how QAMS and Jira drift apart unobserved.
+    logRequest({
+      occurredAt: new Date().toISOString(),
+      requestId: actor.requestId,
+      status: 500,
+      actorId: actor.userId,
+      action: "JIRA_COMMENT_FAILED",
+      message: `Jira result comment could not be settled for ${issueKey}: ${failureReasonOf(error)}`
+    });
+  }
 }
 
 /**
@@ -639,20 +839,7 @@ async function settleJiraSync(
   if (!issueKey) return;
 
   try {
-    // Installed lazily on first use rather than at startup. `instrumentation.ts` cannot do it:
-    // the transport reaches `src/lib/db.ts` and therefore `pg` and `node:fs`, and that file is
-    // compiled for the Edge runtime too. Here we are already inside a database transaction's
-    // worth of Node-only code, so the import is safe.
-    //
-    // A deployment with no Jira configuration installs nothing and does no queries at all —
-    // eligibility is still evaluated, but there is nothing to attempt, and recording an
-    // attempt that never happened would put a lie in an append-only table.
-    let transport = getJiraTransport();
-    if (!transport && jiraConfig().enabled) {
-      const { createJiraTransport } = await import("@/domain/jira-transport");
-      transport = createJiraTransport();
-      setJiraTransport(transport);
-    }
+    const transport = await installedJiraTransport();
     if (!transport) return;
 
     const siblings = await prisma.testExecution.findMany({
@@ -987,7 +1174,12 @@ export async function executionDetail(executionId: string) {
         }
       },
       tester: { select: TESTER_SELECT },
-      history: { orderBy: { occurredAt: "asc" as const } }
+      history: { orderBy: { occurredAt: "asc" as const } },
+      /* Whether the result comment reached Jira, for the line the run screen renders beside
+         the issue key. Only the latest attempt: a comment is posted once and never retried, so
+         earlier rows exist only where a previous attempt failed, and the run screen answers
+         "did Jira get this?" rather than telling the history of trying. */
+      jiraCommentAttempts: { orderBy: { attemptedAt: "desc" as const }, take: 1 }
     }
   });
 }

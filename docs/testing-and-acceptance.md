@@ -63,13 +63,27 @@
 | Jira sync | Finalize the only execution for an issue key, all cases Pass | Execution finalizes; the Jira issue is transitioned to its workflow's `done`-category status; the attempt is recorded and audited. |
 | Jira sync | Finalize one of several executions sharing an issue key | Execution finalizes; **no** Jira transition, because executions carrying that key remain unfinalized. |
 | Jira sync | Finalize the last execution for a key where an earlier one derived Fail | Execution finalizes; no Jira transition. A single non-`Pass` run withholds the transition permanently. |
-| Jira sync | Finalize a Fail or Blocked execution carrying an issue key | Execution finalizes; no Jira call of any kind. The issue is never moved backwards or reopened. |
+| Jira sync | Finalize a Fail or Blocked execution carrying an issue key | Execution finalizes; **no transition**. The issue is never moved backwards or reopened. Where result comments are enabled the run still posts one, because a comment reports an outcome instead of claiming one. |
 | Jira sync | Finalize while Jira is unreachable | Finalization commits and returns success; the attempt is recorded as failed and retried. The tester sees no error. |
 | Jira sync | Finalize when the tester never connected Jira, or their token is revoked | Finalization commits; the push uses the configured service-account fallback. With the fallback disabled, the attempt reaches a terminal failed state and awaits manual action. |
 | Jira sync | Exhaust the retry budget | The attempt reaches a terminal failed state, is visible to a QA Lead, and is never retried again silently. |
 | Jira sync | Finalize an execution with no issue key | Execution finalizes; no Jira call and no sync attempt record. |
 | Jira sync | Inspect a sync attempt record or its audit event | Actor, execution, issue key, and outcome are present; no token or credential material appears anywhere. |
 | Jira sync | Jira issue moved to Done by a person in Jira | QAMS state is unchanged; the sync is one-way and QAMS never reads Jira status back. |
+| Result comment | Finalize a run carrying an issue key, result comments enabled | Execution finalizes; one comment is posted on that issue naming the run, its purpose, tester, derived result and case tallies; the attempt is recorded and audited. |
+| Result comment | Finalize a run carrying an issue key, result comments not enabled | Execution finalizes; no comment, no comment attempt record. The deployment behaves exactly as it did before the feature existed. |
+| Result comment | Finalize one of several runs sharing an issue key | Each run posts its own comment as it finalizes. Unlike the transition, a comment never waits for the other runs. |
+| Result comment | Finalize a run where every case passed | The comment reports the tallies and lists no individual case; a pass has nothing to report beyond that it passed. |
+| Result comment | Finalize a run with failed and blocked cases | Failures are listed before blocked cases; each names its test case and, where one was raised, its defect; a failure carries the actual result and a blocked case carries its block reason. |
+| Result comment | Finalize a run covering more cases than the comment lists | The comment lists the capped number of non-passing cases and states how many it left out. The header's tallies still count every case in the run. |
+| Result comment | A tester's text contains Jira markup, e.g. a block reason of `{code}` or `[text\|url]` | It appears in the comment as the text the tester typed. It never formats, never opens a macro, and never becomes a link. |
+| Result comment | A tester's text contains a backslash, e.g. a path `C:\temp` | It appears as `C:/temp`. Jira's markup has no notation for a literal backslash — its escape is the line-break token — so it is substituted rather than escaped, and can never break the comment's structure. |
+| Result comment | Finalize with a public base URL configured, and without one | With one, the comment links back to the run. Without one, the comment carries no link; QAMS never guesses an origin. |
+| Result comment | Finalize while Jira is unreachable, or the tester never connected Jira | Finalization commits and returns success; the attempt is recorded as failed with its reason and is **never retried**. The tester sees no error during finalize. |
+| Result comment | View a run whose comment failed | The run shows that the results were not posted, with the sanitized reason, to any role that may view the run. There is no retry control, because a comment is never re-attempted. |
+| Result comment | View a run that finalized before result comments were enabled | Nothing about commenting is shown. The absence of an attempt is never rendered as a failure. |
+| Result comment | Finalize a run that both posts a comment and qualifies for a transition | Both happen, comment first, each with its own deadline; either may fail without affecting the other. |
+| Result comment | Inspect a comment attempt record or its audit event | Actor, execution, issue key, outcome and — where it posted — Jira's comment id are present; no token or credential material appears anywhere. |
 
 ## Knowledge-base and skill pressure tests
 

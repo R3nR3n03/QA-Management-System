@@ -53,7 +53,19 @@ export type JiraEnv = {
   /** Presence alone enables the service-account fallback. See `serviceAccountFallback`. */
   JIRA_SERVICE_ACCOUNT_TOKEN?: string;
   JIRA_TRANSITION_TIMEOUT_MS?: string;
+  /** Opt-in. See `commentOnFinalize`. */
+  JIRA_COMMENT_ON_FINALIZE?: string;
 };
+
+/**
+ * The spellings that turn an opt-in flag on, compared case-insensitively.
+ *
+ * Everything else — unset, blank, `no`, a typo — leaves it off, which is the only safe
+ * direction here: failing to enable result comments costs a deployment a feature it can turn
+ * on, while enabling them by accident writes into tickets shared with people who have never
+ * heard of QAMS.
+ */
+const TRUTHY = new Set(["true", "1", "yes", "on"]);
 
 /** The documented default, and the value used when an override is unusable. */
 export const DEFAULT_JIRA_TRANSITION_TIMEOUT_MS = 5_000;
@@ -108,6 +120,18 @@ export type JiraConfig = {
   timeoutMs: number;
   /** Jira project key -> transition id. Empty unless a deployment overrides one. */
   transitionOverrides: Map<string, string>;
+  /**
+   * Whether finalizing a run posts a result comment on its Jira issue (ADR-0004).
+   *
+   * Off unless a deployment says otherwise, which is deliberate and unlike every other value
+   * here. A transition is invisible until someone looks at an issue's status; a comment is
+   * conversation, in a space QAMS does not own and shares with people who do not know it
+   * exists. Switching that on during an upgrade, for a deployment that only ever asked for
+   * transitions, is how an integration gets turned off altogether.
+   *
+   * Always false when the integration is not configured at all: there is nowhere to post.
+   */
+  commentOnFinalize: boolean;
 };
 
 function present(value: string | undefined): string | null {
@@ -152,6 +176,12 @@ export function parseTransitionOverrides(env: Record<string, string | undefined>
   return overrides;
 }
 
+/** An opt-in flag: on only for a recognised affirmative, off for everything else. */
+function parseFlag(raw: string | undefined): boolean {
+  const value = present(raw);
+  return value !== null && TRUTHY.has(value.toLowerCase());
+}
+
 /**
  * A positive integer, or the fallback.
  *
@@ -187,7 +217,10 @@ export function jiraConfig(env: JiraEnv & Record<string, string | undefined> = p
       redirectUri: null,
       encryptionKey: null,
       timeoutMs: parseTimeout(env.JIRA_TRANSITION_TIMEOUT_MS),
-      transitionOverrides: new Map()
+      transitionOverrides: new Map(),
+      // Not `parseFlag` here: with no Jira configured there is nothing to post to, and
+      // reporting the flag as on would describe a capability this deployment does not have.
+      commentOnFinalize: false
     };
   }
 
@@ -235,7 +268,8 @@ export function jiraConfig(env: JiraEnv & Record<string, string | undefined> = p
     redirectUri: present(env.JIRA_REDIRECT_URI),
     encryptionKey,
     timeoutMs: parseTimeout(env.JIRA_TRANSITION_TIMEOUT_MS),
-    transitionOverrides: parseTransitionOverrides(env)
+    transitionOverrides: parseTransitionOverrides(env),
+    commentOnFinalize: parseFlag(env.JIRA_COMMENT_ON_FINALIZE)
   };
 }
 

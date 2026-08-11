@@ -18,3 +18,4 @@ recording.
 | [0001](0001-catalogue-tree-stops-at-feature.md) | The catalogue tree stops at Feature; requirements are read in the detail panel |
 | [0002](0002-catalogue-search-is-a-flat-ranked-list.md) | Catalogue search is a flat ranked list, not a filtered tree |
 | [0003](0003-jira-sync-is-decoupled-from-finalize.md) | Jira sync is decoupled from finalize, and triggers on the last passing execution |
+| [0004](0004-result-comments-are-posted-on-every-finalize.md) | Result comments are posted on every finalize, in their own table and without retries |

@@ -2,6 +2,12 @@
 
 Status: accepted
 
+**Scope: this record is about the transition only.** QAMS makes a second Jira write —
+a result comment, posted on *every* finalize of a run carrying an issue key — whose rules are
+deliberately weaker than the ones below. See
+[ADR-0004](0004-result-comments-are-posted-on-every-finalize.md); nothing here is superseded by
+it.
+
 Finalizing a test execution never calls Jira. The finalize transaction commits on QAMS data
 alone, and the Jira transition is attempted afterwards as a separate, retryable unit of work
 whose outcome is recorded in its own append-only row.

@@ -57,6 +57,12 @@ QAMS resolves the target transition by Jira's `done` status category rather than
 
 Every sync attempt is audited with actor, execution, issue key, and outcome. Credential material never appears in that event.
 
+Result comments use the same connection, the same credential rules and the same audit obligation as a transition: every attempt to post one is recorded and audited with actor, execution, issue key, and outcome, and never carries token material. A comment is posted under the triggering user's own Jira identity wherever their credential can be used, so Jira attributes it to the person whose run produced it.
+
+Whether result comments are posted at all is deployment configuration, and they are **off** unless a deployment enables them. QAMS also takes an optional public base URL for itself, used only to link a comment back to the run it reports; it is not a secret and is subject to no role restriction, and where it is absent the comment simply carries no link.
+
+A failed result comment is not retried and exposes no retry endpoint. Its outcome, including the failure reason, is readable on the execution it belongs to by any role that may view that execution — the reason is sanitized of credential material, and the person who mistyped an issue key is the one best placed to correct it.
+
 The Jira site's base URL is shown to every authenticated role, because an execution renders its issue key as a link into Jira. This is the one Jira connection value that is not restricted: it is the public address of the team's Jira site, which anyone holding an issue key can already reach. The client ID, the client secret, the encryption key, and every stored token remain unreadable at every role, masked or otherwise.
 
 ## Workbook import interface

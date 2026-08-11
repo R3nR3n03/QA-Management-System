@@ -23,6 +23,7 @@ Product status is imported as source data and must be a configured catalogue val
 | Test step | none | testCaseId, sequence, action, expectedResult | unique `(testCaseId, sequence)` |
 | Test execution | `EXE-####` | purpose, testerId, state, derived result when finalized, startedAt/finalizedAt as applicable, optional jiraIssueKey | covers one or more test cases through execution test case links; has many history events; may link defects; may reference one Jira issue |
 | Jira sync attempt | none | executionId, jiraIssueKey, attemptedAt, outcome, failureReason when failed | append-only; belongs to execution |
+| Jira comment attempt | none | executionId, jiraIssueKey, attemptedAt, outcome, Jira's comment id when posted, failureReason when failed | append-only; belongs to execution; separate from the sync attempt because a comment reports one run while a transition speaks for the whole issue key |
 | Execution test case | none | executionId, testCaseId, per-case result/actualResult/blockReason when finalized | unique `(executionId, testCaseId)`; belongs to execution; references a test case |
 | Execution history | none | executionId, testCaseId, result, occurredAt | append-only; belongs to execution |
 | Defect | `BUG-####` | testCaseId, summary, status, priority, severity | may trace to a requirement and many executions |
@@ -33,6 +34,8 @@ Cycle, sprint, release, and environment are required text attributes in v1; this
 `purpose` is a required free-text attribute of an execution: one line stating what the run exists to check, at most 120 characters after trimming. It has no master entity and is deliberately not unique — a browser matrix, a rerun, and a regression pass are several runs that are expected to read alike — and it never identifies a run, which is what `EXE-####` is for. It is the headline an execution is listed under wherever runs are listed. It may be set or changed only while the execution is Planned, on the same rule as the tester and the Jira issue key, and it is never cleared. Executions that predate the attribute carry the first covered case's title, truncated to the limit. An imported execution takes the workbook's `Purpose` cell when it has one, and falls back to the covered case's title the same way when that cell is blank (`excel-source-map.md`).
 
 `jiraIssueKey` is optional and free of any master entity here: it names a record in Jira, not in QAMS. It matches `^[A-Z][A-Z0-9]+-[0-9]+$`, and QAMS validates only that shape — an issue key that is well formed but absent from Jira is accepted, and surfaces as a failed sync attempt rather than a rejected execution. Many executions may carry the same key; it is deliberately not unique. It may be set or changed only while the execution is Planned, and is part of the record once the execution leaves Planned, on the same rule as the tester in `roles-workflows.md`.
+
+A sync attempt and a comment attempt are separate records, not one record with a kind. A transition is decided across every execution sharing an issue key and may be retried until it is abandoned; a result comment belongs to exactly one run and is attempted once. Keeping them apart is what stops a comment's outcome from being read as a transition's, in either direction.
 
 In a generated test-case ID the `<PRODUCT>` tag is the owning product's business ID, and generated test-case numbers are sequenced per product (`TC-PROD001-0001`, `TC-PROD001-0002`, …). Generated execution and defect IDs sequence across their whole entity type. The four-digit number space is a documented limit; allocation past `9999` is refused.
 
@@ -57,6 +60,7 @@ Controlled catalogues initially contain the workbook values for priority, severi
 - History and audit data are immutable. Corrections create a new event or execution, never overwrite a finalized outcome.
 - A Jira issue is transitioned only when every execution carrying its issue key is Finalized and every one of them derived `Pass`. One Finalized execution is never on its own sufficient, because several executions may cover the same Jira issue.
 - Jira sync attempts are append-only and belong to the execution that triggered them. A Finalized execution is immutable, so no sync outcome is ever recorded on the execution itself.
+- A result comment is posted on every finalize of an execution carrying an issue key, whatever that execution derived — unlike the transition, which speaks for the key as a whole. Comment attempts are append-only and belong to the execution, on the same rule as sync attempts.
 
 ## Derived views
 

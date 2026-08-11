@@ -119,6 +119,30 @@ describe("jiraConfig", () => {
     expect(jiraConfig({ ...complete, JIRA_TRANSITION_TIMEOUT_MS: "0" }).timeoutMs).toBe(5_000);
     expect(jiraConfig({ ...complete, JIRA_TRANSITION_TIMEOUT_MS: "nope" }).timeoutMs).toBe(5_000);
   });
+
+  // A deployment already connected to Jira for transitions must not start writing into its
+  // tickets because it upgraded (ADR-0004).
+  it("does not post result comments unless a deployment opts in", () => {
+    expect(jiraConfig(complete).commentOnFinalize).toBe(false);
+  });
+
+  it("posts result comments when the flag is set", () => {
+    expect(jiraConfig({ ...complete, JIRA_COMMENT_ON_FINALIZE: "true" }).commentOnFinalize).toBe(true);
+    expect(jiraConfig({ ...complete, JIRA_COMMENT_ON_FINALIZE: "YES" }).commentOnFinalize).toBe(true);
+    expect(jiraConfig({ ...complete, JIRA_COMMENT_ON_FINALIZE: "1" }).commentOnFinalize).toBe(true);
+  });
+
+  // The safe direction: a typo can fail to enable the feature, it can never enable it.
+  it("stays off for anything that is not a recognised affirmative", () => {
+    expect(jiraConfig({ ...complete, JIRA_COMMENT_ON_FINALIZE: "false" }).commentOnFinalize).toBe(false);
+    expect(jiraConfig({ ...complete, JIRA_COMMENT_ON_FINALIZE: "ture" }).commentOnFinalize).toBe(false);
+    expect(jiraConfig({ ...complete, JIRA_COMMENT_ON_FINALIZE: "  " }).commentOnFinalize).toBe(false);
+  });
+
+  // Nowhere to post: reporting the flag as on would describe a capability that does not exist.
+  it("reports no commenting when Jira is not configured at all", () => {
+    expect(jiraConfig({ JIRA_COMMENT_ON_FINALIZE: "true" }).commentOnFinalize).toBe(false);
+  });
 });
 
 /**

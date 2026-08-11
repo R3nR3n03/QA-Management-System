@@ -1,9 +1,11 @@
-import { JiraSyncOutcome } from "@prisma/client";
+import { JiraCommentOutcome, JiraSyncOutcome } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { jiraConfig } from "@/lib/jira-config";
 import { pickDoneTransition, type JiraTransition } from "@/lib/jira-transitions";
 import { decryptSecret, encryptSecret, parseEncryptionKey } from "@/lib/secret-box";
 import type {
+  JiraCommentRequest,
+  JiraCommentResult,
   JiraTransitionRequest,
   JiraTransitionResult,
   JiraTransport
@@ -51,6 +53,10 @@ export type FetchLike = typeof fetch;
 
 function failed(reason: string, actorId: string | null = null): JiraTransitionResult {
   return { outcome: JiraSyncOutcome.FAILED, failureReason: reason, actorId };
+}
+
+function commentFailed(reason: string, actorId: string | null = null): JiraCommentResult {
+  return { outcome: JiraCommentOutcome.FAILED, failureReason: reason, actorId };
 }
 
 /**
@@ -178,6 +184,48 @@ async function resolveCloudId(
 }
 
 /**
+ * Everything a call to Jira needs before it can be made: a usable access token and the id of
+ * the site the configured base URL names.
+ *
+ * Shared by both writes because both need exactly this and both must report the same reasons
+ * for not getting it. `actorId` on the failure says whose credential was established before
+ * the step that failed — null when no credential could be used at all, which is how a reader
+ * tells "this person is not connected" from "we could not reach their site".
+ */
+type JiraApiContext = { accessToken: string; cloudId: string };
+type JiraApiFailure = { error: string; actorId: string | null };
+
+async function resolveApiContext(
+  actorId: string,
+  timeoutMs: number,
+  doFetch: FetchLike
+): Promise<JiraApiContext | JiraApiFailure> {
+  const config = jiraConfig();
+  if (!config.enabled || !config.baseUrl) return { error: "Jira is not configured.", actorId: null };
+
+  // Per-user first, as chosen: a write should read as the person whose run caused it. The
+  // service account is a fallback for a credential that cannot be used, and exists only where
+  // one is configured.
+  const refreshed = await withRefreshedAccessToken(actorId, doFetch);
+  if ("error" in refreshed) {
+    if (!config.serviceAccountFallback) {
+      return { error: `${refreshed.error} No service account is configured to fall back to.`, actorId: null };
+    }
+    // The service-account path needs an email to pair with the token for Atlassian Basic
+    // auth, which the configuration does not carry yet. Reported rather than guessed.
+    return {
+      error: `${refreshed.error} The service-account fallback is enabled but not implemented: it needs JIRA_SERVICE_ACCOUNT_EMAIL alongside the token.`,
+      actorId: null
+    };
+  }
+
+  const cloudId = await resolveCloudId(refreshed.accessToken, config.baseUrl, doFetch, timeoutMs);
+  if (!cloudId) return { error: "Could not resolve the Jira site for this account.", actorId };
+
+  return { accessToken: refreshed.accessToken, cloudId };
+}
+
+/**
  * The transport installed at startup.
  *
  * `doFetch` is a parameter so a stub Jira can be supplied in place of the network — the
@@ -188,28 +236,11 @@ export function createJiraTransport(doFetch: FetchLike = fetch): JiraTransport {
   return {
     async transitionToDone(request: JiraTransitionRequest): Promise<JiraTransitionResult> {
       const config = jiraConfig();
-      if (!config.enabled || !config.baseUrl) return failed("Jira is not configured.");
+      const context = await resolveApiContext(request.actorId, request.timeoutMs, doFetch);
+      if ("error" in context) return failed(context.error, context.actorId);
 
-      // Per-user first, as chosen: a transition should read as the person whose run caused it.
-      // The service account is a fallback for a credential that cannot be used, and exists
-      // only where one is configured.
-      const refreshed = await withRefreshedAccessToken(request.actorId, doFetch);
-      if ("error" in refreshed) {
-        if (!config.serviceAccountFallback) {
-          return failed(`${refreshed.error} No service account is configured to fall back to.`);
-        }
-        // The service-account path needs an email to pair with the token for Atlassian Basic
-        // auth, which the configuration does not carry yet. Reported rather than guessed.
-        return failed(
-          `${refreshed.error} The service-account fallback is enabled but not implemented: it needs JIRA_SERVICE_ACCOUNT_EMAIL alongside the token.`
-        );
-      }
-
-      const cloudId = await resolveCloudId(refreshed.accessToken, config.baseUrl, doFetch, request.timeoutMs);
-      if (!cloudId) return failed("Could not resolve the Jira site for this account.", request.actorId);
-
-      const api = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue/${encodeURIComponent(request.issueKey)}/transitions`;
-      const auth = { Authorization: `Bearer ${refreshed.accessToken}`, Accept: "application/json" };
+      const api = `https://api.atlassian.com/ex/jira/${context.cloudId}/rest/api/3/issue/${encodeURIComponent(request.issueKey)}/transitions`;
+      const auth = { Authorization: `Bearer ${context.accessToken}`, Accept: "application/json" };
 
       const available = await doFetch(api, { headers: auth, signal: AbortSignal.timeout(request.timeoutMs) });
       if (available.status === 404) {
@@ -246,6 +277,57 @@ export function createJiraTransport(doFetch: FetchLike = fetch): JiraTransport {
       }
 
       return { outcome: JiraSyncOutcome.SUCCEEDED, actorId: request.actorId };
+    },
+
+    /**
+     * Posts a result comment, on the **v2** API rather than the v3 one the transition uses.
+     *
+     * That is the one deliberate inconsistency in this file. Jira Cloud's v3 comment endpoint
+     * takes ADF — a JSON document tree — while v2 takes a plain wiki-markup string, which is a
+     * fraction of the code for the same rendered comment. The bill is paid in
+     * `src/domain/jira-comment.ts`, which must escape every span a tester wrote before it
+     * reaches this line (ADR-0004).
+     */
+    async postComment(request: JiraCommentRequest): Promise<JiraCommentResult> {
+      const context = await resolveApiContext(request.actorId, request.timeoutMs, doFetch);
+      if ("error" in context) return commentFailed(context.error, context.actorId);
+
+      const api = `https://api.atlassian.com/ex/jira/${context.cloudId}/rest/api/2/issue/${encodeURIComponent(request.issueKey)}/comment`;
+
+      const posted = await doFetch(api, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${context.accessToken}`,
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        signal: AbortSignal.timeout(request.timeoutMs),
+        body: JSON.stringify({ body: request.body })
+      });
+
+      if (posted.status === 404) {
+        return commentFailed(
+          `Jira issue ${request.issueKey} was not found, or is not visible to this account.`,
+          request.actorId
+        );
+      }
+      if (!posted.ok) {
+        return commentFailed(`Jira refused the comment (HTTP ${posted.status}).`, request.actorId);
+      }
+
+      // The comment is already posted by this point, so an unreadable body is NOT a failure:
+      // reporting one would record that QAMS did not comment on an issue it just commented on,
+      // and nothing retries a comment, so the lie would stand forever. The id is lost, and the
+      // id is the only thing lost.
+      let commentId: string | null = null;
+      try {
+        const created = (await posted.json()) as { id?: unknown };
+        if (typeof created.id === "string") commentId = created.id;
+      } catch {
+        commentId = null;
+      }
+
+      return { outcome: JiraCommentOutcome.SUCCEEDED, commentId, actorId: request.actorId };
     }
   };
 }

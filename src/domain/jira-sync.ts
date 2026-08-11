@@ -1,4 +1,9 @@
-import { ExecutionLifecycleState, ExecutionOutcome, type JiraSyncOutcome } from "@prisma/client";
+import {
+  ExecutionLifecycleState,
+  ExecutionOutcome,
+  type JiraCommentOutcome,
+  type JiraSyncOutcome
+} from "@prisma/client";
 import { AppError } from "@/lib/errors";
 
 /**
@@ -156,15 +161,44 @@ export type JiraTransitionResult = {
   actorId?: string | null;
 };
 
+/** What the caller asks the transport to post, and where. */
+export type JiraCommentRequest = {
+  issueKey: string;
+  executionId: string;
+  /** The user whose run finalized; the transport decides whose credential is used. */
+  actorId: string;
+  /** The finished comment body, in Jira wiki markup (`src/domain/jira-comment.ts`). */
+  body: string;
+  /**
+   * Bounded separately from the transition's deadline rather than sharing one budget with it.
+   * The comment is attempted first, so a shared budget would let this — the cosmetic,
+   * unretryable half — starve the transition (ADR-0004).
+   */
+  timeoutMs: number;
+};
+
+/**
+ * What happened. `commentId` is Jira's id for the comment created, which is the only handle
+ * QAMS will ever have on something it wrote into another system.
+ */
+export type JiraCommentResult = {
+  outcome: JiraCommentOutcome;
+  commentId?: string | null;
+  failureReason?: string;
+  actorId?: string | null;
+};
+
 /**
  * The boundary between this domain and Jira itself.
  *
- * A port, so the rule that decides *whether* to transition an issue stays pure and testable
- * while the part that talks to another company's API stays replaceable. Everything above
- * this line is deterministic; everything below it is network I/O.
+ * A port, so the rules that decide *whether* to transition an issue and *what* a comment says
+ * stay pure and testable while the part that talks to another company's API stays
+ * replaceable. Everything above this line is deterministic; everything below it is network
+ * I/O.
  */
 export type JiraTransport = {
   transitionToDone(request: JiraTransitionRequest): Promise<JiraTransitionResult>;
+  postComment(request: JiraCommentRequest): Promise<JiraCommentResult>;
 };
 
 /**

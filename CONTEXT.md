@@ -104,8 +104,9 @@ _Avoid_: draft, scheduled, pending, plan (as a noun)
 ## Jira
 
 **Jira issue key**:
-The identifier of the Jira task an execution is run against — `PROJ-123`. The only thing
-QAMS records about Jira, and the whole of the link between the two systems.
+The identifier of the Jira task an execution is run against — `PROJ-123`. The only thing a
+person ever tells QAMS about Jira; everything else QAMS holds is a record of what it did
+with the key.
 _Avoid_: backlog ID, ticket number, issue ID, Jira reference. A *backlog* is a Jira view,
 not an identifier, so "backlog ID" names nothing that exists.
 
@@ -114,3 +115,13 @@ The act of moving a Jira issue from one status to another. Jira has no way to *s
 status — a transition is executed, and a workflow may refuse one that is not legal from
 the issue's current status. Say "transition the issue", never "set the status".
 _Avoid_: set status, update status, change state
+
+**Result comment**:
+The comment QAMS posts on a Jira issue saying what one finalized run found. A **report**,
+where a transition is a **claim**: the comment states what was verified and by whom, and
+only a transition asserts that the work is finished. That difference is why the two are
+separate acts rather than two halves of one, and why they answer to different rules. Say
+"post a result comment on the issue", never "comment the issue".
+_Avoid_: note, update, summary. Also **report** as a bare noun — a QAMS *report* is
+something a reader opens, like the traceability matrix, and this is something a reader is
+sent.

@@ -502,6 +502,15 @@ a.jira-key {
   font-size: 13px;
 }
 
+/* A muted line that still has to be noticed: today, a Jira result comment that did not post.
+   Amber rather than red because the run itself is fine and its results are safely in QAMS --
+   what failed is only the projection of them into another system. Defined in both themes by
+   `--blocked`. */
+.muted-warn {
+  color: var(--blocked);
+  font-size: 13px;
+}
+
 /* ---------- layout utilities ---------- */
 
 /* The recurring compositions, named once, so pages stop re-declaring them inline.

@@ -27,10 +27,16 @@ export async function register(): Promise<void> {
 
   // Imported dynamically so the Edge runtime never pulls it in at module load.
   const { jiraConfig } = await import("@/lib/jira-config");
+  const { appBaseUrl } = await import("@/lib/app-config");
 
   // Throws on a partly configured integration. Deliberately not caught: that is the
   // "fail at boot" contract.
   const config = jiraConfig();
+
+  // Same contract, for the same reason. An absent APP_BASE_URL is fine — a result comment
+  // then carries no link — but a malformed one would render a dead link into someone else's
+  // Jira ticket, found by a stranger weeks after whoever typed it could connect the two.
+  const baseUrl = appBaseUrl();
 
   // The Jira transport is deliberately NOT installed here. It reaches `src/lib/db.ts`, which
   // constructs PrismaPg at module scope and pulls in `pg` and `node:fs` — and this file is
@@ -48,7 +54,7 @@ export async function register(): Promise<void> {
     status: 200,
     action: "JIRA_CONFIG_LOADED",
     message: config.enabled
-      ? `Jira execution sync enabled for ${config.baseUrl}; service-account fallback ${config.serviceAccountFallback ? "enabled" : "disabled"}; ${config.transitionOverrides.size} transition override(s).`
+      ? `Jira execution sync enabled for ${config.baseUrl}; service-account fallback ${config.serviceAccountFallback ? "enabled" : "disabled"}; ${config.transitionOverrides.size} transition override(s); result comments ${config.commentOnFinalize ? "on" : "off"}${config.commentOnFinalize && baseUrl === null ? " (no APP_BASE_URL, so comments carry no link)" : ""}.`
       : "Jira execution sync disabled: no JIRA_* configuration present."
   });
 }

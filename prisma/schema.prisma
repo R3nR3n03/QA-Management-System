@@ -41,6 +41,17 @@ enum JiraSyncOutcome {
   ABANDONED
 }
 
+/// The outcome of one attempt to post a result comment
+/// (`docs/architecture.md#Jira execution sync`).
+///
+/// Its own enum rather than a reuse of JiraSyncOutcome, and the difference is the point:
+/// there is no ABANDONED here because a comment is never retried, so it can never exhaust a
+/// budget. A shared enum would carry a state that cannot occur (ADR-0004).
+enum JiraCommentOutcome {
+  SUCCEEDED
+  FAILED
+}
+
 enum DefectLifecycleState {
   NEW
   TRIAGED
@@ -71,6 +82,7 @@ model User {
   executions TestExecution[] @relation("ExecutionTester")
   jiraCredential JiraCredential?
   jiraSyncAttempts JiraSyncAttempt[] @relation("JiraSyncActor")
+  jiraCommentAttempts JiraCommentAttempt[] @relation("JiraCommentActor")
 }
 
 model ControlledValue {
@@ -296,6 +308,7 @@ model TestExecution {
   history    ExecutionHistory[]
   defects    DefectExecutionLink[]
   jiraSyncAttempts JiraSyncAttempt[]
+  jiraCommentAttempts JiraCommentAttempt[]
 
   /// My work: the tester's open queue (`where testerId, state != FINALIZED`) and their
   /// full run list. Leading `testerId` serves the testerId-only query too.
@@ -338,6 +351,47 @@ model JiraSyncAttempt {
   /// The QA Lead failure view filters on the terminal state.
   @@index([outcome])
   @@index([jiraIssueKey])
+}
+
+/// One attempt to post a result comment on a Jira issue, and how it went
+/// (`docs/data-model.md`, `docs/architecture.md#Jira execution sync`).
+///
+/// A separate table rather than a `kind` column on JiraSyncAttempt, because three queries read
+/// every row of that table as the transition's story and sharing it would silently break the
+/// transition in both directions. The reasoning is in ADR-0004 and is not repeated here.
+///
+/// Append-only, on the same rule as ExecutionHistory and JiraSyncAttempt.
+model JiraCommentAttempt {
+  id            String             @id @default(uuid())
+  executionId   String
+  jiraIssueKey  String
+  attemptedAt   DateTime           @default(now())
+  outcome       JiraCommentOutcome
+  /// Jira's id for the comment this created, on success.
+  ///
+  /// Nothing reads it today. It is stored because it is the only handle QAMS will ever have on
+  /// something it created in another system, and the plausible next asks -- do not double-post,
+  /// update the comment on a re-run, withdraw it -- are all impossible without it. Recovering
+  /// it later would mean searching an issue's comments trying to recognise our own.
+  jiraCommentId String?
+  /// Why it failed, for the run screen and a QA Lead. Never carries token material.
+  failureReason String?
+  /// The user whose credential performed the write, or null when no credential could be used
+  /// at all. Same contract, and the same real foreign key, as JiraSyncAttempt.actorId.
+  actorId       String?
+
+  execution TestExecution @relation(fields: [executionId], references: [id], onDelete: Restrict)
+  actor     User?         @relation("JiraCommentActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  /// The run screen reads the latest attempt for one execution. The only access path there
+  /// is, and so the only index.
+  ///
+  /// Deliberately NOT indexed on jiraIssueKey, unlike JiraSyncAttempt: a transition is a
+  /// property of the key and is decided by reading every row sharing one, while a comment
+  /// belongs to a single run and nothing groups comments by issue. Nor on `outcome`, which
+  /// its sibling indexes for a QA Lead failure view -- a comment is never retried and has no
+  /// such view, and an index nothing reads is write cost for a query nobody makes.
+  @@index([executionId])
 }
 
 /// One user's stored Jira connection (`docs/data-model.md`).
