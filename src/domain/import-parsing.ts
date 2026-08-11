@@ -106,8 +106,14 @@ export const SHEET_SPECS = {
   },
   testExecution: {
     sheet: "Test Execution",
-    requiredHeaders: ["Execution ID", "TC ID", "Tester", "Result", "Bug"],
-    optionalFields: ["Result", "Bug"]
+    requiredHeaders: ["Execution ID", "TC ID", "Purpose", "Tester", "Result", "Bug"],
+    // `Purpose` is optional in the same sense as `Result` and `Bug`: the COLUMN is part of
+    // the documented header set, but a blank CELL must not discard the row. A workbook that
+    // predates the field says nothing about why a run existed, and rejecting those rows
+    // would make the seed source unusable for exactly the history it exists to carry — so a
+    // blank cell falls back to the covered case's title (`importExecutions`), which is what
+    // the migration gave the runs already in the database.
+    optionalFields: ["Result", "Bug", "Purpose"]
   },
   executionHistory: {
     sheet: "Execution History",

@@ -22,9 +22,9 @@ describe("SHEET_SPECS", () => {
     expect(sheets).not.toContain("Dashboard");
   });
 
-  it("marks RTM Bug ID, Execution Result/Bug and the legacy Execution Status as optional", () => {
+  it("marks RTM Bug ID, Execution Result/Bug/Purpose and the legacy Execution Status as optional", () => {
     expect([...SHEET_SPECS.rtm.optionalFields]).toEqual(["Bug ID"]);
-    expect([...SHEET_SPECS.testExecution.optionalFields]).toEqual(["Result", "Bug"]);
+    expect([...SHEET_SPECS.testExecution.optionalFields]).toEqual(["Result", "Bug", "Purpose"]);
     // excel-source-map.md:16 - Execution Status seeds "only a legacy summary" and
     // creates no execution, so a blank cell must not discard the whole test case.
     expect([...SHEET_SPECS.testRepository.optionalFields]).toEqual(["Execution Status"]);
@@ -109,11 +109,11 @@ describe("extractRows", () => {
     expect(rows[0].values["Product ID"]).toBe("PROD001");
   });
 
-  it("does not treat blank optional fields as partial (Test Execution Result/Bug)", () => {
+  it("does not treat blank optional fields as partial (Test Execution Purpose/Result/Bug)", () => {
     const exeRows: unknown[][] = [
-      ["Execution ID", "TC ID", "Tester", "Result", "Bug"],
-      ["EXE-0001", "TC-PORTAL-0001", "Jane Q", null, null],
-      [null, null, null, null, "BUG-0001"]
+      ["Execution ID", "TC ID", "Purpose", "Tester", "Result", "Bug"],
+      ["EXE-0001", "TC-PORTAL-0001", null, "Jane Q", null, null],
+      [null, null, null, null, null, "BUG-0001"]
     ];
     const info = findHeaderRow(exeRows, SHEET_SPECS.testExecution);
     expect(info).not.toBeNull();

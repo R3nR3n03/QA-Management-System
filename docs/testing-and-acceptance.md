@@ -34,6 +34,10 @@
 | Execution | Change the `purpose` of an In Progress or Finalized execution | `422 FORBIDDEN_TRANSITION`; the purpose, the tester, and the Jira issue key all freeze when the run leaves Planned. |
 | Execution | Submit the edit form for a Planned run with the purpose box emptied | `422 ID_INVALID` on `purpose`. A purpose is never cleared, so an empty box is a rejection rather than a removal — the edit is never silently discarded. |
 | Execution | Search the executions list or the tester's queue by words from a run's purpose | The run is returned. The purpose is the headline both screens list a run under, so the needle matches what the reader is looking at. |
+| Seed import | Import a Test Execution row with a filled `Purpose` cell | The execution stores that value, trimmed. A workbook states why a run existed rather than having it inferred. |
+| Seed import | Import a Test Execution row with a blank `Purpose` cell | Accepted, not `ROW_INCOMPLETE`: the column is required but the cell is not. The execution takes the covered case's title truncated to the maximum — the same value the migration gave pre-existing runs. |
+| Seed import | Import a Test Execution row whose `Purpose` exceeds the maximum length | That row is rejected with `ID_INVALID`; nothing is created for it and other rows are unaffected. A supplied purpose is the author's sentence and is never silently truncated. |
+| Seed import | Re-import a workbook whose only change is a reworded `Purpose` | The row is reported for reconciliation, not skipped; no automatic overwrite. |
 | Execution | Start an assigned execution over Approved cases | State becomes In Progress and `startedAt` is set. |
 | Execution | Finalize with a missing, extra, or duplicated case in `results[]` | `422 ID_INVALID`; every covered case must appear exactly once. |
 | Execution | Finalize a failing case without a same-case defect | `422` with documented rule failure. |

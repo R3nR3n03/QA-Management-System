@@ -15,7 +15,7 @@
 | Requirement Master | `requirements` | Requirement ID, Feature ID, Requirement | Feature must exist first. |
 | Test Repository | `test_cases` | TC ID, hierarchy IDs, Cycle, Sprint, Release, Environment, Priority, Severity, Title, Objective, Expected Result, Execution Status | `Execution Status` seeds only a legacy summary; it does not create an execution. |
 | Test Steps | `test_steps` | TC ID, Step, Action, Expected | Step order is numeric and unique within the case. |
-| Test Execution | `test_executions` | Execution ID, TC ID, Tester, Result, Bug | Import after approved test cases; blank source rows create nothing. |
+| Test Execution | `test_executions` | Execution ID, TC ID, Purpose, Tester, Result, Bug | Import after approved test cases; blank source rows create nothing. `Purpose` may be blank in a workbook that predates the column; see below. |
 | Execution History | `execution_history` | Execution ID, TC ID, Result, Date | Import only for a matching execution. |
 | Bug Tracker | `defects` | Bug ID, TC ID, Summary, Status | No severity/priority exists in this sheet; do not invent source values. |
 | RTM | `requirement_trace_links` | Requirement ID, TC ID, Bug ID | Requirement and test case are required; defect is optional. |
@@ -44,6 +44,8 @@ The workbook seeds these initial values:
 | Result | Pass, Fail, Blocked |
 
 `Not Executed` appears in the sample Test Repository row. It is a legacy source value only; the application uses the execution lifecycle and does not use it as an execution result.
+
+The `Purpose` column on Test Execution states what a run existed to check. The column must be present, like every documented header; the cell may be blank. A filled cell is taken as written, trimmed, and a value past the documented maximum length rejects that row with `ID_INVALID` rather than being silently shortened — a truncated sentence is not what its author said. A blank cell means the workbook predates the column, and the execution takes the covered case's title truncated to the maximum, which is the same value the application gave the executions that already existed when the field was introduced. On re-import, a purpose that differs from the stored one is a difference like any other and is reported for reconciliation rather than skipped.
 
 ## Explicitly unsupported source behavior
 

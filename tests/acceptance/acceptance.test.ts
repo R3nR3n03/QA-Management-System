@@ -117,8 +117,10 @@ function workbookSheets(): Record<string, (string | number)[][]> {
       ["TC-PROD001-0001", 1, "Open the login page", "The form is shown"]
     ],
     "Test Execution": [
-      ["Execution ID", "TC ID", "Tester", "Result", "Bug"],
-      ["EXE-0001", "TC-PROD001-0001", TESTER_DISPLAY_NAME, "Pass", ""]
+      ["Execution ID", "TC ID", "Purpose", "Tester", "Result", "Bug"],
+      // Blank Purpose on purpose: this is the workbook-predates-the-column path, so the
+      // imported run must fall back to the covered case's title.
+      ["EXE-0001", "TC-PROD001-0001", "", TESTER_DISPLAY_NAME, "Pass", ""]
     ],
     "Execution History": [
       ["Execution ID", "TC ID", "Result", "Date"],
@@ -207,6 +209,9 @@ describe("Seed import", () => {
     expect(execution?.cases).toHaveLength(1);
     expect(execution?.cases[0].testCaseId).toBe(testCase?.id);
     expect(execution?.cases[0].result).toBe(ExecutionOutcome.PASS);
+    // The workbook's Purpose cell is blank, so the run takes the covered case's title —
+    // the same value the migration gave the executions that predate the column.
+    expect(execution?.purpose).toBe("Login works");
     const defect = await prisma.defect.findUnique({ where: { businessId: "BUG-0001" } });
     expect(defect?.status).toBe(DefectLifecycleState.NEW);
     const links = await prisma.requirementTraceLink.findMany();
@@ -272,6 +277,61 @@ describe("Seed import", () => {
 
     const product = await prisma.product.findUnique({ where: { businessId: "PROD001" } });
     expect(product?.name).toBe("Alpha");
+  });
+
+  it("a Purpose past the maximum length rejects that row rather than being truncated", async () => {
+    // A supplied purpose is the author's sentence. Shortening it to fit would store
+    // something they did not write, so the row is refused with the same code the
+    // interactive path uses.
+    const tooLong = buildWorkbook((sheets) => {
+      sheets["Test Execution"][1] = ["EXE-0001", "TC-PROD001-0001", "x".repeat(121), TESTER_DISPLAY_NAME, "Pass", ""];
+    });
+    const run = await createImportRun(lead, "long-purpose.xlsx", tooLong);
+
+    const row = await prisma.importRowReport.findFirst({
+      where: { importRunId: run.id, sourceSheet: "Test Execution", outcome: "REJECTED" }
+    });
+    expect(row?.errorCode).toBe("ID_INVALID");
+    expect(row?.sourceRow).toBe(2);
+
+    const untouched = await prisma.testExecution.findUnique({ where: { businessId: "EXE-0001" } });
+    expect(untouched?.purpose).toBe("Login works");
+  });
+
+  it("a reworded Purpose is reported RECONCILIATION_REQUIRED, not skipped", async () => {
+    // Without the purpose in the sameness check this row would report SKIPPED_UNCHANGED and
+    // the author's correction would vanish silently.
+    const reworded = buildWorkbook((sheets) => {
+      sheets["Test Execution"][1] = ["EXE-0001", "TC-PROD001-0001", "Sprint 24 regression", TESTER_DISPLAY_NAME, "Pass", ""];
+    });
+    const run = await createImportRun(lead, "reworded-purpose.xlsx", reworded);
+
+    const row = await prisma.importRowReport.findFirst({
+      where: { importRunId: run.id, sourceSheet: "Test Execution", outcome: "RECONCILIATION_REQUIRED" }
+    });
+    expect(row).not.toBeNull();
+
+    const unchanged = await prisma.testExecution.findUnique({ where: { businessId: "EXE-0001" } });
+    expect(unchanged?.purpose).toBe("Login works");
+  });
+
+  it("a filled Purpose cell is what the imported run is stored with", async () => {
+    // The point of the column: a workbook states why a run existed instead of having it
+    // inferred from whichever case the run happened to cover.
+    const stated = buildWorkbook((sheets) => {
+      sheets["Test Execution"].push([
+        "EXE-0002",
+        "TC-PROD001-0001",
+        "  Release 3.2 sign-off  ",
+        TESTER_DISPLAY_NAME,
+        "Pass",
+        ""
+      ]);
+    });
+    await createImportRun(lead, "stated-purpose.xlsx", stated);
+
+    const created = await prisma.testExecution.findUnique({ where: { businessId: "EXE-0002" } });
+    expect(created?.purpose).toBe("Release 3.2 sign-off");
   });
 
   it("rejects an unknown parent with source row and stable code, with no partial dependent write", async () => {
