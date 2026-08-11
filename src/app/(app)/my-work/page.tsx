@@ -158,7 +158,7 @@ export default async function MyWorkPage({
             businessId: execution.businessId,
             state: execution.state,
             caseBusinessIds: execution.cases.map((covered) => covered.testCase.businessId),
-            caseTitle: execution.cases[0]?.testCase.title ?? "",
+            purpose: execution.purpose,
             priority: execution.cases[0]?.testCase.priority ?? "",
             jiraIssueKey: execution.jiraIssueKey,
             plannedAt: execution.createdAt,
@@ -181,7 +181,7 @@ export default async function MyWorkPage({
             businessId: execution.businessId,
             result: execution.result,
             caseBusinessIds: execution.cases.map((covered) => covered.testCase.businessId),
-            caseTitle: execution.cases[0]?.testCase.title ?? "",
+            purpose: execution.purpose,
             jiraIssueKey: execution.jiraIssueKey,
             // Per-case outcomes in coverage order, so a multi-case run can say which of its
             // cases passed rather than only its derived worst result.

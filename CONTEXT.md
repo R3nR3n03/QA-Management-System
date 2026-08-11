@@ -87,6 +87,14 @@ right, and the better-reading one wins in any given sentence.
 _Avoid_: **execution plan**. There is no record by that name, and the phrase already means
 something else entirely in a database. Also avoid test round, test pass.
 
+**Purpose**:
+One line saying what a run exists to check — "Sprint 24 regression, Chrome". Written when
+the run is planned, and the headline a reader scans a list of runs by. Never an identifier
+and never unique: several runs share one purpose whenever the same check is repeated across
+browsers or reruns, and `EXE-####` stays the only thing that identifies a run.
+_Avoid_: name, title, label. A **name** identifies a catalogue record and this identifies
+nothing; **title** is a test case's headline; **label** is the text beside a form control.
+
 **Planned**:
 The first lifecycle state: the execution exists and what it covers is fixed, but nobody has
 started it. "Plan an execution" is the act that creates one, and it produces an execution in

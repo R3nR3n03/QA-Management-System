@@ -173,6 +173,35 @@ const featureBox = () => screen.getByLabelText("Filter by feature") as HTMLSelec
 const requirementBox = () => screen.getByLabelText("Filter by requirement") as HTMLSelectElement;
 
 describe("PlanForm", () => {
+  it("asks for a purpose, required and capped, before anything else", () => {
+    // The headline every row of `/executions` and `/my-work` is listed under, so it is not
+    // optional and not at the bottom. `maxLength` stops the typing at the documented cap
+    // rather than letting a paragraph be written and lost on submit.
+    render(<PlanForm cases={makeCases(3)} testers={TESTERS} />);
+
+    const purpose = screen.getByRole("textbox", { name: /Purpose/ }) as HTMLInputElement;
+    expect(purpose.required).toBe(true);
+    expect(purpose.maxLength).toBe(120);
+    expect(purpose.value).toBe("");
+  });
+
+  it("prefills the purpose of the run a rerun came from", () => {
+    // A rerun of the Sprint 24 regression is still the Sprint 24 regression. A preselection
+    // like the ticked cases, never an instruction — it is a plain default the planner edits.
+    render(
+      <PlanForm
+        cases={makeCases(3)}
+        testers={TESTERS}
+        preselect={["case-1"]}
+        defaultPurpose="Sprint 24 regression, Chrome"
+      />
+    );
+
+    expect((screen.getByRole("textbox", { name: /Purpose/ }) as HTMLInputElement).value).toBe(
+      "Sprint 24 regression, Chrome"
+    );
+  });
+
   it("starts with the preselected cases ticked", () => {
     const { container } = render(
       <PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-2", "case-5"]} />

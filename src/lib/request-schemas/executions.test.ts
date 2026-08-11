@@ -9,13 +9,53 @@ import {
 import { schemaIssueField } from "./issues";
 
 describe("createExecutionSchema", () => {
-  const valid = { businessId: "EXE-0001", testCaseIds: ["test-case-1", "test-case-2"], testerId: "user-1" };
+  const valid = {
+    businessId: "EXE-0001",
+    testCaseIds: ["test-case-1", "test-case-2"],
+    testerId: "user-1",
+    purpose: "Sprint 24 regression, Chrome"
+  };
 
   it("accepts a valid body and keeps exactly the declared keys", () => {
     const result = createExecutionSchema.safeParse(valid);
 
     expect(result.success).toBe(true);
-    expect(Object.keys(result.data!).sort()).toEqual(["businessId", "testCaseIds", "testerId"]);
+    expect(Object.keys(result.data!).sort()).toEqual(["businessId", "purpose", "testCaseIds", "testerId"]);
+  });
+
+  it("rejects an omitted purpose — every run says what it exists to check", () => {
+    const { purpose: _purpose, ...withoutPurpose } = valid;
+    const result = createExecutionSchema.safeParse(withoutPurpose);
+
+    expect(result.success).toBe(false);
+    expect(schemaIssueField(result.error!.issues[0])).toBe("purpose");
+  });
+
+  it("rejects a blank purpose", () => {
+    const result = createExecutionSchema.safeParse({ ...valid, purpose: "" });
+
+    expect(result.success).toBe(false);
+    expect(schemaIssueField(result.error!.issues[0])).toBe("purpose");
+  });
+
+  it("accepts a purpose of exactly 120 characters and rejects 121", () => {
+    // The cap is a documented rule re-checked in the domain; this is the shape half of it.
+    expect(createExecutionSchema.safeParse({ ...valid, purpose: "x".repeat(120) }).success).toBe(true);
+
+    const result = createExecutionSchema.safeParse({ ...valid, purpose: "x".repeat(121) });
+    expect(result.success).toBe(false);
+    expect(schemaIssueField(result.error!.issues[0])).toBe("purpose");
+  });
+
+  it("measures the cap on the trimmed value, and rejects a whitespace-only purpose", () => {
+    // The documented rule measures what gets STORED. Bounds applied to the raw string would
+    // make this schema refuse a request the domain accepts — a shape error where the caller
+    // was promised ID_INVALID on `purpose`.
+    const padded = createExecutionSchema.safeParse({ ...valid, purpose: `  ${"x".repeat(120)}  ` });
+    expect(padded.success).toBe(true);
+    expect(padded.data!.purpose).toBe("x".repeat(120));
+
+    expect(createExecutionSchema.safeParse({ ...valid, purpose: "   " }).success).toBe(false);
   });
 
   it("accepts a single-case selection — one case is the lower bound, not the shape", () => {
@@ -112,6 +152,25 @@ describe("updateExecutionSchema", () => {
 
   it("accepts an omitted version — a missing version still yields 409 in the domain", () => {
     expect(updateExecutionSchema.safeParse({ testerId: "user-2" }).success).toBe(true);
+  });
+
+  it("accepts a purpose, and an omitted one means «leave it alone»", () => {
+    expect(updateExecutionSchema.safeParse({ ...valid, purpose: "Smoke, staging" }).success).toBe(true);
+    expect(updateExecutionSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("rejects a blank or null purpose — it is required, so it can never be cleared", () => {
+    // Unlike `jiraIssueKey`, which is nullish precisely so an explicit null removes the link.
+    expect(updateExecutionSchema.safeParse({ ...valid, purpose: "" }).success).toBe(false);
+    expect(updateExecutionSchema.safeParse({ ...valid, purpose: null }).success).toBe(false);
+  });
+
+  it("rejects a purpose past 120 characters, matching create", () => {
+    expect(updateExecutionSchema.safeParse({ ...valid, purpose: "x".repeat(120) }).success).toBe(true);
+
+    const result = updateExecutionSchema.safeParse({ ...valid, purpose: "x".repeat(121) });
+    expect(result.success).toBe(false);
+    expect(schemaIssueField(result.error!.issues[0])).toBe("purpose");
   });
 
   it("rejects a smuggled state, result or testCaseIds", () => {

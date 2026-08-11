@@ -263,6 +263,14 @@ model TestStep {
 model TestExecution {
   id               String                  @id @default(uuid())
   businessId       String                  @unique
+  /// What this run exists to check, in one line -- "Sprint 24 regression, Chrome"
+  /// (`docs/business-rules-and-validation.md`). Required, capped at 120 characters, and
+  /// settable only while Planned, on the same rule that freezes the tester.
+  ///
+  /// Deliberately NOT unique and never an identifier: a browser matrix and a rerun are
+  /// several runs that SHOULD read alike, the same reasoning as `jiraIssueKey` below.
+  /// `businessId` is the only thing that identifies a run.
+  purpose          String
   testerId         String
   state            ExecutionLifecycleState @default(PLANNED)
   /// Derived at finalize from the per-case results on `cases`:

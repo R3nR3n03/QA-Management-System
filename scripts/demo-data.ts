@@ -192,18 +192,18 @@ async function main() {
 
   // --- Executions, all assigned to the QA Tester. ---
   const planned = await createExecution(
-    { businessId: "EXE-0001", testCaseIds: [approved.id], testerId: tester.userId },
+    { businessId: "EXE-0001", testCaseIds: [approved.id], testerId: tester.userId, purpose: "Checkout smoke, staging" },
     lead
   );
 
   const running = await createExecution(
-    { businessId: "EXE-0002", testCaseIds: [approved.id], testerId: tester.userId },
+    { businessId: "EXE-0002", testCaseIds: [approved.id], testerId: tester.userId, purpose: "Sprint 24 regression, Chrome" },
     lead
   );
   await startExecution(running.id, running.version, tester);
 
   const finished = await createExecution(
-    { businessId: "EXE-0003", testCaseIds: [approved.id], testerId: tester.userId },
+    { businessId: "EXE-0003", testCaseIds: [approved.id], testerId: tester.userId, purpose: "Release 3.2 sign-off" },
     lead
   );
   const started = await startExecution(finished.id, finished.version, tester);

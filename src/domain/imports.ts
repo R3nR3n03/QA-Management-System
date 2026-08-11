@@ -15,6 +15,7 @@ import { runPaged, type PageRequest } from "@/lib/pagination";
 import { BUSINESS_ID_PATTERNS } from "@/lib/business-ids";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence } from "@/lib/validation";
+import { EXECUTION_PURPOSE_MAX_LENGTH } from "@/lib/field-limits";
 import { createFeature, createModule, createProduct, createRequirement } from "@/domain/catalogue";
 import { decideCatalogueRow, type RowDecision } from "@/domain/import-decisions";
 import {
@@ -784,6 +785,28 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
         continue;
       }
 
+      /*
+       * A supplied purpose is the workbook author's own statement of why the run existed, so
+       * it is taken as written — trimmed, never truncated. Over the cap it is REJECTED
+       * rather than silently shortened: truncating an author's sentence loses what they
+       * meant, and the interactive path refuses the same value with the same code
+       * (`docs/business-rules-and-validation.md`). The blank-cell fallback below is a
+       * different thing entirely — a value QAMS derives because the workbook offered none,
+       * which is why that one may be cut to fit.
+       */
+      const suppliedPurpose = v["Purpose"].trim();
+      if (suppliedPurpose.length > EXECUTION_PURPOSE_MAX_LENGTH) {
+        report.push(
+          rejectedRow(
+            spec.sheet,
+            row.sourceRow,
+            "ID_INVALID",
+            `Purpose must be ${EXECUTION_PURPOSE_MAX_LENGTH} characters or fewer; this row has ${suppliedPurpose.length}.`
+          )
+        );
+        continue;
+      }
+
       const token = normalizeExecutionResult(v["Result"]);
       if (token === "INVALID" || (token !== null && !activeResultMatches(ctx, token))) {
         report.push(rejectedRow(spec.sheet, row.sourceRow, "CONTROLLED_VALUE_INVALID", `Result "${v["Result"]}" is not an active configured Result value.`));
@@ -792,6 +815,14 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
       const result: ExecutionOutcome | null = token === null ? null : ExecutionOutcome[token];
       const state = result === null ? ExecutionLifecycleState.PLANNED : ExecutionLifecycleState.FINALIZED;
 
+      // The sheet's own Purpose when it has one. When the cell is blank the workbook
+      // predates the field, and one row is one execution covering exactly one case — so the
+      // covered case's title IS the "first covered case's title" the migration backfills
+      // historical runs with (`prisma/migrations/20260811091500_execution_purpose`). Same
+      // situation, same rule: a run that predates the field takes the headline it already
+      // displayed.
+      const purpose = suppliedPurpose || importedPurpose(testCase.title, businessId);
+
       const current = exeByBiz.get(businessId);
       if (current) {
         const same =
@@ -799,6 +830,11 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
           current.cases[0].testCaseId === testCase.id &&
           current.testerId === tester.id &&
           current.state === state &&
+          // A re-import whose only change is a reworded purpose is still a change. Left out
+          // of this comparison it would report SKIPPED, and the correction the author came
+          // back to make would be silently dropped — the exact case reconciliation exists
+          // to put in front of a person.
+          current.purpose === purpose &&
           (current.result ?? null) === result;
         if (same) {
           report.push(skippedRow(spec.sheet, row.sourceRow, current.id));
@@ -823,6 +859,7 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
       const created = await tx.testExecution.create({
         data: {
           businessId,
+          purpose,
           testerId: tester.id,
           state,
           result,
@@ -937,6 +974,21 @@ async function importExecutionHistory(ctx: ImportContext, data: ParsedSheet) {
     }
     return report;
   });
+}
+
+/**
+ * The purpose an imported execution takes, mirroring the migration that backfilled the runs
+ * already in the database. Truncated to the documented cap so an imported row is never one
+ * the edit form would refuse to save, and falling back to the business ID for the blank
+ * title the workbook should not contain but might.
+ */
+function importedPurpose(title: string, businessId: string): string {
+  // Truncate THEN trim, in that order, because that is what the migration's SQL does
+  // (`LEFT(...)` inside `TRIM(...)`). The two paths produce the purpose of a run that
+  // predates the field, and a title with leading whitespace is the case where trim-first
+  // and truncate-first disagree — so the order is part of the rule, not a detail.
+  const trimmed = title.slice(0, EXECUTION_PURPOSE_MAX_LENGTH).trim();
+  return trimmed === "" ? businessId : trimmed;
 }
 
 async function importDefects(ctx: ImportContext, data: ParsedSheet) {

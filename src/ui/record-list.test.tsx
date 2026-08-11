@@ -140,7 +140,7 @@ describe("ExecutionList", () => {
             state: "FINALIZED",
             result: "FAIL",
             caseBusinessIds: ["TC-FIX-0001", "TC-FIX-0002", "TC-FIX-0003"],
-            caseTitle: "Checkout with a valid card",
+            purpose: "Checkout regression, Chrome",
             testerName: "Fixture Tester",
             jiraIssueKey: null,
             caseResults: ["PASS", "FAIL", "PASS"],
@@ -162,6 +162,24 @@ describe("ExecutionList", () => {
     // The newest of the three stamps, and the verb that says which one it is.
     expect(screen.getByText(/· Finalized$/)).toBeTruthy();
     expect(screen.getByText("2026-01-07 14:45 UTC")).toBeTruthy();
+  });
+
+  it("heads the row with the run's purpose, and that is the link into the run", () => {
+    // The headline used to be the FIRST covered case's title, which named 1 of N cases as
+    // if it were the whole run. The covered IDs stay on the row; the title does not.
+    render(
+      <ExecutionList
+        rows={makeExecutionRows(1)}
+        total={1}
+        page={1}
+        pathname="/executions"
+        params={{}}
+      />
+    );
+
+    const headline = screen.getByRole("link", { name: "Execution purpose 1" });
+    expect(headline.getAttribute("href")).toBe("/executions/execution-1");
+    expect(screen.getByText("TC-FIX-0001")).toBeTruthy();
   });
 
   it("falls back to the stage a run has actually reached", () => {

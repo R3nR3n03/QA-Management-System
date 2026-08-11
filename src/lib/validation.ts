@@ -11,6 +11,34 @@ export function requireNonBlankIfProvided(value: string | undefined, field: stri
 }
 
 /**
+ * Caps a free-text field's length, measured on the trimmed value because that is what is
+ * stored.
+ *
+ * The system's only length rule, and deliberately not a general habit: every other free-text
+ * field here (`objective`, `expectedResult`, `actualResult`, a defect's `summary`) is read on
+ * a detail page, where length costs the reader nothing. An execution's purpose is the
+ * HEADLINE of every row on `/executions` and `/my-work`, so an unbounded one wrecks the row
+ * for every other run on the page — the rule exists for that, and belongs in the domain
+ * rather than in a stylesheet because "one line" is a documented business rule
+ * (`docs/business-rules-and-validation.md`).
+ *
+ * `ID_INVALID` for the same reason a too-short password uses it (`docs/testing-and-acceptance.md`):
+ * it is this system's stable code for "this text value is not acceptable", and `field` plus
+ * `message` say which text and why. Absence is not this function's business — pair it with
+ * `requireNonBlank` when the field is required.
+ */
+export function requireMaxLength(
+  value: string | null | undefined,
+  max: number,
+  field: string,
+  message: string
+) {
+  if (value && value.trim().length > max) {
+    throw new AppError(422, "ID_INVALID", message, field);
+  }
+}
+
+/**
  * Checks the caller's optimistic `version` against the row that was just read, and
  * **returns it narrowed to a number** so the caller can put it in the UPDATE's `WHERE`.
  *

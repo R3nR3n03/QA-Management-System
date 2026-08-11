@@ -15,6 +15,10 @@ export async function createExecutionAction(_prev: FormState, formData: FormData
         // One checkbox per approved case; the domain enforces non-empty/no-duplicates.
         testCaseIds: formData.getAll("testCaseIds").map((value) => String(value)),
         testerId: String(formData.get("testerId") ?? ""),
+        // Required. Sent as-is, blank included: whether it is acceptable is the domain's
+        // answer, and reporting a blank one through the form notice is what tells the
+        // planner which field to fix.
+        purpose: String(formData.get("purpose") ?? ""),
         // Optional: a run need not test a Jira task. Left blank it stays null and the
         // execution never talks to Jira; a malformed key is refused by the domain with
         // 422 ID_INVALID rather than being silently dropped here.
