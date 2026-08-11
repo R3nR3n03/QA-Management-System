@@ -1,5 +1,6 @@
 import { ExecutionOutcome } from "@prisma/client";
 import { z } from "zod";
+import { EXECUTION_PURPOSE_MAX_LENGTH } from "@/lib/field-limits";
 
 /** Request-shape schemas for the execution routes, mirroring `src/domain/executions.ts`. */
 
@@ -22,6 +23,16 @@ export const createExecutionSchema = z.strictObject({
       message: "Each test case may be selected only once."
     }), // duplicates 422 — executions.ts:34-36
   testerId: z.string(), // no blank guard; unresolved id 422s REFERENCE_INACTIVE — executions.ts:50-53
+  // Required, unlike every other free-text field on a create: the purpose is the headline
+  // every row of `/executions` and `/my-work` is scanned by, and an optional one would be
+  // blank exactly where the lists are longest. Both bounds are re-checked in the domain,
+  // which is where the rule lives (`docs/business-rules-and-validation.md`).
+  //
+  // `.trim()` BEFORE the bounds, not after: the documented rule measures the trimmed value,
+  // because that is what gets stored. Without it this schema and the domain disagree about
+  // the same request — a padded 119-character purpose the domain accepts would be refused
+  // here first, with a shape error instead of ID_INVALID naming the field.
+  purpose: z.string().trim().min(1).max(EXECUTION_PURPOSE_MAX_LENGTH),
   // Optional, and only shape-checked in the domain (`normalizeJiraIssueKey`): a malformed
   // key 422s ID_INVALID, a blank one reads as "no Jira task", and a well-formed key naming a
   // nonexistent issue is accepted on purpose so Jira can never block planning.
@@ -38,6 +49,10 @@ export const createExecutionSchema = z.strictObject({
  */
 export const updateExecutionSchema = z.strictObject({
   testerId: z.string(), // no blank guard; unresolved id 422s REFERENCE_INACTIVE like createExecution
+  // Absent means "leave the purpose alone". Deliberately `optional` and not `nullish` like
+  // the sibling below: a purpose is required, so unlike a Jira link there is no such thing
+  // as clearing one. The Planned-only window is a business rule and lives in the domain.
+  purpose: z.string().trim().min(1).max(EXECUTION_PURPOSE_MAX_LENGTH).optional(),
   version: z.number().optional(), // ensureVersion tolerates undefined (409) — executions.ts:109
   // Absent means "leave the key alone"; explicit null clears it. Changing it after the run
   // leaves Planned is 422 FORBIDDEN_TRANSITION (`ensureIssueKeyMutable`), on the same rule

@@ -9,7 +9,8 @@ import {
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
-import { ensureVersion, requireNonBlank } from "@/lib/validation";
+import { ensureVersion, requireMaxLength, requireNonBlank } from "@/lib/validation";
+import { EXECUTION_PURPOSE_MAX_LENGTH } from "@/lib/field-limits";
 import { withVersionCheck } from "@/lib/optimistic-lock";
 import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids";
 import { allocateBusinessId, highestSuffix } from "@/lib/id-allocator";
@@ -34,8 +35,9 @@ type Actor = { userId: string; role: QamsRole; requestId: string };
 
 export type ExecutionListOptions = PageRequest & {
   /**
-   * Needle matched against run ID, tester name, covered case ID/title, Jira issue key, state
-   * and result. This list is the only statement of what `GET /executions?q=` searches.
+   * Needle matched against run ID, purpose, tester name, covered case ID/title, Jira issue
+   * key, state and result. This list is the only statement of what `GET /executions?q=`
+   * searches.
    */
   query?: string;
   /** Restrict to these lifecycle states. */
@@ -78,6 +80,10 @@ function executionWhere(options: ExecutionListOptions): Prisma.TestExecutionWher
     all.push({
       OR: [
         { businessId: { contains: needle, mode: "insensitive" } },
+        /* The purpose is the headline of every row on both screens this builder serves, so
+           it has to be matchable: a needle that matches what the reader is looking straight
+           at, returning nothing, is the same failure the Jira note below describes. */
+        { purpose: { contains: needle, mode: "insensitive" } },
         { tester: { displayName: { contains: needle, mode: "insensitive" } } },
         /* A person arriving with a Jira ticket in hand types its key here — and a search
            box that answers "no executions match" for a run that IS linked is worse than
@@ -119,12 +125,37 @@ export async function listExecutions(options: ExecutionListOptions = {}) {
 }
 
 /**
+ * Checks an execution's purpose and returns what should be stored: the trimmed value.
+ *
+ * One function so `createExecution` and `updateExecution` cannot drift apart on the rule —
+ * the same shape as `normalizeJiraIssueKey` in `src/domain/jira-sync.ts`, for the same
+ * reason. Both bounds are measured on the trimmed value, because that is what is written.
+ */
+function normalizePurpose(raw: string | undefined): string {
+  requireNonBlank(raw, "purpose", "Purpose is required — say what this run checks.");
+  requireMaxLength(
+    raw,
+    EXECUTION_PURPOSE_MAX_LENGTH,
+    "purpose",
+    `Purpose must be ${EXECUTION_PURPOSE_MAX_LENGTH} characters or fewer.`
+  );
+  // `requireNonBlank` has already refused undefined and blank, so this is a real value.
+  return raw!.trim();
+}
+
+/**
  * An execution covers one or more Approved test cases selected together at planning
  * (`docs/business-rules-and-validation.md:27`). Each covered case becomes one
  * `ExecutionTestCase` row; per-case results arrive only at finalize.
  */
 export async function createExecution(
-  input: { businessId?: string; testCaseIds: string[]; testerId: string; jiraIssueKey?: string | null },
+  input: {
+    businessId?: string;
+    testCaseIds: string[];
+    testerId: string;
+    purpose: string;
+    jiraIssueKey?: string | null;
+  },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canExecute], actor.role);
@@ -141,6 +172,11 @@ export async function createExecution(
     requireNonBlank(input.businessId, "businessId", "Execution ID cannot be blank.");
     ensureBusinessIdFormat(input.businessId, BUSINESS_ID_PATTERNS.execution, "businessId", "EXE-####");
   }
+
+  // Required, unlike the free text on every other create here: an execution's purpose is the
+  // headline `/executions` and `/my-work` are scanned by, so a blank one is a row nobody can
+  // tell apart from its neighbours.
+  const purpose = normalizePurpose(input.purpose);
 
   if (input.testCaseIds.length === 0) {
     throw new AppError(422, "ID_INVALID", "At least one test case is required.", "testCaseIds");
@@ -189,6 +225,7 @@ export async function createExecution(
     const created = await tx.testExecution.create({
       data: {
         businessId,
+        purpose,
         testerId: input.testerId,
         state: ExecutionLifecycleState.PLANNED,
         jiraIssueKey,
@@ -225,7 +262,7 @@ export async function createExecution(
  */
 export async function updateExecution(
   executionId: string,
-  input: { testerId: string; version?: number; jiraIssueKey?: string | null },
+  input: { testerId: string; version?: number; purpose?: string; jiraIssueKey?: string | null },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canExecute], actor.role);
@@ -233,9 +270,18 @@ export async function updateExecution(
   const execution = await prisma.testExecution.findUnique({ where: { id: executionId } });
   if (!execution) throw new AppError(404, "REFERENCE_NOT_FOUND", "Execution not found.", "executionId");
   if (execution.state !== ExecutionLifecycleState.PLANNED) {
-    throw new AppError(422, "FORBIDDEN_TRANSITION", "Only Planned executions can be reassigned.");
+    // "changed", not "reassigned": this endpoint now edits the tester, the purpose and the
+    // Jira key, and all three freeze at the same moment for the same reason — once a run
+    // starts, what it is and who is running it are part of the record.
+    throw new AppError(422, "FORBIDDEN_TRANSITION", "Only a Planned execution can be changed.");
   }
   const expectedVersion = ensureVersion(execution.version, input.version);
+
+  // Only re-write the purpose when the caller supplied one, so a reassignment that says
+  // nothing about it leaves it alone. Never clearable: unlike the Jira key there is no
+  // "no purpose" state, which is why this is `!== undefined` with no null branch.
+  const changingPurpose = input.purpose !== undefined;
+  const purpose = changingPurpose ? normalizePurpose(input.purpose) : undefined;
 
   // Only re-point the issue key when the caller actually supplied the field, so a
   // reassignment that says nothing about Jira leaves the key alone. The state check is
@@ -255,6 +301,7 @@ export async function updateExecution(
       where: { id: executionId, version: expectedVersion },
       data: {
         testerId: input.testerId,
+        ...(changingPurpose ? { purpose } : {}),
         ...(changingIssueKey ? { jiraIssueKey } : {}),
         version: { increment: 1 },
         updatedBy: actor.userId
@@ -265,8 +312,14 @@ export async function updateExecution(
     // people — and hide the issue-key change from anyone looking for it.
     const testerChanged = updated.testerId !== execution.testerId;
     const issueKeyChanged = updated.jiraIssueKey !== execution.jiraIssueKey;
+    const purposeChanged = updated.purpose !== execution.purpose;
 
-    if (testerChanged || !issueKeyChanged) {
+    // A save that changed nothing is still recorded, as one reassignment naming the same
+    // tester twice. Spelled as its own name so the next field added here has to decide
+    // whether it belongs in it, rather than quietly editing a boolean expression.
+    const nothingChanged = !testerChanged && !issueKeyChanged && !purposeChanged;
+
+    if (testerChanged || nothingChanged) {
       await appendAudit(tx, {
         actorId: actor.userId,
         action: "EXECUTION_REASSIGNED",
@@ -276,6 +329,20 @@ export async function updateExecution(
         beforeAfterJson: {
           before: { testerId: execution.testerId },
           after: { testerId: updated.testerId }
+        }
+      });
+    }
+
+    if (purposeChanged) {
+      await appendAudit(tx, {
+        actorId: actor.userId,
+        action: "EXECUTION_PURPOSE_CHANGED",
+        entityType: "Execution",
+        entityId: executionId,
+        requestId: actor.requestId,
+        beforeAfterJson: {
+          before: { purpose: execution.purpose },
+          after: { purpose: updated.purpose }
         }
       });
     }
@@ -889,6 +956,22 @@ export async function listExecutionsForTester(
       }),
     () => prisma.testExecution.count({ where })
   );
+}
+
+/**
+ * One run's purpose, for the rerun link's prefill on the plan screen.
+ *
+ * Its own narrow read rather than `executionDetail`, which pulls every covered case with its
+ * steps and the whole history to answer a question about one column. Returns null for an id
+ * that resolves to nothing: a rerun link pointing at a deleted run should leave the field
+ * empty for the planner to fill, not fail the page.
+ */
+export async function executionPurpose(executionId: string): Promise<string | null> {
+  const run = await prisma.testExecution.findUnique({
+    where: { id: executionId },
+    select: { purpose: true }
+  });
+  return run?.purpose ?? null;
 }
 
 export async function executionDetail(executionId: string) {

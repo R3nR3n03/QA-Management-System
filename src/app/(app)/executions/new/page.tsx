@@ -1,5 +1,5 @@
 import { listProductOptions } from "@/domain/catalogue";
-import { listAssignableTesters, openExecutionCountsByTester } from "@/domain/executions";
+import { executionPurpose, listAssignableTesters, openExecutionCountsByTester } from "@/domain/executions";
 import { listApprovedCandidates } from "@/domain/test-cases";
 import { readParam, type ListSearchParams } from "@/ui/list-params";
 import { requireSession } from "@/ui/session";
@@ -48,6 +48,18 @@ export default async function PlanExecutionPage({
   const preselect = requested.filter((id) => offerable.has(id));
   const unavailable = requested.length - preselect.length;
 
+  /*
+   * `?from=` names the run this rerun came from, and its purpose prefills the field — a
+   * rerun of the Sprint 24 regression is still the Sprint 24 regression, so re-typing it is
+   * work the screen can do. A preselection like `?cases=` and not an instruction: it lands
+   * as a `defaultValue` the planner types over.
+   *
+   * The id travels, not the text. A purpose in the query string would be a sentence in a URL
+   * people copy to each other, and the source run is already the thing being referred to.
+   */
+  const from = readParam(params, "from");
+  const defaultPurpose = from === "" ? "" : ((await executionPurpose(from)) ?? "");
+
   return (
     <>
       <h1>Plan an execution</h1>
@@ -84,6 +96,7 @@ export default async function PlanExecutionPage({
             }))}
             preselect={preselect}
             unavailable={unavailable}
+            defaultPurpose={defaultPurpose}
           />
         )}
       </div>

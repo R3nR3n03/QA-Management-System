@@ -48,7 +48,7 @@ Approved content is immutable. A material change requires a new Draft revision l
 
 An execution covers one or more Approved test cases selected together at planning. Each covered case may have result `Pass`, `Fail`, or `Blocked` only at Finalized; the execution-level result is derived from the per-case results (`Fail` if any case failed, else `Blocked` if any case is blocked, else `Pass`). A finalized execution cannot return to In Progress. A rerun creates a new execution covering only the failed/blocked case(s) of the original.
 
-While an execution is Planned, any role that may plan executions may reassign it to a different active tester; the reassignment is audited. Once an execution leaves Planned, its tester is part of the record and cannot be changed.
+While an execution is Planned, any role that may plan executions may reassign it to a different active tester, and may reword its purpose; both are audited, under distinct actions. Once an execution leaves Planned, its tester and its purpose are part of the record and cannot be changed.
 
 ## Defect lifecycle
 

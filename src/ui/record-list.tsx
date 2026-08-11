@@ -30,8 +30,13 @@ export type ExecutionRowData = {
   result: ExecutionOutcome | null;
   /** Business IDs of every covered case, in coverage order. */
   caseBusinessIds: string[];
-  /** The first covered case's title. */
-  caseTitle: string;
+  /**
+   * What the run exists to check — the row's headline, and the reason the first covered
+   * case's title is no longer on the row. That title named 1 of N cases as if it were the
+   * whole run, so on a multi-case run it was actively misleading; the covered case IDs are
+   * still below, one click from the cases themselves.
+   */
+  purpose: string;
   testerName: string;
   /**
    * The Jira issue this run is testing, or null. Rendered as text and never as a link, even
@@ -209,13 +214,14 @@ export function ExecutionList({
                       <span className="state">{row.caseBusinessIds.length} cases</span>
                     ) : null}
                   </div>
-                  {/* The title is the click target, not just the trailing control: it is the
-                      widest thing in the row and the thing a reader is already looking at.
-                      The row is deliberately NOT one stretched link — an overlay covering it
-                      would make the business ID unselectable, and these are IDs people copy. */}
+                  {/* The purpose is the click target, not just the trailing control: it is
+                      the widest thing in the row and the thing a reader is already looking
+                      at. The row is deliberately NOT one stretched link — an overlay covering
+                      it would make the business ID unselectable, and these are IDs people
+                      copy. */}
                   <div className="row-title">
                     <Link className="row-link" href={`/executions/${row.id}`}>
-                      {row.caseTitle}
+                      {row.purpose}
                     </Link>
                   </div>
                   <div className="muted">

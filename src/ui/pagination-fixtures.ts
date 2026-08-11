@@ -56,7 +56,7 @@ export function makeExecutionRows(
       state,
       result: state === "FINALIZED" ? ("PASS" as const) : null,
       caseBusinessIds: [`TC-FIX-${pad(n)}`],
-      caseTitle: `Execution title ${n}`,
+      purpose: `Execution purpose ${n}`,
       testerName: "Fixture Tester",
       jiraIssueKey,
       caseResults: [state === "FINALIZED" ? ("PASS" as const) : null],

@@ -15,6 +15,7 @@ import { runPaged, type PageRequest } from "@/lib/pagination";
 import { BUSINESS_ID_PATTERNS } from "@/lib/business-ids";
 import { ensureRole, RoleSets } from "@/lib/rbac";
 import { ensureStepSequence } from "@/lib/validation";
+import { EXECUTION_PURPOSE_MAX_LENGTH } from "@/lib/field-limits";
 import { createFeature, createModule, createProduct, createRequirement } from "@/domain/catalogue";
 import { decideCatalogueRow, type RowDecision } from "@/domain/import-decisions";
 import {
@@ -823,6 +824,12 @@ async function importExecutions(ctx: ImportContext, data: ParsedSheet) {
       const created = await tx.testExecution.create({
         data: {
           businessId,
+          // The workbook has no purpose column (`docs/excel-source-map.md`), and one row is
+          // one execution covering exactly one case — so the covered case's title IS the
+          // "first covered case's title" the migration backfills historical runs with
+          // (`prisma/migrations/20260811091500_execution_purpose`). Same situation, same
+          // rule: a run that predates the field takes the headline it already displayed.
+          purpose: importedPurpose(testCase.title, businessId),
           testerId: tester.id,
           state,
           result,
@@ -937,6 +944,21 @@ async function importExecutionHistory(ctx: ImportContext, data: ParsedSheet) {
     }
     return report;
   });
+}
+
+/**
+ * The purpose an imported execution takes, mirroring the migration that backfilled the runs
+ * already in the database. Truncated to the documented cap so an imported row is never one
+ * the edit form would refuse to save, and falling back to the business ID for the blank
+ * title the workbook should not contain but might.
+ */
+function importedPurpose(title: string, businessId: string): string {
+  // Truncate THEN trim, in that order, because that is what the migration's SQL does
+  // (`LEFT(...)` inside `TRIM(...)`). The two paths produce the purpose of a run that
+  // predates the field, and a title with leading whitespace is the case where trim-first
+  // and truncate-first disagree — so the order is part of the rule, not a detail.
+  const trimmed = title.slice(0, EXECUTION_PURPOSE_MAX_LENGTH).trim();
+  return trimmed === "" ? businessId : trimmed;
 }
 
 async function importDefects(ctx: ImportContext, data: ParsedSheet) {

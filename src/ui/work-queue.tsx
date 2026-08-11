@@ -44,8 +44,11 @@ export type WorkRowData = {
   state: ExecutionLifecycleState;
   /** Business IDs of every covered case, in coverage order. */
   caseBusinessIds: string[];
-  /** The first covered case's title. */
-  caseTitle: string;
+  /**
+   * What the run exists to check — the row's headline. Replaces the first covered case's
+   * title, which named 1 of N cases as if it were the whole run.
+   */
+  purpose: string;
   /** The first covered case's priority; shown only for a single-case run. */
   priority: string;
   /**
@@ -63,7 +66,8 @@ export type FinalizedRowData = {
   /** The run's derived worst outcome. `null` should not occur on a finalized run. */
   result: ExecutionOutcome | null;
   caseBusinessIds: string[];
-  caseTitle: string;
+  /** What the run existed to check — the row's headline, as on the open queue above. */
+  purpose: string;
   jiraIssueKey: string | null;
   /** Per-case outcomes, in coverage order — the breakdown behind a multi-case run's chip. */
   caseResults: Array<ExecutionOutcome | null>;
@@ -338,13 +342,13 @@ export function WorkQueue({
                       <span className="state state-accent">{row.caseBusinessIds.length} cases</span>
                     ) : null}
                   </div>
-                  {/* The title is the click target as well as the trailing button: it is
+                  {/* The purpose is the click target as well as the trailing button: it is
                       the widest thing in the row and the thing already being read. Not a
                       stretched overlay — that would make the business ID unselectable,
                       and these are IDs people copy into a ticket. */}
                   <div className="row-title">
                     <Link className="row-link" href={`/executions/${row.id}`}>
-                      {row.caseTitle}
+                      {row.purpose}
                     </Link>
                   </div>
                   {/* The row's line of facts: what it covers, then the ticket it is
@@ -462,7 +466,7 @@ export function FinalizedRecap({
                   </div>
                   <div className="row-title">
                     <Link className="row-link" href={`/executions/${row.id}`}>
-                      {row.caseTitle}
+                      {row.purpose}
                     </Link>
                   </div>
                   {/* The recap used to name no case at all, so a run could be identified

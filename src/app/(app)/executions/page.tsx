@@ -69,10 +69,10 @@ export default async function ExecutionsPage({
           businessId: execution.businessId,
           state: execution.state,
           result: execution.result,
-          // A run covers one or more cases; the list shows the first case's title and
-          // renders a "N cases" chip plus "+n more" for the rest.
+          // A run covers one or more cases; the row is headed with the run's purpose and
+          // renders a "N cases" chip plus "+n more" for the covered IDs.
           caseBusinessIds: execution.cases.map((covered) => covered.testCase.businessId),
-          caseTitle: execution.cases[0]?.testCase.title ?? "",
+          purpose: execution.purpose,
           testerName: execution.tester.displayName,
           jiraIssueKey: execution.jiraIssueKey,
           // Per-case outcomes in the same coverage order, so a multi-case run can say

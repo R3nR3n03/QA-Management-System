@@ -12,6 +12,7 @@ Every rejected request returns HTTP `422` with stable error code, field path, an
 | Every referenced record exists and is active where active status is required. | `REFERENCE_NOT_FOUND` / `REFERENCE_INACTIVE` |
 | Product → Module → Feature → Requirement references form one chain. | `HIERARCHY_MISMATCH` |
 | Only active controlled values are accepted. | `CONTROLLED_VALUE_INVALID` |
+| Required free text is non-blank after trimming, and where a maximum length is documented it is measured after trimming. An execution's `purpose` is the only field carrying a length limit. | `ID_INVALID` |
 | Update requests include the current optimistic `version`. | `VERSION_CONFLICT` |
 
 ## Test-case rules
@@ -25,6 +26,8 @@ Every rejected request returns HTTP `422` with stable error code, field path, an
 ## Execution and defect rules
 
 - An execution is created Planned for one or more Approved test cases and exactly one assigned tester.
+- An execution carries a required `purpose`: one line stating what the run exists to check. It is non-blank after trimming, at most 120 characters measured after trimming, and stored trimmed. A blank or over-long purpose is `ID_INVALID` on `purpose`. It is not unique — several runs covering the same check across browsers, environments, or reruns are expected to share one — and it never identifies a run; `EXE-####` does. It is the headline the run is listed under in the executions list and in the assigned tester's queue.
+- The purpose, the assigned tester, and the Jira issue key may be changed only while the execution is Planned; after it starts, all three are part of the record and a change is `FORBIDDEN_TRANSITION`. A purpose is never cleared, because a run always has one.
 - Start records `startedAt`. Finalization records `finalizedAt` and, for every case the execution covers, a result and non-blank `actualResult` — there is no partial finalize — then appends immutable history per case.
 - Per-case rules at finalization: a `Fail` requires a defect referencing that specific test case (an existing defect or one created in the same request); a `Blocked` requires a non-blank block reason for that case; a `Pass` must not create a defect for that case.
 - The execution-level result is derived from the per-case results: `Fail` if any case failed, else `Blocked` if any case is blocked, else `Pass`.

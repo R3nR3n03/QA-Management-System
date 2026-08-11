@@ -5,6 +5,7 @@ import { FormNotice } from "@/ui/notice";
 import type { FormState } from "@/ui/action";
 import { FilterToolbar } from "@/ui/toolbar";
 import { fieldClass, fieldProps, noticeId } from "@/ui/form";
+import { EXECUTION_PURPOSE_MAX_LENGTH } from "@/lib/field-limits";
 import { createExecutionAction } from "./actions";
 
 const FORM_ID = "plan-execution";
@@ -85,7 +86,8 @@ export function PlanForm({
   testers,
   products = [],
   preselect = [],
-  unavailable = 0
+  unavailable = 0,
+  defaultPurpose = ""
 }: {
   cases: PlanCandidate[];
   testers: PlanTester[];
@@ -95,6 +97,12 @@ export function PlanForm({
   preselect?: string[];
   /** Requested cases that are no longer offerable, reported rather than dropped. */
   unavailable?: number;
+  /**
+   * The source run's purpose when this is a rerun, so the planner edits a sentence rather
+   * than writing one. A preselection like `preselect`, never an instruction: it is a plain
+   * `defaultValue`, so typing over it is the whole of the escape hatch.
+   */
+  defaultPurpose?: string;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(createExecutionAction, null);
   const [query, setQuery] = useState("");
@@ -215,6 +223,34 @@ export function PlanForm({
           </span>
         </div>
       ) : null}
+
+      {/*
+        First, because it is the question the rest of the form answers the details of: what
+        is this run for, then which cases, then who. It is also the field every row of
+        `/executions` and `/my-work` is headed with, so it is not an afterthought at the
+        bottom. `maxLength` stops the typing at the documented cap rather than letting
+        someone write a paragraph and lose it on submit — the rule itself is the domain's,
+        which refuses a blank or over-long purpose with 422 ID_INVALID.
+      */}
+      <label className={bad("purpose")}>
+        <span>Purpose</span>
+        <input
+          name="purpose"
+          type="text"
+          required
+          maxLength={EXECUTION_PURPOSE_MAX_LENGTH}
+          defaultValue={defaultPurpose}
+          placeholder="Sprint 24 regression, Chrome"
+          autoComplete="off"
+          disabled={pending}
+          {...fieldProps(state, "purpose", FORM_ID)}
+        />
+        <span className="hint">
+          One line saying what this run checks. It is what the run is listed under in the
+          executions list and in the tester&rsquo;s queue, so make it tell them apart —
+          &ldquo;Sprint 24 regression, Chrome&rdquo;, not &ldquo;Run 3&rdquo;.
+        </span>
+      </label>
 
       {/*
         A rejected GROUP marks the section, not the controls inside it. `bad()` returns

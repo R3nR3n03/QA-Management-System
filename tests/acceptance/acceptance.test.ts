@@ -7,7 +7,15 @@ import { buildControlledValueSeedRows } from "@/lib/controlled-value-catalogues"
 import { createImportRun } from "@/domain/imports";
 import { createProduct, createModule, createFeature, createRequirement } from "@/domain/catalogue";
 import { createTestCase, replaceSteps, submitTestCase, approveTestCase, updateTestCaseDraft, retireTestCase } from "@/domain/test-cases";
-import { createExecution, startExecution, finalizeExecution, executionHistory, updateExecution } from "@/domain/executions";
+import {
+  createExecution,
+  startExecution,
+  finalizeExecution,
+  executionHistory,
+  updateExecution,
+  listExecutionsWithCase,
+  listExecutionsForTester
+} from "@/domain/executions";
 import { createDefect, transitionDefect } from "@/domain/defects";
 import { createRtmLink, dashboardSnapshot } from "@/domain/traceability";
 import {
@@ -453,7 +461,7 @@ describe("Execution", () => {
     draftCaseId = draft.id;
 
     const execution = await createExecution(
-      { businessId: "EXE-1001", testCaseIds: [caseA, caseB, caseC], testerId: tester.userId },
+      { businessId: "EXE-1001", testCaseIds: [caseA, caseB, caseC], testerId: tester.userId, purpose: "Checkout regression" },
       lead
     );
     executionId = execution.id;
@@ -472,7 +480,7 @@ describe("Execution", () => {
   it("creating an execution that includes any non-Approved case is 422; nothing is created", async () => {
     await expectAppError(
       createExecution(
-        { businessId: "EXE-1002", testCaseIds: [caseB, draftCaseId], testerId: tester.userId },
+        { businessId: "EXE-1002", testCaseIds: [caseB, draftCaseId], testerId: tester.userId, purpose: "Checkout regression" },
         lead
       ),
       422,
@@ -481,14 +489,65 @@ describe("Execution", () => {
     expect(await prisma.testExecution.findUnique({ where: { businessId: "EXE-1002" } })).toBeNull();
   });
 
+  it("creating an execution without a usable purpose is 422 ID_INVALID; nothing is created", async () => {
+    for (const purpose of ["", "   ", "x".repeat(121)]) {
+      const error = await expectAppError(
+        createExecution(
+          { businessId: "EXE-1004", testCaseIds: [caseB], testerId: tester.userId, purpose },
+          lead
+        ),
+        422,
+        "ID_INVALID"
+      );
+      expect(error.field).toBe("purpose");
+    }
+    expect(await prisma.testExecution.findUnique({ where: { businessId: "EXE-1004" } })).toBeNull();
+  });
+
+  it("the executions list and a tester's queue both find a run by words from its purpose", async () => {
+    // The purpose is the headline both screens list a run under, so a needle that matches
+    // what the reader is looking straight at must return it. One `executionWhere` serves
+    // both, and this asserts through both entry points rather than trusting that.
+    const distinctive = "Zebra smoke sweep";
+    const created = await createExecution(
+      { businessId: "EXE-1007", testCaseIds: [caseB], testerId: tester.userId, purpose: distinctive },
+      lead
+    );
+
+    const listed = await listExecutionsWithCase({ query: "zebra smoke" });
+    expect(listed.rows.map((row) => row.id)).toContain(created.id);
+
+    const queued = await listExecutionsForTester(tester.userId, { query: "zebra smoke" });
+    expect(queued.rows.map((row) => row.id)).toContain(created.id);
+  });
+
+  it("two runs may share one purpose — it identifies nothing", async () => {
+    // A browser matrix is several runs that SHOULD read alike; `EXE-####` is what tells
+    // them apart. The purpose carries no unique constraint on purpose.
+    const shared = "Sprint 24 regression";
+    const first = await createExecution(
+      { businessId: "EXE-1005", testCaseIds: [caseB], testerId: tester.userId, purpose: shared },
+      lead
+    );
+    const second = await createExecution(
+      { businessId: "EXE-1006", testCaseIds: [caseC], testerId: tester.userId, purpose: `  ${shared}  ` },
+      lead
+    );
+
+    expect(first.purpose).toBe(shared);
+    // Stored trimmed, which is also what makes the two genuinely equal rather than nearly so.
+    expect(second.purpose).toBe(shared);
+    expect(first.businessId).not.toBe(second.businessId);
+  });
+
   it("creating an execution with an empty or duplicated case list is 422", async () => {
     await expectAppError(
-      createExecution({ businessId: "EXE-1002", testCaseIds: [], testerId: tester.userId }, lead),
+      createExecution({ businessId: "EXE-1002", testCaseIds: [], testerId: tester.userId, purpose: "Checkout regression" }, lead),
       422,
       "ID_INVALID"
     );
     await expectAppError(
-      createExecution({ businessId: "EXE-1002", testCaseIds: [caseB, caseB], testerId: tester.userId }, lead),
+      createExecution({ businessId: "EXE-1002", testCaseIds: [caseB, caseB], testerId: tester.userId, purpose: "Checkout regression" }, lead),
       422,
       "ID_INVALID"
     );
@@ -652,7 +711,7 @@ describe("Execution", () => {
 
   it("a rerun covers only the blocked case and derives Pass when it passes", async () => {
     const rerun = await createExecution(
-      { businessId: "EXE-1003", testCaseIds: [caseC], testerId: tester.userId },
+      { businessId: "EXE-1003", testCaseIds: [caseC], testerId: tester.userId, purpose: "Rerun of the blocked case" },
       lead
     );
     const started = await startExecution(rerun.id, rerun.version, tester);
@@ -1115,7 +1174,7 @@ describe("Execution reassignment", () => {
     // The imported case is Approved (the interactive one was retired in Reporting).
     const approvedCase = await prisma.testCase.findUnique({ where: { businessId: "TC-PROD001-0001" } });
     const execution = await createExecution(
-      { businessId: "EXE-2001", testCaseIds: [approvedCase!.id], testerId: tester.userId },
+      { businessId: "EXE-2001", testCaseIds: [approvedCase!.id], testerId: tester.userId, purpose: "Reassignment fixture" },
       lead
     );
     reassignableId = execution.id;
@@ -1143,6 +1202,61 @@ describe("Execution reassignment", () => {
     });
   });
 
+  it("a Planned execution's purpose is reworded, stored trimmed, and audited under its own action", async () => {
+    const updated = await updateExecution(
+      reassignableId,
+      { testerId: engineer.userId, version: reassignableVersion, purpose: "  Sprint 24 regression, Chrome  " },
+      lead
+    );
+    expect(updated.purpose).toBe("Sprint 24 regression, Chrome");
+    reassignableVersion = updated.version;
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: { action: "EXECUTION_PURPOSE_CHANGED", entityId: reassignableId }
+    });
+    expect(audit?.actorId).toBe(lead.userId);
+    expect(audit?.beforeAfterJson).toEqual({
+      before: { purpose: "Reassignment fixture" },
+      after: { purpose: "Sprint 24 regression, Chrome" }
+    });
+  });
+
+  it("a blank purpose is refused rather than clearing it: 422 ID_INVALID", async () => {
+    // A run always has a purpose, so an emptied field is a rejection and never a removal —
+    // the difference between this and `jiraIssueKey`, which an empty value does clear.
+    await expectAppError(
+      updateExecution(
+        reassignableId,
+        { testerId: engineer.userId, version: reassignableVersion, purpose: "   " },
+        lead
+      ),
+      422,
+      "ID_INVALID"
+    );
+    const unchanged = await prisma.testExecution.findUnique({ where: { id: reassignableId } });
+    expect(unchanged?.purpose).toBe("Sprint 24 regression, Chrome");
+  });
+
+  it("a purpose past 120 characters is refused; exactly 120 is accepted", async () => {
+    await expectAppError(
+      updateExecution(
+        reassignableId,
+        { testerId: engineer.userId, version: reassignableVersion, purpose: "x".repeat(121) },
+        lead
+      ),
+      422,
+      "ID_INVALID"
+    );
+
+    const atLimit = await updateExecution(
+      reassignableId,
+      { testerId: engineer.userId, version: reassignableVersion, purpose: "x".repeat(120) },
+      lead
+    );
+    expect(atLimit.purpose).toHaveLength(120);
+    reassignableVersion = atLimit.version;
+  });
+
   it("reassignment to an inactive tester is refused with 422 REFERENCE_INACTIVE", async () => {
     // The person deactivated in the User administration scenarios.
     const inactive = await prisma.user.findUnique({ where: { email: "renamed.person@acceptance.local" } });
@@ -1155,6 +1269,31 @@ describe("Execution reassignment", () => {
     );
     const unchanged = await prisma.testExecution.findUnique({ where: { id: reassignableId } });
     expect(unchanged?.testerId).toBe(engineer.userId);
+  });
+
+  it("a started execution's purpose cannot be changed: 422 FORBIDDEN_TRANSITION", async () => {
+    // The purpose freezes at the same moment as the tester and the Jira key: once a run is
+    // under way, what it was for is part of the record.
+    const run = await createExecution(
+      // Deliberately BELOW the EXE-2001 fixture: the "Generated business IDs" scenarios
+      // later in this file assert the exact next allocated number, so a supplied ID above
+      // the current maximum here would move what they are allowed to expect.
+      { businessId: "EXE-1900", testCaseIds: [caseB], testerId: tester.userId, purpose: "Before it started" },
+      lead
+    );
+    const started = await startExecution(run.id, run.version, tester);
+
+    await expectAppError(
+      updateExecution(
+        started.id,
+        { testerId: tester.userId, version: started.version, purpose: "Reworded after the fact" },
+        lead
+      ),
+      422,
+      "FORBIDDEN_TRANSITION"
+    );
+    const untouched = await prisma.testExecution.findUnique({ where: { id: run.id } });
+    expect(untouched?.purpose).toBe("Before it started");
   });
 
   it("a started execution cannot be reassigned: 422 FORBIDDEN_TRANSITION", async () => {
@@ -1197,24 +1336,24 @@ describe("Generated business IDs", () => {
   });
 
   it("an ID-less execution create gets the next EXE-#### past everything persisted", async () => {
-    const created = await createExecution({ testCaseIds: [caseB], testerId: tester.userId }, lead);
+    const created = await createExecution({ testCaseIds: [caseB], testerId: tester.userId, purpose: "Generated-ID run" }, lead);
     expect(created.businessId).toBe("EXE-2002");
   });
 
   it("generation skips a number occupied by a supplied ID; the supplied path is unchanged", async () => {
     const supplied = await createExecution(
-      { businessId: "EXE-2003", testCaseIds: [caseB], testerId: tester.userId },
+      { businessId: "EXE-2003", testCaseIds: [caseB], testerId: tester.userId, purpose: "Generated-ID run" },
       lead
     );
     expect(supplied.businessId).toBe("EXE-2003");
 
     // The counter would hand out 2003 next — it is taken, so allocation probes to 2004.
-    const generated = await createExecution({ testCaseIds: [caseB], testerId: tester.userId }, lead);
+    const generated = await createExecution({ testCaseIds: [caseB], testerId: tester.userId, purpose: "Generated-ID run" }, lead);
     expect(generated.businessId).toBe("EXE-2004");
 
     // A supplied duplicate still conflicts exactly as before.
     await expectAppError(
-      createExecution({ businessId: "EXE-2003", testCaseIds: [caseB], testerId: tester.userId }, lead),
+      createExecution({ businessId: "EXE-2003", testCaseIds: [caseB], testerId: tester.userId, purpose: "Generated-ID run" }, lead),
       409,
       "ID_DUPLICATE"
     );
@@ -1259,7 +1398,7 @@ describe("Generated business IDs", () => {
   });
 
   it("one finalize with two ID-less createDefect entries draws two distinct BUG numbers", async () => {
-    const execution = await createExecution({ testCaseIds: [caseB, caseC], testerId: tester.userId }, lead);
+    const execution = await createExecution({ testCaseIds: [caseB, caseC], testerId: tester.userId, purpose: "Two-case run" }, lead);
     const started = await startExecution(execution.id, execution.version, tester);
     const finalized = await finalizeExecution(
       started.id,

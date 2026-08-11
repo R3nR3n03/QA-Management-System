@@ -21,7 +21,7 @@ Product status is imported as source data and must be a configured catalogue val
 | --- | --- | --- | --- |
 | Test case | `TC-<PRODUCT>-####` | hierarchy IDs, cycle, sprint, release, environment, priority, severity, title, objective, expectedResult, lifecycleState, optional revisesTestCaseId | has many ordered steps; covered by executions through execution test case links; traces to requirement; a Draft revision may reference the prior Approved test case it revises |
 | Test step | none | testCaseId, sequence, action, expectedResult | unique `(testCaseId, sequence)` |
-| Test execution | `EXE-####` | testerId, state, derived result when finalized, startedAt/finalizedAt as applicable, optional jiraIssueKey | covers one or more test cases through execution test case links; has many history events; may link defects; may reference one Jira issue |
+| Test execution | `EXE-####` | purpose, testerId, state, derived result when finalized, startedAt/finalizedAt as applicable, optional jiraIssueKey | covers one or more test cases through execution test case links; has many history events; may link defects; may reference one Jira issue |
 | Jira sync attempt | none | executionId, jiraIssueKey, attemptedAt, outcome, failureReason when failed | append-only; belongs to execution |
 | Execution test case | none | executionId, testCaseId, per-case result/actualResult/blockReason when finalized | unique `(executionId, testCaseId)`; belongs to execution; references a test case |
 | Execution history | none | executionId, testCaseId, result, occurredAt | append-only; belongs to execution |
@@ -29,6 +29,8 @@ Product status is imported as source data and must be a configured catalogue val
 | RTM link | none | requirementId, testCaseId, optional defectId | unique `(requirementId, testCaseId, defectId)` |
 
 Cycle, sprint, release, and environment are required text attributes in v1; this knowledge base defines no separate master entities for them. They are preserved from the workbook when present.
+
+`purpose` is a required free-text attribute of an execution: one line stating what the run exists to check, at most 120 characters after trimming. It has no master entity and is deliberately not unique — a browser matrix, a rerun, and a regression pass are several runs that are expected to read alike — and it never identifies a run, which is what `EXE-####` is for. It is the headline an execution is listed under wherever runs are listed. It may be set or changed only while the execution is Planned, on the same rule as the tester and the Jira issue key, and it is never cleared. Executions that predate the attribute carry the first covered case's title, truncated to the limit; imported executions take the covered case's title the same way, since the workbook has no column for it.
 
 `jiraIssueKey` is optional and free of any master entity here: it names a record in Jira, not in QAMS. It matches `^[A-Z][A-Z0-9]+-[0-9]+$`, and QAMS validates only that shape — an issue key that is well formed but absent from Jira is accepted, and surfaces as a failed sync attempt rather than a rejected execution. Many executions may carry the same key; it is deliberately not unique. It may be set or changed only while the execution is Planned, and is part of the record once the execution leaves Planned, on the same rule as the tester in `roles-workflows.md`.
 

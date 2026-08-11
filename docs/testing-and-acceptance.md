@@ -27,6 +27,13 @@
 | Catalogue | Create a requirement under a `featureId` that does not exist | `404 REFERENCE_NOT_FOUND` on `featureId`; nothing is created and no ID is consumed. |
 | Execution | Create an execution covering N Approved cases | `201`; one execution with one link row per case. |
 | Execution | Create an execution including any non-Approved case | `422 FORBIDDEN_TRANSITION`; nothing is created. |
+| Execution | Plan an execution with a blank or whitespace-only `purpose`, or none at all | `422 ID_INVALID` on `purpose`; nothing is created. Every run says what it exists to check. |
+| Execution | Plan an execution with a `purpose` of 121 characters | `422 ID_INVALID` on `purpose`. Exactly 120 is accepted, and the length is measured after trimming, so surrounding whitespace never pushes a value over. |
+| Execution | Plan two executions with the same `purpose` | Both `201`. The purpose is not unique and identifies nothing — a browser matrix and a rerun are expected to share one. |
+| Execution | Change the `purpose` of a Planned execution | `200`; the new value is stored trimmed and a distinct audit event records the before/after. |
+| Execution | Change the `purpose` of an In Progress or Finalized execution | `422 FORBIDDEN_TRANSITION`; the purpose, the tester, and the Jira issue key all freeze when the run leaves Planned. |
+| Execution | Submit the edit form for a Planned run with the purpose box emptied | `422 ID_INVALID` on `purpose`. A purpose is never cleared, so an empty box is a rejection rather than a removal — the edit is never silently discarded. |
+| Execution | Search the executions list or the tester's queue by words from a run's purpose | The run is returned. The purpose is the headline both screens list a run under, so the needle matches what the reader is looking at. |
 | Execution | Start an assigned execution over Approved cases | State becomes In Progress and `startedAt` is set. |
 | Execution | Finalize with a missing, extra, or duplicated case in `results[]` | `422 ID_INVALID`; every covered case must appear exactly once. |
 | Execution | Finalize a failing case without a same-case defect | `422` with documented rule failure. |

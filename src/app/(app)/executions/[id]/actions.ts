@@ -62,8 +62,22 @@ export async function updateExecutionAction(_prev: FormState, formData: FormData
   // not the usual `String(get(...) ?? "")`.
   const jiraIssueKey = readOptionalText(formData, "jiraIssueKey");
 
+  /*
+   * Deliberately NOT `readOptionalText`. That helper maps a cleared box to `null`, meaning
+   * "remove the stored value" — right for the Jira key, wrong here, because a purpose is
+   * required and so has no cleared state. Routed through it, emptying the box would send
+   * `undefined` ("leave it alone") and the edit would be silently discarded: the form would
+   * redirect looking successful while still showing the old purpose.
+   *
+   * So an absent field is still `undefined` ("this form said nothing about the purpose"),
+   * but a submitted empty one travels as `""` and is refused by the domain with
+   * 422 ID_INVALID naming the field.
+   */
+  const rawPurpose = formData.get("purpose");
+  const purpose = typeof rawPurpose === "string" ? rawPurpose : undefined;
+
   const result = await runAction((actor) =>
-    updateExecution(id, { testerId, version, jiraIssueKey }, actor)
+    updateExecution(id, { testerId, version, purpose, jiraIssueKey }, actor)
   );
 
   if (!result.ok) return failState(result);

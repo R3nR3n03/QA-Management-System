@@ -19,7 +19,7 @@ import { requireSession } from "@/ui/session";
 import { StepsDisclosure } from "@/ui/steps-disclosure";
 import { Stepper } from "@/ui/stepper";
 import { FinalizeForm } from "./FinalizeForm";
-import { ReassignForm } from "./ReassignForm";
+import { PlannedRunForm } from "./PlannedRunForm";
 import { RunSummary } from "./RunSummary";
 import { StartForm } from "./StartForm";
 
@@ -205,8 +205,9 @@ export default async function ExecutionPage({
 
       {/* The record's identity is its business ID — the thing people quote, search and
           compare — so that is the h1, with the two chips that qualify it beside it. The
-          title of what it covers is the line under it, where a multi-case run can say so
-          without pretending to be one case. */}
+          purpose is the line under it, the same headline the run is listed under; what it
+          covers follows in the line of facts, where a multi-case run can say so without
+          pretending to be one case. */}
       <div className="page-head">
         <div className="cluster">
           <h1 className="run-id">{execution.businessId}</h1>
@@ -214,15 +215,18 @@ export default async function ExecutionPage({
           {execution.result ? <OutcomeChip outcome={execution.result} /> : null}
         </div>
         {rerunCaseIds.length > 0 ? (
-          <Link className="btn btn-secondary" href={`/executions/new?cases=${rerunCaseIds.join(",")}`}>
+          /* `from` carries the source run, not its text: the plan screen looks the purpose up
+             server-side so a sentence never travels through a query string. */
+          <Link
+            className="btn btn-secondary"
+            href={`/executions/new?cases=${rerunCaseIds.join(",")}&from=${execution.id}`}
+          >
             Plan a rerun of {rerunCaseIds.length} case{rerunCaseIds.length === 1 ? "" : "s"}
           </Link>
         ) : null}
       </div>
 
-      <p className="run-lede">
-        {single ? single.testCase.title : `${execution.cases.length} test cases in one run`}
-      </p>
+      <p className="run-lede">{execution.purpose}</p>
       {/* Assignment and the Jira task, in one line of facts about the run.
 
           The issue key used to be visible ONLY inside the reassignment form's input, which
@@ -231,7 +235,12 @@ export default async function ExecutionPage({
           It belongs here instead: an attribute of the record, in every lifecycle state, for
           every role that may view the run. */}
       <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
-        Assigned to {execution.tester.displayName}
+        {/* What the run covers. It moved off the lede when the purpose took that slot, and
+            it is a fact about the run like the assignee and the Jira task, so it reads in
+            the same line as them. */}
+        {single ? single.testCase.title : `${execution.cases.length} test cases in one run`}
+        {" · Assigned to "}
+        {execution.tester.displayName}
         {isAssignee ? " (you)" : ""}
         {execution.jiraIssueKey ? (
           <>
@@ -494,9 +503,10 @@ export default async function ExecutionPage({
               <>
                 <h3>Ready to start</h3>
                 <StartForm executionId={execution.id} version={execution.version} />
-                <ReassignForm
+                <PlannedRunForm
                   executionId={execution.id}
                   version={execution.version}
+                  currentPurpose={execution.purpose}
                   currentTesterId={execution.testerId}
                   currentJiraIssueKey={execution.jiraIssueKey}
                   testers={assignableTesters}
