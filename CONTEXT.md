@@ -101,6 +101,15 @@ started it. "Plan an execution" is the act that creates one, and it produces an 
 this state — never a separate record of its own.
 _Avoid_: draft, scheduled, pending, plan (as a noun)
 
+**Feature group**:
+One feature and the approved test cases under it, as the planning picker lists them — the
+unit a planner opens, and the unit they can take whole in one click. Distinct from a
+[branch](#the-catalogue-screen), which belongs to the catalogue tree and draws catalogue
+records; a feature group belongs to the picker and draws test cases. The picker is not a
+tree and has only this one level.
+_Avoid_: bucket, section, folder, node. Plain "group" is fine in prose about the picker,
+where nothing else is grouped.
+
 ## Jira
 
 **Jira issue key**:

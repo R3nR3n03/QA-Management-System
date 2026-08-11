@@ -6,33 +6,17 @@ import type { FormState } from "@/ui/action";
 import { FilterToolbar } from "@/ui/toolbar";
 import { fieldClass, fieldProps, noticeId } from "@/ui/form";
 import { EXECUTION_PURPOSE_MAX_LENGTH } from "@/lib/field-limits";
+import {
+  dropExplicitCloses,
+  groupCandidates,
+  isFiltering,
+  RENDER_LIMIT,
+  type PlanCandidate,
+  type PlanGroup
+} from "@/ui/plan-grouping";
 import { createExecutionAction } from "./actions";
 
 const FORM_ID = "plan-execution";
-
-/**
- * How many candidate rows are put in the DOM at once. The approved corpus is unbounded
- * — it is every Approved case in the system — and a checkbox per case stops being a
- * picker somewhere in the hundreds: the browser lays out every row, and a list nobody
- * can read to the end of is not a list anyone chooses from. Past this, the filter is
- * the way through, and the count below says so rather than the list just ending.
- */
-const RENDER_LIMIT = 100;
-
-export type PlanCandidate = {
-  id: string;
-  businessId: string;
-  title: string;
-  priority: string;
-  severity: string;
-  productId: string;
-  featureId: string;
-  featureBusinessId: string;
-  requirementId: string;
-  requirementBusinessId: string;
-  moduleName: string;
-  featureName: string;
-};
 
 export type PlanProduct = { id: string; businessId: string; name: string };
 
@@ -44,25 +28,6 @@ export type PlanTester = {
 };
 
 /**
- * Everything about a candidate the filter can match. Built from the same fields the row
- * displays, deliberately: a needle that matches something invisible looks broken, and a
- * visible field the needle ignores looks broken in the other direction.
- */
-function haystack(candidate: PlanCandidate): string {
-  return [
-    candidate.businessId,
-    candidate.title,
-    candidate.moduleName,
-    candidate.featureName,
-    candidate.requirementBusinessId,
-    candidate.priority,
-    candidate.severity
-  ]
-    .join(" ")
-    .toLowerCase();
-}
-
-/**
  * Planning is a small decision: which approved cases, who runs them. The execution ID
  * is allocated by the server (`docs/business-rules-and-validation.md:11`), so nobody
  * types one. One execution may cover one or more Approved cases selected together
@@ -70,13 +35,22 @@ function haystack(candidate: PlanCandidate): string {
  * finalize. Only Approved cases are offered because only they can be executed
  * (`docs/data-model.md:47`) — and the domain re-checks that whichever caller asks.
  *
+ * ## Cases are grouped by feature, not listed flat
+ *
+ * The corpus is every Approved case in the system, and a flat list of it makes a planner
+ * read hundreds of rows to assemble a run they think of in features. So the picker shows
+ * one collapsed group per feature and lets a whole feature be taken in one click. The
+ * grouping, filtering, open/closed and render-cap rules all live in
+ * `src/ui/plan-grouping.ts`, which is where their combinations are tested; this file
+ * renders what that returns.
+ *
  * ## The selection is the thing this screen must not lose
  *
- * Two mechanisms narrow what is on screen — the filter, and the cap on rendered rows —
- * and NEITHER may narrow what is submitted. A case selected but not currently rendered
- * travels as a hidden input, the count says how many are off screen, and "Only selected"
- * makes them visible again. A run that quietly covers less than the person planning it
- * believed is a mistake they would not discover until finalize.
+ * Three things now narrow what is on screen — the filters, the collapsed groups, and the
+ * cap on rendered rows — and NONE of them may narrow what is submitted. A case selected
+ * but not currently rendered travels as a hidden input, the count says how many are off
+ * screen, and "Only selected" makes them visible again. A run that quietly covers less
+ * than the person planning it believed is a mistake they would not discover until finalize.
  *
  * Nothing here validates. Non-empty and no-duplicates are enforced in `createExecution`;
  * a disabled submit is a courtesy.
@@ -105,64 +79,57 @@ export function PlanForm({
   defaultPurpose?: string;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(createExecutionAction, null);
-  const [query, setQuery] = useState("");
+  const [needle, setNeedle] = useState("");
   const [productId, setProductId] = useState("");
-  const [featureId, setFeatureId] = useState("");
   const [requirementId, setRequirementId] = useState("");
   const [onlySelected, setOnlySelected] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(preselect));
+  /**
+   * The reader's explicit open/closed choices, by feature id. Absent means "follow the
+   * automatic rules" — which is not the same as closed, and is why this is a Map of choices
+   * rather than a Set of open ids: a group holding a selection is open until someone closes
+   * it, and only an explicit `false` can express that.
+   */
+  const [openOverride, setOpenOverride] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const bad = (field: string) => fieldClass(state, field);
 
   /*
-   * Feature and requirement options come from the candidates themselves, not a separate
-   * catalogue fetch — every case already carries its own hierarchy, so there is nothing
-   * a server round-trip would add. Each is scoped to whatever the broader facet(s) left
-   * (feature within the current product; requirement within the current product AND
-   * feature), for the same reason `page.tsx` only offers products with a candidate
-   * behind them: an option that empties the list on selection reads as a broken filter.
+   * Requirement options come from the candidates themselves, not a separate catalogue fetch
+   * — every case already carries its own hierarchy, so there is nothing a server round-trip
+   * would add. Scoped to whatever the product left, for the same reason `page.tsx` only
+   * offers products with a candidate behind them: an option that empties the list on
+   * selection reads as a broken filter.
+   *
+   * There is no feature dropdown any more. The groups ARE the features, and two controls
+   * doing one job make a reader hunt for a difference that is not there.
    */
-  const featureOptions = useMemo(() => {
-    const scoped = productId === "" ? cases : cases.filter((testCase) => testCase.productId === productId);
-    const byId = new Map<string, string>();
-    for (const testCase of scoped) byId.set(testCase.featureId, testCase.featureBusinessId);
-    return [...byId.entries()]
-      .map(([id, businessId]) => ({ id, businessId }))
-      .sort((a, b) => a.businessId.localeCompare(b.businessId));
-  }, [cases, productId]);
-
   const requirementOptions = useMemo(() => {
-    let scoped = productId === "" ? cases : cases.filter((testCase) => testCase.productId === productId);
-    if (featureId !== "") scoped = scoped.filter((testCase) => testCase.featureId === featureId);
+    const scoped = productId === "" ? cases : cases.filter((testCase) => testCase.productId === productId);
     const byId = new Map<string, string>();
     for (const testCase of scoped) byId.set(testCase.requirementId, testCase.requirementBusinessId);
     return [...byId.entries()]
       .map(([id, businessId]) => ({ id, businessId }))
       .sort((a, b) => a.businessId.localeCompare(b.businessId));
-  }, [cases, productId, featureId]);
+  }, [cases, productId]);
 
-  const matching = useMemo(() => {
-    let pool = onlySelected ? cases.filter((testCase) => selected.has(testCase.id)) : cases;
-    // Product first: it is the broadest cut. Feature narrows within whatever the
-    // product left, requirement narrows within whatever feature left — each one's own
-    // options are scoped the same way — and the needle searches within whatever all
-    // three leave, rather than across the whole catalogue.
-    if (productId !== "") pool = pool.filter((testCase) => testCase.productId === productId);
-    if (featureId !== "") pool = pool.filter((testCase) => testCase.featureId === featureId);
-    if (requirementId !== "") pool = pool.filter((testCase) => testCase.requirementId === requirementId);
-    const needle = query.trim().toLowerCase();
-    if (!needle) return pool;
-    return pool.filter((testCase) => haystack(testCase).includes(needle));
-  }, [cases, query, productId, featureId, requirementId, onlySelected, selected]);
+  const filters = useMemo(
+    () => ({ needle, productId, requirementId, onlySelected }),
+    [needle, productId, requirementId, onlySelected]
+  );
 
-  // What is actually rendered. Everything below keys off THIS, not `matching` — a
-  // hidden input is what keeps an off-screen selection in the submitted body, so the
-  // set of on-screen ids has to be the set with real checkboxes in it.
-  const visible = useMemo(() => matching.slice(0, RENDER_LIMIT), [matching]);
-  const withheld = matching.length - visible.length;
+  const grouping = useMemo(
+    () => groupCandidates({ cases, filters, selected, openOverride }),
+    [cases, filters, selected, openOverride]
+  );
 
-  const visibleIds = useMemo(() => new Set(visible.map((testCase) => testCase.id)), [visible]);
-  const allVisibleSelected = visible.length > 0 && visible.every((testCase) => selected.has(testCase.id));
-  const hiddenSelected = [...selected].filter((id) => !visibleIds.has(id));
+  const filtering = isFiltering(filters);
+  const hiddenSelected = [...selected].filter((id) => !grouping.renderedIds.has(id));
+  const anyOpen = grouping.groups.some((group) => group.open);
+  /* Only a group the cap actually cut warrants the global notice. `matchingCount` exceeds
+     `renderedCount` whenever anything is collapsed, which is almost always. */
+  const capReached = grouping.groups.some(
+    (group) => group.open && group.rendered.length < group.matching.length
+  );
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -172,40 +139,65 @@ export function PlanForm({
       return next;
     });
 
-  const toggleAllVisible = () =>
+  const toggleGroupOpen = (group: PlanGroup) =>
+    setOpenOverride((prev) => new Map(prev).set(group.featureId, !group.open));
+
+  /* Every group explicitly closed, not merely cleared: clearing would let the automatic
+     rules re-open the ones holding a selection, so the button would appear to do nothing.
+     Those closes are forgotten the next time the needle changes — see `changeNeedle`. */
+  const collapseAll = () =>
+    setOpenOverride(new Map(grouping.groups.map((group) => [group.featureId, false])));
+
+  /*
+   * Typing forgets the reader's explicit CLOSES and keeps their opens.
+   *
+   * Without this, one "Collapse all" would disable search for the rest of the session: it has
+   * to record a close on every group, an explicit close outranks the needle, and there is no
+   * expand-all to recover with — so the next search would match cases inside groups that stay
+   * shut, showing headers and no rows.
+   */
+  const changeNeedle = (next: string) => {
+    setNeedle(next);
+    setOpenOverride(dropExplicitCloses);
+  };
+
+  /*
+   * Acts on what the filters left in this group, which is the number its label states —
+   * never on cases a filter excluded. Where the render cap has also cut the group, the
+   * label still counts everything matching and the group says "showing 3 of 8", so the
+   * reader is told why fewer rows are visible than the number they clicked.
+   */
+  const toggleGroupSelection = (group: PlanGroup) =>
     setSelected((prev) => {
       const next = new Set(prev);
-      for (const testCase of visible) {
-        if (allVisibleSelected) next.delete(testCase.id);
-        else next.add(testCase.id);
+      const all = group.selectedCount === group.matching.length;
+      for (const one of group.matching) {
+        if (all) next.delete(one.id);
+        else next.add(one.id);
       }
       return next;
     });
 
   const showAll = () => {
     setOnlySelected(false);
-    setQuery("");
+    changeNeedle("");
     setProductId("");
-    setFeatureId("");
     setRequirementId("");
   };
 
   const productName = products.find((product) => product.id === productId)?.name;
-  const featureName = featureOptions.find((feature) => feature.id === featureId)?.businessId;
   const requirementName = requirementOptions.find((requirement) => requirement.id === requirementId)?.businessId;
-  const scopeLabel = [productName, featureName, requirementName].filter(Boolean).join(" · ");
+  const scopeLabel = [productName, requirementName].filter(Boolean).join(" · ");
 
   /*
    * A needle earns its place once the list is long enough to be worth narrowing; the
-   * product, feature, and requirement dropdowns earn theirs as soon as there is
-   * anything to offer, regardless of how many candidates are on screen. Different
-   * questions, so different conditions — and every option offered always has a
-   * candidate behind it (`page.tsx` for products; `featureOptions`/`requirementOptions`
-   * are built the same way).
+   * product and requirement dropdowns earn theirs as soon as there is anything to offer,
+   * regardless of how many candidates are on screen. Different questions, so different
+   * conditions — and every option offered always has a candidate behind it (`page.tsx` for
+   * products; `requirementOptions` is built the same way).
    */
   const showNeedle = cases.length > 5;
   const showProducts = products.length > 0;
-  const showFeatures = featureOptions.length > 0;
   const showRequirements = requirementOptions.length > 0;
 
   return (
@@ -263,12 +255,12 @@ export function PlanForm({
       <fieldset className={`form-section${state?.field === "testCaseIds" ? " form-section-bad" : ""}`}>
         <legend>Approved test cases</legend>
         <div className="stack">
-          {showNeedle || showProducts || showFeatures || showRequirements ? (
+          {showNeedle || showProducts || showRequirements ? (
             <div className="row">
               {showNeedle ? (
                 <FilterToolbar
-                  value={query}
-                  onChange={setQuery}
+                  value={needle}
+                  onChange={changeNeedle}
                   placeholder="Filter by ID, title, module, feature, requirement, priority…"
                   label="Filter approved test cases"
                 />
@@ -284,11 +276,9 @@ export function PlanForm({
                   value={productId}
                   onChange={(event) => {
                     setProductId(event.target.value);
-                    // The feature and requirement options are about to be rescoped to
-                    // the new product; a selection from the old scope could now point at
-                    // a feature or requirement no other row shares, which would look
-                    // like a second, unexplained filter narrowing the list.
-                    setFeatureId("");
+                    // The requirement options are about to be rescoped to the new product;
+                    // a selection from the old scope could now match no row at all, which
+                    // would look like a second, unexplained filter narrowing the list.
                     setRequirementId("");
                   }}
                   disabled={pending}
@@ -297,28 +287,6 @@ export function PlanForm({
                   {products.map((product) => (
                     <option key={product.id} value={product.id}>
                       {product.businessId} · {product.name}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              {showFeatures ? (
-                <select
-                  className="select-filter"
-                  aria-label="Filter by feature"
-                  value={featureId}
-                  onChange={(event) => {
-                    setFeatureId(event.target.value);
-                    // Same reasoning as the product reset above, one level narrower:
-                    // the requirement options are about to be rescoped to the new
-                    // feature.
-                    setRequirementId("");
-                  }}
-                  disabled={pending}
-                >
-                  <option value="">All features</option>
-                  {featureOptions.map((feature) => (
-                    <option key={feature.id} value={feature.id}>
-                      {feature.businessId}
                     </option>
                   ))}
                 </select>
@@ -345,9 +313,10 @@ export function PlanForm({
           <div className="pick-bar">
             <span className="pick-bar-count">
               {selected.size} case{selected.size === 1 ? "" : "s"} selected
-              {/* The selection outlives the filter, so it can exceed what is on screen.
-                  Saying how many are off-screen is what makes the count trustworthy —
-                  otherwise "12 selected" over four visible ticks reads as a bug. */}
+              {/* The selection outlives the filter and survives a collapsed group, so it can
+                  exceed what is on screen. Saying how many are off-screen is what makes the
+                  count trustworthy — otherwise "12 selected" over four visible ticks reads
+                  as a bug. */}
               {hiddenSelected.length > 0 ? ` (${hiddenSelected.length} not shown)` : ""}
             </span>
             {/* The way back to an off-screen selection. Without this the only record of
@@ -364,16 +333,12 @@ export function PlanForm({
                 Only selected
               </button>
             ) : null}
-            {visible.length > 0 ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={toggleAllVisible}
-                disabled={pending}
-              >
-                {allVisibleSelected
-                  ? `Clear the ${visible.length} shown`
-                  : `Select all ${visible.length} shown`}
+            {/* There is no "expand all": opening everything rebuilds the flat list this
+                grouping exists to replace, and hands the reader a capped one at that. The
+                way back from five opened groups is what earns a control. */}
+            {anyOpen ? (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={collapseAll} disabled={pending}>
+                Collapse all
               </button>
             ) : null}
             {selected.size > 0 ? (
@@ -399,13 +364,12 @@ export function PlanForm({
             aria-invalid={state?.field === "testCaseIds" ? true : undefined}
             aria-describedby={state?.field === "testCaseIds" ? noticeId(FORM_ID) : undefined}
           >
-            {visible.length === 0 ? (
+            {grouping.groups.length === 0 ? (
               <div className="empty">
                 {/* Several different nothings, and confusing them wastes the reader's
                     time: an empty selection, a scope that excludes the selection, a
-                    product/feature/requirement scope with no match, and a needle that
-                    matches nothing at all. Each names the filter that actually emptied
-                    the list. */}
+                    product/requirement scope with no match, and a needle that matches
+                    nothing at all. Each names the filter that actually emptied the list. */}
                 {onlySelected && selected.size === 0 ? (
                   <p>Nothing is selected yet.</p>
                 ) : onlySelected ? (
@@ -415,75 +379,158 @@ export function PlanForm({
                       : `None of the ${selected.size} selected cases are in`}{" "}
                     this scope.
                   </p>
-                ) : query !== "" ? (
+                ) : needle !== "" ? (
                   <p>
-                    Nothing matches &ldquo;{query}&rdquo;
+                    Nothing matches &ldquo;{needle}&rdquo;
                     {scopeLabel ? ` in ${scopeLabel}` : ""}.
                   </p>
                 ) : (
                   <p>{scopeLabel || "This scope"} has no approved cases to plan.</p>
                 )}
-                {onlySelected || query !== "" || productId !== "" || featureId !== "" || requirementId !== "" ? (
+                {filtering ? (
                   <button type="button" className="btn btn-ghost btn-sm" onClick={showAll}>
                     Show all approved cases
                   </button>
                 ) : null}
               </div>
             ) : (
-              visible.map((testCase) => (
-                <label
-                  key={testCase.id}
-                  className={selected.has(testCase.id) ? "pick-row pick-row-on" : "pick-row"}
-                >
-                  <input
-                    type="checkbox"
-                    name="testCaseIds"
-                    value={testCase.id}
-                    checked={selected.has(testCase.id)}
-                    onChange={() => toggle(testCase.id)}
-                    disabled={pending}
-                  />
-                  <span className="pick-body">
-                    <span className="pick-head">
-                      <span className="bid">{testCase.businessId}</span>
-                      <span className="pick-title">{testCase.title}</span>
-                    </span>
-                    {/* Runs get scoped by area and by priority, so those are what a row
-                        has to show — as two separate chunks, because they answer two
-                        different questions. Module, feature, and requirement come from
-                        the hierarchy: the business ID encodes only the product. The
-                        requirement is shown because the needle can match it — a needle
-                        match on something invisible would read as broken. */}
-                    <span className="pick-meta">
-                      <span>
-                        {testCase.moduleName} · {testCase.featureName} · {testCase.requirementBusinessId}
-                      </span>
-                      <span>
-                        {testCase.priority || "no"} priority · {testCase.severity || "no"} severity
-                      </span>
-                    </span>
-                  </span>
-                </label>
-              ))
+              grouping.groups.map((group) => {
+                const all = group.selectedCount === group.matching.length;
+                const partial = group.selectedCount > 0 && !all;
+                /* The label always states the number the click will actually take, so no
+                   control in this list can under-select silently — the failure the old
+                   global "Select all N shown" had once the corpus passed the cap. */
+                const scope = filtering ? "matching in" : "in";
+                const groupAction = all
+                  ? `Clear the ${group.matching.length} ${scope} ${group.featureBusinessId}`
+                  : `Select all ${group.matching.length} ${scope} ${group.featureBusinessId}`;
+
+                return (
+                  <div className="pick-group" key={group.featureId}>
+                    <div className="pick-group-head">
+                      {/* Checkbox and disclosure are siblings, never one inside the other:
+                          a control nested in a button is neither reachable nor announced
+                          as itself. */}
+                      <input
+                        type="checkbox"
+                        checked={all}
+                        aria-label={groupAction}
+                        title={groupAction}
+                        ref={(node) => {
+                          // React has no prop for the third state, and an unchecked box
+                          // over a part-selected feature reads as "none of these".
+                          //
+                          // This must stay an inline arrow. A fresh function each render is
+                          // what makes React detach and reattach the ref, which is the only
+                          // thing that re-runs this line when `partial` changes — memoize it
+                          // and the third state silently freezes at its first value.
+                          if (node) node.indeterminate = partial;
+                        }}
+                        onChange={() => toggleGroupSelection(group)}
+                        disabled={pending}
+                      />
+                      <button
+                        type="button"
+                        className="pick-group-toggle"
+                        aria-expanded={group.open}
+                        onClick={() => toggleGroupOpen(group)}
+                        disabled={pending}
+                      >
+                        <span className="pick-group-name">
+                          <span className="bid">{group.featureBusinessId}</span>
+                          <span className="pick-title">{group.featureName}</span>
+                          <span className="pick-group-module">{group.moduleName}</span>
+                        </span>
+                        <span className="pick-group-count">
+                          {group.selectedCount} of {group.matching.length} selected
+                        </span>
+                      </button>
+                    </div>
+
+                    {group.open ? (
+                      <div className="pick-group-body">
+                        {group.rendered.map((testCase) => (
+                          <label
+                            key={testCase.id}
+                            className={selected.has(testCase.id) ? "pick-row pick-row-on" : "pick-row"}
+                          >
+                            <input
+                              type="checkbox"
+                              name="testCaseIds"
+                              value={testCase.id}
+                              checked={selected.has(testCase.id)}
+                              onChange={() => toggle(testCase.id)}
+                              disabled={pending}
+                            />
+                            <span className="pick-body">
+                              <span className="pick-head">
+                                <span className="bid">{testCase.businessId}</span>
+                                <span className="pick-title">{testCase.title}</span>
+                              </span>
+                              {/* Runs get scoped by area and by priority, so those are what
+                                  a row has to show. The feature and module are on the group
+                                  header rather than repeated on every row; the requirement
+                                  stays because the needle can match it, and a needle match
+                                  on something invisible reads as broken. */}
+                              <span className="pick-meta">
+                                <span>{testCase.requirementBusinessId}</span>
+                                <span>
+                                  {testCase.priority || "no"} priority · {testCase.severity || "no"} severity
+                                </span>
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                        {/* A truncated group says so. Silence here would read as a complete
+                            feature, and the reader would plan against cases they never saw.
+
+                            An open group with NOTHING rendered is a different sentence: the
+                            budget was spent by the groups above it, and "showing 0 of 8" would
+                            read as a feature that has no cases rather than one there was no
+                            room for. */}
+                        {group.rendered.length === 0 ? (
+                          <p className="pick-group-note">
+                            No room left to show {group.featureBusinessId}&rsquo;s{" "}
+                            {group.matching.length} case{group.matching.length === 1 ? "" : "s"} —
+                            the list is capped at {RENDER_LIMIT} rows. Collapse a feature above to
+                            make room.
+                          </p>
+                        ) : group.rendered.length < group.matching.length ? (
+                          <p className="pick-group-note">
+                            Showing {group.rendered.length} of {group.matching.length} in{" "}
+                            {group.featureBusinessId} — the list is capped at {RENDER_LIMIT} rows.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })
             )}
           </div>
 
-          {withheld > 0 ? (
+          {/* Counted over the OPEN groups only. `matchingCount` includes every collapsed
+              group, and blaming the cap for cases that are merely put away would send a reader
+              to narrow a filter that was never the reason they are missing. */}
+          {capReached ? (
             <p className="hint" style={{ margin: 0 }}>
-              Showing the first {visible.length} of {matching.length} approved cases — narrow the
-              filter to reach the rest. Anything already selected still submits.
+              {grouping.renderedCount} of the {grouping.openMatchingCount} cases in the open
+              features are on screen — collapse a feature or narrow the filter to reach the rest.
+              Anything already selected still submits.
             </p>
           ) : null}
 
-          {/* Cases selected but not on screen — filtered out, or past the render limit —
-              still submit. Neither narrowing nor capping the list drops a choice. */}
+          {/* Cases selected but without a checkbox on screen — filtered out, inside a
+              collapsed group, or past the render cap — still submit. Nothing that narrows
+              the list may narrow the run. */}
           {hiddenSelected.map((id) => (
             <input key={id} type="hidden" name="testCaseIds" value={id} />
           ))}
 
           <span className="hint">
-            Select one or more — the run covers them together, and each gets its own result at
-            finalize. The execution ID is assigned automatically.
+            Open a feature to pick cases, or tick the feature to take all of them. The run covers
+            them together, and each gets its own result at finalize. The execution ID is assigned
+            automatically.
           </span>
         </div>
       </fieldset>

@@ -9,12 +9,16 @@ vi.mock("./actions", () => ({ createExecutionAction: vi.fn(async () => null) }))
 import { PlanForm } from "./PlanForm";
 
 /**
- * The planner picks the cases a run will cover. Two things narrow what is on screen —
- * the filter, and the cap on how many rows are rendered at once — and NEITHER may
- * narrow what is submitted. A silently dropped case means a run that covers less than
- * the person planning it believed, which they would only discover at finalize.
+ * The planner picks the cases a run will cover. Three things narrow what is on screen — the
+ * filters, the collapsed feature groups, and the cap on how many rows are rendered at once —
+ * and NONE of them may narrow what is submitted. A silently dropped case means a run that
+ * covers less than the person planning it believed, which they would only discover at finalize.
  *
- * So every assertion here is about the submitted body rather than the visible list.
+ * So the assertions that matter here are about the submitted body rather than the visible list.
+ *
+ * The grouping, filtering, open/closed and cap rules themselves live in
+ * `src/ui/plan-grouping.ts` and are tested there against a table of cases. This file is about
+ * what the rendered form does with them.
  */
 
 afterEach(cleanup);
@@ -22,14 +26,12 @@ afterEach(cleanup);
 const pad = (n: number) => String(n).padStart(4, "0");
 
 /**
- * Odd cases sit in product-a/Checkout/High, even ones in product-b/Search/Low, so the
- * filters have something to separate that is neither the ID nor the title. Requirements
- * split further within each product — product-a's odds split into req-1/req-2, product-b's
- * evens into req-3/req-4 — so a requirement filter has something to narrow that a product
- * filter alone would not. Feature sits one level of product-a/product-b here (one feature
- * per product, matching the existing "Card payment"/"Autocomplete" split) — a dedicated
- * `FEATURE_CASES` fixture below covers a product with more than one feature, since this
- * shared fixture is also depended on by every other test in the file.
+ * Odd cases sit in product-a/FEAT001 (Checkout · Card payment) at High priority, even ones in
+ * product-b/FEAT002 (Search · Autocomplete) at Low — so the product filter, the feature
+ * grouping and the needle each have something to separate that is neither the ID nor the
+ * title. Requirements split further within each product — product-a's odds into req-1/req-2,
+ * product-b's evens into req-3/req-4 — so a requirement filter narrows what a product filter
+ * alone would not.
  */
 function makeCases(count: number) {
   return Array.from({ length: count }, (_, index) => {
@@ -54,98 +56,22 @@ function makeCases(count: number) {
 }
 
 /**
- * product-a has two features here (unlike `makeCases`, which gives each product exactly
- * one) — feature-1 with two requirements, feature-2 with one — so a feature filter has
- * something to narrow within a product, and a requirement filter has something to narrow
- * within a feature. product-b's single feature/requirement is there so a product switch
- * has somewhere else to land.
+ * One feature holding everything, so the render cap can bite INSIDE a group.
+ *
+ * `makeCases` spreads its cases over two features, and with the cap at 100 neither half of a
+ * 140-case corpus reaches it on its own — the cap is only observable once a single group has
+ * more matching cases than the whole list may render.
  */
-const FEATURE_CASES = [
-  {
-    id: "f-1",
-    businessId: "TC-FEAT-0001",
-    title: "Feature case 1",
-    priority: "High",
-    severity: "Major",
+function oneFeatureCases(count: number) {
+  return makeCases(count).map((one) => ({
+    ...one,
     productId: "product-a",
     featureId: "feature-1",
     featureBusinessId: "FEAT001",
-    requirementId: "req-1",
-    requirementBusinessId: "REQ001",
     moduleName: "Checkout",
     featureName: "Card payment"
-  },
-  {
-    id: "f-2",
-    businessId: "TC-FEAT-0002",
-    title: "Feature case 2",
-    priority: "High",
-    severity: "Major",
-    productId: "product-a",
-    featureId: "feature-1",
-    featureBusinessId: "FEAT001",
-    requirementId: "req-2",
-    requirementBusinessId: "REQ002",
-    moduleName: "Checkout",
-    featureName: "Card payment"
-  },
-  {
-    id: "f-3",
-    businessId: "TC-FEAT-0003",
-    title: "Feature case 3",
-    priority: "High",
-    severity: "Major",
-    productId: "product-a",
-    featureId: "feature-2",
-    featureBusinessId: "FEAT002",
-    requirementId: "req-3",
-    requirementBusinessId: "REQ003",
-    moduleName: "Checkout",
-    featureName: "Card refund"
-  },
-  {
-    id: "f-4",
-    businessId: "TC-FEAT-0004",
-    title: "Feature case 4",
-    priority: "Low",
-    severity: "Minor",
-    productId: "product-b",
-    featureId: "feature-3",
-    featureBusinessId: "FEAT003",
-    requirementId: "req-4",
-    requirementBusinessId: "REQ004",
-    moduleName: "Search",
-    featureName: "Autocomplete"
-  },
-  {
-    id: "f-5",
-    businessId: "TC-FEAT-0005",
-    title: "Feature case 5",
-    priority: "Low",
-    severity: "Minor",
-    productId: "product-b",
-    featureId: "feature-3",
-    featureBusinessId: "FEAT003",
-    requirementId: "req-5",
-    requirementBusinessId: "REQ005",
-    moduleName: "Search",
-    featureName: "Autocomplete"
-  },
-  {
-    id: "f-6",
-    businessId: "TC-FEAT-0006",
-    title: "Feature case 6",
-    priority: "Low",
-    severity: "Minor",
-    productId: "product-b",
-    featureId: "feature-4",
-    featureBusinessId: "FEAT004",
-    requirementId: "req-6",
-    requirementBusinessId: "REQ006",
-    moduleName: "Search",
-    featureName: "Autocomplete"
-  }
-];
+  }));
+}
 
 const PRODUCTS = [
   { id: "product-a", businessId: "PROD001", name: "Storefront" },
@@ -167,10 +93,26 @@ function submittedIds(container: HTMLElement): string[] {
     .sort();
 }
 
+/**
+ * The case checkboxes only. A group header carries a checkbox of its own — the one that takes
+ * the whole feature — so counting every checkbox on screen would count controls, not
+ * candidates.
+ */
+function caseBoxes(container: HTMLElement): HTMLInputElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[name="testCaseIds"]:not([type="hidden"])')
+  );
+}
+
 const filterBox = () => screen.getByLabelText("Filter approved test cases");
 const productBox = () => screen.getByLabelText("Filter by product") as HTMLSelectElement;
-const featureBox = () => screen.getByLabelText("Filter by feature") as HTMLSelectElement;
 const requirementBox = () => screen.getByLabelText("Filter by requirement") as HTMLSelectElement;
+
+/** The disclosure for one feature, found by the business ID in its accessible name. */
+const groupToggle = (featureBusinessId: string) =>
+  screen.getByRole("button", { name: new RegExp(featureBusinessId) });
+
+const openGroup = (featureBusinessId: string) => fireEvent.click(groupToggle(featureBusinessId));
 
 describe("PlanForm", () => {
   it("asks for a purpose, required and capped, before anything else", () => {
@@ -211,72 +153,6 @@ describe("PlanForm", () => {
     expect(submittedIds(container)).toEqual(["case-2", "case-5"]);
   });
 
-  it("keeps a selection that the filter has hidden", () => {
-    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0002/ }));
-    // Narrow to a case that is not the selected one — the tick leaves the screen.
-    fireEvent.change(filterBox(), { target: { value: "Candidate 4" } });
-
-    expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0002/ })).toBeNull();
-    expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
-    expect(submittedIds(container)).toEqual(["case-2"]);
-  });
-
-  it("renders a bounded number of rows and says what it withheld", () => {
-    render(<PlanForm cases={makeCases(140)} testers={TESTERS} />);
-
-    expect(screen.getAllByRole("checkbox")).toHaveLength(100);
-    expect(
-      screen.getByText(
-        "Showing the first 100 of 140 approved cases — narrow the filter to reach the rest. Anything already selected still submits."
-      )
-    ).toBeTruthy();
-    // The cap is on rendering, not on reach: the filter still finds a withheld case.
-    fireEvent.change(filterBox(), { target: { value: "TC-PLAN-0137" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-  });
-
-  /*
-   * The long timeout is about the QUERY, not the component. A `*ByRole` with a `name`
-   * computes an accessible name for every candidate, and at the render cap that is 100
-   * checkboxes walked by dom-accessibility-api — comfortably under the 5s default on its
-   * own, but not when vitest is running this file beside 38 others on the same cores.
-   * That made this test and the one below fail only in a full `npm run test`, which is
-   * the worst kind of red: it reads as a regression in the picker and is not one.
-   */
-  const CAPPED_LIST_TIMEOUT_MS = 30_000;
-
-  it(
-    "submits a preselected case that falls past the render cap",
-    () => {
-      const { container } = render(
-        <PlanForm cases={makeCases(140)} testers={TESTERS} preselect={["case-137"]} />
-      );
-
-      expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0137/ })).toBeNull();
-      expect(submittedIds(container)).toEqual(["case-137"]);
-    },
-    CAPPED_LIST_TIMEOUT_MS
-  );
-
-  it("selects and clears only what is on screen, leaving the rest alone", () => {
-    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0001/ }));
-    fireEvent.change(filterBox(), { target: { value: "Candidate 4" } });
-    fireEvent.click(screen.getByRole("button", { name: "Select all 1 shown" }));
-
-    expect(submittedIds(container)).toEqual(["case-1", "case-4"]);
-
-    fireEvent.click(screen.getByRole("button", { name: "Clear the 1 shown" }));
-    // Case 1 was never on screen for that clear, so it survives it.
-    expect(submittedIds(container)).toEqual(["case-1"]);
-
-    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
-    expect(submittedIds(container)).toEqual([]);
-  });
-
   it("reports cases a rerun could not carry over", () => {
     render(<PlanForm cases={makeCases(3)} testers={TESTERS} preselect={["case-1"]} unavailable={2} />);
 
@@ -284,62 +160,29 @@ describe("PlanForm", () => {
     expect(screen.getByText(/no longer Approved/)).toBeTruthy();
   });
 
-  it("filters on the area and grading a run is actually scoped by", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+  /**
+   * The filter sits INSIDE this form, so Enter would otherwise trigger the browser's implicit
+   * submission and fire the real submit button — committing the run and redirecting away from a
+   * keystroke meant to narrow a list. It only bites once something is selected, because that is
+   * when the submit button stops being disabled, which is exactly the moment someone filters
+   * again to look for the next case.
+   */
+  it("does not submit the run when Enter is pressed in the case filter", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
 
-    // Neither needle appears in a business ID or a title, which is all the picker used
-    // to offer — and both are visible on the row, so both must be matchable.
-    fireEvent.change(filterBox(), { target: { value: "Checkout" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    openGroup("FEAT001");
+    fireEvent.click(caseBoxes(container)[0]);
 
-    fireEvent.change(filterBox(), { target: { value: "Minor" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
-    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0002/ })).toBeTruthy();
-  });
+    // The submit is live now — the state in which implicit submission would fire.
+    expect((screen.getByRole("button", { name: /^Plan execution/ }) as HTMLButtonElement).disabled).toBe(
+      false
+    );
 
-  it(
-    "brings an off-screen selection back into view",
-    () => {
-      render(<PlanForm cases={makeCases(140)} testers={TESTERS} preselect={["case-137"]} />);
+    const enter = fireEvent.keyDown(filterBox(), { key: "Enter", code: "Enter" });
 
-      // Past the render cap, so invisible — the count is the only trace of it.
-      expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0137/ })).toBeNull();
-      expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
-
-      fireEvent.click(screen.getByRole("button", { name: "Only selected" }));
-
-      expect(screen.getByRole("checkbox", { name: /TC-PLAN-0137/ })).toBeTruthy();
-      expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-      expect(screen.queryByText(/not shown/)).toBeNull();
-    },
-    CAPPED_LIST_TIMEOUT_MS
-  );
-
-  it("says which nothing it is showing when the review list comes up empty", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1"]} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Only selected" }));
-    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
-
-    // Not "nothing matches" — the case exists, the review scope just excludes it. The
-    // wording stays scope-general because either filter can be what excluded it.
-    expect(screen.getByText("The selected case is not in this scope.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Show all approved cases" }));
-    expect(screen.getAllByRole("checkbox")).toHaveLength(6);
-  });
-
-  it("will not submit an empty run, and restates what it will cover", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    const submit = () => screen.getByRole("button", { name: /^Plan execution/ }) as HTMLButtonElement;
-    expect(submit().disabled).toBe(true);
-    expect(screen.getByText("Pick at least one approved case to cover.")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0001/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0002/ }));
-
-    expect(submit().disabled).toBe(false);
-    expect(screen.getByRole("button", { name: "Plan execution covering 2 cases" })).toBeTruthy();
+    // `fireEvent` returns false when a handler called preventDefault(), which is what stops the
+    // browser from submitting the form around the input.
+    expect(enter).toBe(false);
   });
 
   it("shows each tester's open workload alongside their name", () => {
@@ -349,19 +192,219 @@ describe("PlanForm", () => {
     expect(screen.getByRole("option", { name: "Grace Tester · 4 open" })).toBeTruthy();
   });
 
-  it("scopes the candidates to one product, and composes with the needle", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
+  it("will not submit an empty run, and restates what it will cover", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
 
-    expect(screen.getAllByRole("checkbox")).toHaveLength(6);
+    const submit = () => screen.getByRole("button", { name: /^Plan execution/ }) as HTMLButtonElement;
+    expect(submit().disabled).toBe(true);
+    expect(screen.getByText("Pick at least one approved case to cover.")).toBeTruthy();
 
-    fireEvent.change(productBox(), { target: { value: "product-a" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
-    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0001/ })).toBeTruthy();
-    expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0002/ })).toBeNull();
+    openGroup("FEAT001");
+    fireEvent.click(caseBoxes(container)[0]);
+    fireEvent.click(caseBoxes(container)[1]);
 
-    // The needle searches inside the product, not across the catalogue.
+    expect(submit().disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Plan execution covering 2 cases" })).toBeTruthy();
+  });
+});
+
+describe("PlanForm feature groups", () => {
+  // The point of the grouping: the shape of the corpus is legible before any case row is.
+  it("lists one collapsed group per feature, with no case rows at all", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    expect(groupToggle("FEAT001").getAttribute("aria-expanded")).toBe("false");
+    expect(groupToggle("FEAT002").getAttribute("aria-expanded")).toBe("false");
+    expect(caseBoxes(container)).toHaveLength(0);
+  });
+
+  it("heads each group with its feature, its module and how much of it is selected", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1"]} />);
+
+    const header = groupToggle("FEAT001");
+    expect(header.textContent).toContain("Card payment");
+    expect(header.textContent).toContain("Checkout");
+    expect(header.textContent).toContain("1 of 3 selected");
+  });
+
+  it("reveals a feature's cases when its header is opened, and puts them away again", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    openGroup("FEAT001");
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-1", "case-3", "case-5"]);
+
+    openGroup("FEAT001");
+    expect(caseBoxes(container)).toHaveLength(0);
+  });
+
+  // A rerun's preselection must not start hidden: a selection you cannot see is one you
+  // cannot check before committing to it.
+  it("opens a group that already holds a selected case", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-4"]} />);
+
+    expect(groupToggle("FEAT002").getAttribute("aria-expanded")).toBe("true");
+    expect(groupToggle("FEAT001").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("takes a whole feature in one click, and says how many that is", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all 3 in FEAT001" }));
+
+    expect(submittedIds(container)).toEqual(["case-1", "case-3", "case-5"]);
+    // Selecting the feature opens it, because it now holds a selection.
+    expect(groupToggle("FEAT001").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("clears a fully selected feature rather than reselecting it", () => {
+    const { container } = render(
+      <PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1", "case-3", "case-5"]} />
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Clear the 3 in FEAT001" }));
+
+    expect(submittedIds(container)).toEqual([]);
+  });
+
+  /**
+   * The failure the old global "Select all N shown" had: past the render cap its label
+   * promised more than it took. A group's label always states the number the click will
+   * actually take, and under a filter it says so in as many words.
+   */
+  it("counts only what the filter left, and says the word matching", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
     fireEvent.change(filterBox(), { target: { value: "Candidate 3" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all 1 matching in FEAT001" }));
+
+    expect(submittedIds(container)).toEqual(["case-3"]);
+  });
+
+  it("leaves a part-selected feature's box neither ticked nor empty", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1"]} />);
+
+    const box = screen.getByRole("checkbox", { name: /FEAT001/ }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(box.indeterminate).toBe(true);
+  });
+
+  it("ticks a fully selected feature's box outright", () => {
+    render(
+      <PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1", "case-3", "case-5"]} />
+    );
+
+    const box = screen.getByRole("checkbox", { name: /FEAT001/ }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(box.indeterminate).toBe(false);
+  });
+
+  it("drops a group the filter emptied instead of showing it at zero", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
+
+    expect(screen.getByRole("button", { name: /FEAT002/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /FEAT001/ })).toBeNull();
+  });
+});
+
+describe("PlanForm group disclosure and the needle", () => {
+  // A search that appears to find nothing until you start clicking headers would be worse
+  // than no search at all.
+  it("opens every group the needle matched, and closes them when it is cleared", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.change(filterBox(), { target: { value: "Candidate" } });
+    expect(groupToggle("FEAT001").getAttribute("aria-expanded")).toBe("true");
+    expect(caseBoxes(container)).toHaveLength(6);
+
+    fireEvent.change(filterBox(), { target: { value: "" } });
+    expect(groupToggle("FEAT001").getAttribute("aria-expanded")).toBe("false");
+    expect(caseBoxes(container)).toHaveLength(0);
+  });
+
+  // The needle adds openings; it never closes what the reader chose to look at.
+  it("leaves a hand-opened group open after the needle is cleared", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    openGroup("FEAT001");
+    fireEvent.change(filterBox(), { target: { value: "Candidate" } });
+    fireEvent.change(filterBox(), { target: { value: "" } });
+
+    expect(groupToggle("FEAT001").getAttribute("aria-expanded")).toBe("true");
+    expect(groupToggle("FEAT002").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("collapses everything on request, including groups holding a selection", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1"]} />);
+
+    expect(groupToggle("FEAT001").getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+
+    expect(groupToggle("FEAT001").getAttribute("aria-expanded")).toBe("false");
+    expect(caseBoxes(container)).toHaveLength(0);
+    // Collapsing hides the tick; it must never drop it.
+    expect(submittedIds(container)).toEqual(["case-1"]);
+  });
+
+  it("offers no way back once everything is closed", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    expect(screen.queryByRole("button", { name: "Collapse all" })).toBeNull();
+  });
+
+  /**
+   * Collapse-all has to record an explicit close on every group — that is the only way to shut
+   * one holding a selection — and an explicit close outranks the needle. Left standing, the
+   * next search would match cases inside groups that stay shut, and with no expand-all the
+   * reader would be left clicking eleven headers to recover.
+   */
+  it("still lets the needle open a group after everything was collapsed", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1"]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(caseBoxes(container)).toHaveLength(0);
+
+    fireEvent.change(filterBox(), { target: { value: "Candidate 4" } });
+
+    expect(groupToggle("FEAT002").getAttribute("aria-expanded")).toBe("true");
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-4"]);
+  });
+
+  /**
+   * Deliberately absent. Opening everything rebuilds the flat list the grouping exists to
+   * replace, and hands the reader a capped one at that — the needle and "Only selected" are
+   * both better answers.
+   */
+  it("has no expand-all control", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    expect(screen.queryByRole("button", { name: /Expand all|Open all/ })).toBeNull();
+  });
+});
+
+describe("PlanForm keeps what is out of sight", () => {
+  it("keeps a selection that the needle has hidden", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    openGroup("FEAT001");
+    fireEvent.click(caseBoxes(container)[0]);
+    // Narrow to a case that is not the selected one — the tick leaves the screen.
+    fireEvent.change(filterBox(), { target: { value: "Candidate 4" } });
+
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-4"]);
+    expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
+    expect(submittedIds(container)).toEqual(["case-1"]);
+  });
+
+  it("keeps a selection a collapsed group is hiding", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1"]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+
+    expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
+    expect(submittedIds(container)).toEqual(["case-1"]);
   });
 
   it("keeps a selection the product filter has scoped out of view", () => {
@@ -369,110 +412,203 @@ describe("PlanForm", () => {
       <PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />
     );
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0002/ }));
+    openGroup("FEAT002");
+    fireEvent.click(caseBoxes(container)[0]);
     fireEvent.change(productBox(), { target: { value: "product-a" } });
 
     // Case 2 belongs to the other product, so it leaves the screen — but not the run.
-    expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0002/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /FEAT002/ })).toBeNull();
     expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
     expect(submittedIds(container)).toEqual(["case-2"]);
-  });
-
-  it("names the product when its scope is what emptied the list", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
-
-    fireEvent.change(productBox(), { target: { value: "product-a" } });
-    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
-
-    expect(screen.getByText("Nothing matches “Autocomplete” in Storefront.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Show all approved cases" }));
-    expect(screen.getAllByRole("checkbox")).toHaveLength(6);
-    expect(productBox().value).toBe("");
-  });
-
-  /**
-   * A single product still gets a dropdown. It cannot narrow anything today, but the
-   * catalogue grows one product at a time and a filter that materialises by itself once
-   * someone adds a second is a filter nobody knows to look for. The screen only offers
-   * products that actually have an Approved case (`new/page.tsx`), so an option on
-   * screen always has something behind it.
-   */
-  it("offers the product filter even when there is a single product", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={[PRODUCTS[0]]} />);
-
-    expect(screen.getByLabelText("Filter by product")).toBeTruthy();
-    expect(screen.getByRole("option", { name: "PROD001 · Storefront" })).toBeTruthy();
-  });
-
-  it("offers no product filter when the screen passes no products", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    expect(screen.queryByLabelText("Filter by product")).toBeNull();
-  });
-
-  /**
-   * The needle is gated on the candidate list being long enough to be worth narrowing;
-   * the product dropdown is not gated on that at all. Three approved cases spanning two
-   * products is exactly the case the old shared gate got wrong — it hid the one control
-   * that could have separated them.
-   */
-  it("offers the product filter on a short candidate list, without the needle", () => {
-    render(<PlanForm cases={makeCases(3)} testers={TESTERS} products={PRODUCTS} />);
-
-    expect(screen.queryByLabelText("Filter approved test cases")).toBeNull();
-    expect(screen.getByLabelText("Filter by product")).toBeTruthy();
-
-    fireEvent.change(productBox(), { target: { value: "product-b" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-  });
-
-  it("offers a requirement filter with no products prop at all", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    expect(screen.getByRole("option", { name: "REQ001" })).toBeTruthy();
-    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
-    // req-1 is cases 1 and 5.
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
-    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0001/ })).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0005/ })).toBeTruthy();
   });
 
   it("keeps a selection the requirement filter has scoped out of view", () => {
     const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0003/ }));
+    openGroup("FEAT001");
+    // Case 3 is req-2.
+    fireEvent.click(caseBoxes(container)[1]);
     fireEvent.change(requirementBox(), { target: { value: "req-1" } });
 
-    // Case 3 is req-2, so it leaves the screen — but not the run.
-    expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0003/ })).toBeNull();
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-1", "case-5"]);
     expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
     expect(submittedIds(container)).toEqual(["case-3"]);
   });
 
+  it("clears the whole selection, on screen or not", () => {
+    const { container } = render(
+      <PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1", "case-4"]} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+
+    expect(submittedIds(container)).toEqual([]);
+  });
+});
+
+/*
+ * The long timeout is about the QUERY, not the component. A `*ByRole` with a `name` computes
+ * an accessible name for every candidate, and at the render cap that is 100 checkboxes walked
+ * by dom-accessibility-api — comfortably under the 5s default on its own, but not when vitest
+ * is running this file beside dozens of others on the same cores. That made these tests fail
+ * only in a full `npm run test`, which is the worst kind of red: it reads as a regression in
+ * the picker and is not one.
+ */
+const CAPPED_LIST_TIMEOUT_MS = 30_000;
+
+describe("PlanForm render cap", () => {
+  it(
+    "renders no more rows than the cap and says what a truncated group is holding back",
+    () => {
+      const { container } = render(<PlanForm cases={oneFeatureCases(140)} testers={TESTERS} />);
+
+      openGroup("FEAT001");
+
+      expect(caseBoxes(container)).toHaveLength(100);
+      expect(
+        screen.getByText("Showing 100 of 140 in FEAT001 — the list is capped at 100 rows.")
+      ).toBeTruthy();
+      expect(
+        screen.getByText(/100 of the 140 cases in the open features are on screen/)
+      ).toBeTruthy();
+    },
+    CAPPED_LIST_TIMEOUT_MS
+  );
+
+  /**
+   * The notice counts the OPEN features, not the corpus. Blaming the cap for cases that are
+   * merely collapsed would send a reader to narrow a filter that was never the reason they are
+   * missing — here, 30 of the 170 cases are absent because FEAT002 is shut.
+   */
+  it(
+    "does not blame the cap for cases a closed feature is holding",
+    () => {
+      const spread = [...oneFeatureCases(140), ...makeCases(60).slice(30).map((one) => ({
+        ...one,
+        featureId: "feature-9",
+        featureBusinessId: "FEAT009",
+        moduleName: "Search",
+        featureName: "Autocomplete"
+      }))];
+
+      render(<PlanForm cases={spread} testers={TESTERS} />);
+      openGroup("FEAT001");
+
+      expect(screen.getByText(/100 of the 140 cases in the open features are on screen/)).toBeTruthy();
+    },
+    CAPPED_LIST_TIMEOUT_MS
+  );
+
+  // The cap is on rendering, not on reach: the needle still finds a withheld case.
+  it(
+    "still finds a case the cap withheld",
+    () => {
+      const { container } = render(<PlanForm cases={oneFeatureCases(140)} testers={TESTERS} />);
+
+      fireEvent.change(filterBox(), { target: { value: "TC-PLAN-0137" } });
+
+      expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-137"]);
+    },
+    CAPPED_LIST_TIMEOUT_MS
+  );
+
+  it(
+    "submits a preselected case that falls past the render cap",
+    () => {
+      const { container } = render(
+        <PlanForm cases={oneFeatureCases(140)} testers={TESTERS} preselect={["case-137"]} />
+      );
+
+      expect(caseBoxes(container).some((box) => box.value === "case-137")).toBe(false);
+      expect(submittedIds(container)).toEqual(["case-137"]);
+    },
+    CAPPED_LIST_TIMEOUT_MS
+  );
+
+  it(
+    "brings an off-screen selection back into view",
+    () => {
+      const { container } = render(
+        <PlanForm cases={oneFeatureCases(140)} testers={TESTERS} preselect={["case-137"]} />
+      );
+
+      // Past the render cap, so invisible — the count is the only trace of it.
+      expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "Only selected" }));
+
+      expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-137"]);
+      expect(screen.queryByText(/not shown/)).toBeNull();
+    },
+    CAPPED_LIST_TIMEOUT_MS
+  );
+
+  // A group nobody opened costs the cap nothing, which is what makes it almost unreachable
+  // now: a reader would have to open most of the corpus to meet it.
+  it("says nothing about the cap while the groups are closed", () => {
+    render(<PlanForm cases={oneFeatureCases(140)} testers={TESTERS} />);
+
+    expect(screen.queryByText(/matching cases are on screen/)).toBeNull();
+    expect(screen.queryByText(/capped at/)).toBeNull();
+  });
+});
+
+describe("PlanForm filters", () => {
+  it("scopes the candidates to one product, and composes with the needle", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
+
+    fireEvent.change(productBox(), { target: { value: "product-a" } });
+    expect(screen.queryByRole("button", { name: /FEAT002/ })).toBeNull();
+
+    // The needle searches inside the product, not across the catalogue.
+    fireEvent.change(filterBox(), { target: { value: "Candidate 3" } });
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-3"]);
+  });
+
+  it("matches a field a row displays but no dropdown covers", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    // Neither needle appears in a business ID or a title, and both are visible, so both
+    // must be matchable.
+    fireEvent.change(filterBox(), { target: { value: "Checkout" } });
+    expect(caseBoxes(container)).toHaveLength(3);
+
+    fireEvent.change(filterBox(), { target: { value: "Minor" } });
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-2", "case-4", "case-6"]);
+  });
+
+  it("offers a requirement filter with no products prop at all", () => {
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    expect(screen.getByRole("option", { name: "REQ001" })).toBeTruthy();
+    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
+
+    // req-1 is cases 1 and 5, and a requirement filter opens no group by itself.
+    openGroup("FEAT001");
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-1", "case-5"]);
+  });
+
   it("composes the requirement filter with the needle", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
 
     fireEvent.change(requirementBox(), { target: { value: "req-1" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
-
     fireEvent.change(filterBox(), { target: { value: "Candidate 5" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0005/ })).toBeTruthy();
+
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-5"]);
   });
 
   it("matches a requirement business ID by the needle alone", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
 
     fireEvent.change(filterBox(), { target: { value: "REQ002" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0003/ })).toBeTruthy();
+
+    expect(caseBoxes(container).map((box) => box.value)).toEqual(["case-3"]);
   });
 
   /**
-   * A product is the broader cut, so selecting one rescopes which requirements are even
-   * worth offering — REQ003/REQ004 belong to product-b and would only ever produce an
-   * empty list once product-a is chosen. The same reasoning `page.tsx` already applies
-   * to products (drop what has no candidate behind it).
+   * A product is the broader cut, so selecting one rescopes which requirements are even worth
+   * offering — REQ003/REQ004 belong to product-b and would only ever produce an empty list
+   * once product-a is chosen. The same reasoning `page.tsx` applies to products.
    */
   it("scopes the requirement options to the selected product", () => {
     render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
@@ -490,27 +626,112 @@ describe("PlanForm", () => {
     render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
 
     fireEvent.change(requirementBox(), { target: { value: "req-3" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
-
-    // req-3 belongs to product-b; switching to product-a would otherwise combine two
-    // filters into a silent empty list with no explanation for either one.
+    // req-3 belongs to product-b; switching to product-a would otherwise combine two filters
+    // into a silent empty list with no explanation for either one.
     fireEvent.change(productBox(), { target: { value: "product-a" } });
+
     expect(requirementBox().value).toBe("");
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: /FEAT001/ })).toBeTruthy();
+  });
+
+  /**
+   * A single product still gets a dropdown. It cannot narrow anything today, but the
+   * catalogue grows one product at a time and a filter that materialises by itself once
+   * someone adds a second is a filter nobody knows to look for.
+   */
+  it("offers the product filter even when there is a single product", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={[PRODUCTS[0]]} />);
+
+    expect(screen.getByLabelText("Filter by product")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "PROD001 · Storefront" })).toBeTruthy();
+  });
+
+  it("offers no product filter when the screen passes no products", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    expect(screen.queryByLabelText("Filter by product")).toBeNull();
+  });
+
+  /**
+   * The needle is gated on the candidate list being long enough to be worth narrowing; the
+   * product dropdown is not gated on that at all. Three approved cases spanning two products
+   * is exactly the case a shared gate gets wrong — it hides the one control that could
+   * separate them.
+   */
+  it("offers the product filter on a short candidate list, without the needle", () => {
+    render(<PlanForm cases={makeCases(3)} testers={TESTERS} products={PRODUCTS} />);
+
+    expect(screen.queryByLabelText("Filter approved test cases")).toBeNull();
+    expect(screen.getByLabelText("Filter by product")).toBeTruthy();
+
+    fireEvent.change(productBox(), { target: { value: "product-b" } });
+    expect(screen.getByRole("button", { name: /FEAT002/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /FEAT001/ })).toBeNull();
+  });
+
+  /** There is no feature dropdown: the groups are the features. */
+  it("offers no feature filter", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
+
+    expect(screen.queryByLabelText("Filter by feature")).toBeNull();
+  });
+});
+
+describe("PlanForm empty states", () => {
+  it("says which nothing it is showing when the review list comes up empty", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1"]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Only selected" }));
+    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
+
+    // Not "nothing matches" — the case exists, the review scope just excludes it.
+    expect(screen.getByText("The selected case is not in this scope.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all approved cases" }));
+    expect(screen.getByRole("button", { name: /FEAT001/ })).toBeTruthy();
+  });
+
+  // Reachable by clearing the selection while reviewing it: "Only selected" stays on, and
+  // the reason the list is empty is now the empty selection rather than any filter.
+  it("says nothing is selected yet when the selection is cleared mid-review", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} preselect={["case-1"]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Only selected" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+
+    expect(screen.getByText("Nothing is selected yet.")).toBeTruthy();
+  });
+
+  it("says what the needle failed to match when nothing else is narrowing", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
+
+    fireEvent.change(filterBox(), { target: { value: "nothing here at all" } });
+
+    expect(screen.getByText("Nothing matches “nothing here at all”.")).toBeTruthy();
+  });
+
+  it("names the product when its scope is what emptied the list", () => {
+    render(<PlanForm cases={makeCases(6)} testers={TESTERS} products={PRODUCTS} />);
+
+    fireEvent.change(productBox(), { target: { value: "product-a" } });
+    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
+
+    expect(screen.getByText("Nothing matches “Autocomplete” in Storefront.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all approved cases" }));
+    expect(productBox().value).toBe("");
+    expect(screen.getByRole("button", { name: /FEAT001/ })).toBeTruthy();
   });
 
   it("names the requirement when its scope is what emptied the list", () => {
     render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
 
     fireEvent.change(requirementBox(), { target: { value: "req-1" } });
-    fireEvent.change(filterBox(), { target: { value: "Card payment" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
-
     fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
+
     expect(screen.getByText("Nothing matches “Autocomplete” in REQ001.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Show all approved cases" }));
-    expect(screen.getAllByRole("checkbox")).toHaveLength(6);
     expect(requirementBox().value).toBe("");
   });
 
@@ -522,137 +743,5 @@ describe("PlanForm", () => {
     fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
 
     expect(screen.getByText("Nothing matches “Autocomplete” in Storefront · REQ001.")).toBeTruthy();
-  });
-
-  it("offers a feature filter with no products prop at all", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    expect(screen.getByRole("option", { name: "FEAT001" })).toBeTruthy();
-    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
-    // feature-1 is every odd case: 1, 3, 5.
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
-  });
-
-  it("keeps a selection the feature filter has scoped out of view", () => {
-    const { container } = render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0002/ }));
-    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
-
-    // Case 2 is feature-2, so it leaves the screen — but not the run.
-    expect(screen.queryByRole("checkbox", { name: /TC-PLAN-0002/ })).toBeNull();
-    expect(screen.getByText(/1 case selected \(1 not shown\)/)).toBeTruthy();
-    expect(submittedIds(container)).toEqual(["case-2"]);
-  });
-
-  it("composes the feature filter with the needle", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
-
-    fireEvent.change(filterBox(), { target: { value: "Candidate 5" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-    expect(screen.getByRole("checkbox", { name: /TC-PLAN-0005/ })).toBeTruthy();
-  });
-
-  /**
-   * product-a has two features (feature-1: two requirements, feature-2: one) and
-   * product-b has one — so this exercises both scoping steps at once: the product cut
-   * decides which features are worth offering, and the feature cut then decides which
-   * requirements are.
-   */
-  it("scopes feature options to the product, and requirement options to the feature", () => {
-    render(<PlanForm cases={FEATURE_CASES} testers={TESTERS} products={PRODUCTS} />);
-
-    expect(screen.getByRole("option", { name: "FEAT003" })).toBeTruthy();
-
-    fireEvent.change(productBox(), { target: { value: "product-a" } });
-    expect(screen.getByRole("option", { name: "FEAT001" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "FEAT002" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "FEAT003" })).toBeNull();
-
-    // Both of product-a's requirements are offered until a feature narrows further.
-    expect(screen.getByRole("option", { name: "REQ001" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "REQ003" })).toBeTruthy();
-
-    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
-    expect(screen.getByRole("option", { name: "REQ001" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "REQ002" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: "REQ003" })).toBeNull();
-  });
-
-  it("resets the feature and requirement filters when the product changes underneath them", () => {
-    render(<PlanForm cases={FEATURE_CASES} testers={TESTERS} products={PRODUCTS} />);
-
-    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
-    fireEvent.change(requirementBox(), { target: { value: "req-2" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-
-    // feature-1/req-2 both belong to product-a; switching to product-b would otherwise
-    // combine three filters into a silent empty list with no explanation for any of them.
-    fireEvent.change(productBox(), { target: { value: "product-b" } });
-    expect(featureBox().value).toBe("");
-    expect(requirementBox().value).toBe("");
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
-    expect(screen.getByRole("checkbox", { name: /TC-FEAT-0004/ })).toBeTruthy();
-  });
-
-  it("resets the requirement filter when the feature changes underneath it", () => {
-    render(<PlanForm cases={FEATURE_CASES} testers={TESTERS} products={PRODUCTS} />);
-
-    fireEvent.change(requirementBox(), { target: { value: "req-2" } });
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-
-    // req-2 belongs to feature-1; switching to feature-2 would otherwise empty the list
-    // with no explanation, the same failure mode a product switch has to guard against.
-    fireEvent.change(featureBox(), { target: { value: "feature-2" } });
-    expect(requirementBox().value).toBe("");
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-    expect(screen.getByRole("checkbox", { name: /TC-FEAT-0003/ })).toBeTruthy();
-  });
-
-  it("names the feature when its scope is what emptied the list", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-
-    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
-    fireEvent.change(filterBox(), { target: { value: "Autocomplete" } });
-
-    expect(screen.getByText("Nothing matches “Autocomplete” in FEAT001.")).toBeTruthy();
-  });
-
-  it("names product, feature, and requirement together when all three combine to empty the list", () => {
-    render(<PlanForm cases={FEATURE_CASES} testers={TESTERS} products={PRODUCTS} />);
-
-    fireEvent.change(productBox(), { target: { value: "product-a" } });
-    fireEvent.change(featureBox(), { target: { value: "feature-1" } });
-    fireEvent.change(requirementBox(), { target: { value: "req-1" } });
-    fireEvent.change(filterBox(), { target: { value: "nothing here" } });
-
-    expect(
-      screen.getByText("Nothing matches “nothing here” in Storefront · FEAT001 · REQ001.")
-    ).toBeTruthy();
-  });
-
-  /**
-   * The filter sits INSIDE this form, so Enter would otherwise trigger the browser's
-   * implicit submission and fire the real submit button — committing the run and
-   * redirecting away from a keystroke meant to narrow a list. It only bites once
-   * something is selected, because that is when the submit button stops being disabled,
-   * which is exactly the moment someone filters again to look for the next case.
-   */
-  it("does not submit the run when Enter is pressed in the case filter", () => {
-    render(<PlanForm cases={makeCases(6)} testers={TESTERS} />);
-    fireEvent.click(screen.getByRole("checkbox", { name: /TC-PLAN-0001/ }));
-
-    // The submit is live now — the state in which implicit submission would fire.
-    expect((screen.getByRole("button", { name: /^Plan execution/ }) as HTMLButtonElement).disabled)
-      .toBe(false);
-
-    const enter = fireEvent.keyDown(filterBox(), { key: "Enter", code: "Enter" });
-
-    // `fireEvent` returns false when a handler called preventDefault(), which is what
-    // stops the browser from submitting the form around the input.
-    expect(enter).toBe(false);
   });
 });

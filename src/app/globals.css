@@ -775,6 +775,97 @@ a.jira-key {
   color: var(--ink-2);
 }
 
+/* One feature's worth of candidates. The picker lists features rather than cases, so this
+   is the row a reader scans and the case rows are what opens underneath it. */
+.pick-group {
+  border-bottom: 1px solid var(--line);
+}
+.pick-group:last-child {
+  border-bottom: none;
+}
+
+/* The header: a checkbox that takes the whole feature, then the disclosure. Siblings, never
+   nested — a checkbox inside a button is reachable as neither. */
+.pick-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface-2);
+}
+.pick-group-head > input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+/* The disclosure takes the rest of the row so the click target is the whole header line,
+   not the caret. Bare of button chrome: it is a row that opens, not a control to press. */
+.pick-group-toggle {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  gap: var(--sp-3);
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pick-group-toggle:disabled {
+  cursor: default;
+}
+/* The caret is generated rather than an icon element, so the markup stays a button with a
+   label in it and screen readers get `aria-expanded` alone as the state. */
+.pick-group-toggle::before {
+  content: "▸";
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-3);
+  transition: transform var(--ease);
+}
+.pick-group-toggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+.pick-group-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  gap: var(--sp-2);
+  min-width: 0;
+  line-height: 1.35;
+}
+/* The module the feature sits in. Context rather than identity, so it reads as the
+   quietest thing on the line — a second level of nesting would say the same at more cost. */
+.pick-group-module {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.pick-group-count {
+  flex: none;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink-2);
+}
+/* Case rows indent under their feature, so the hierarchy is visible without a second
+   level of headers. */
+.pick-group-body > .pick-row {
+  padding-left: var(--sp-6);
+}
+/* What a capped group is not showing. Sits where the next case row would be, because that
+   is the row the reader is looking for. */
+.pick-group-note {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-6);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
 /* A selectable candidate. The whole row is the label, so the click target is the line
    rather than the 13px box; rows are separated by hairlines rather than gaps, which is
    what lets a long list stay scannable instead of reading as loose fragments. */
