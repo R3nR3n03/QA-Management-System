@@ -2,10 +2,12 @@ import { ExecutionLifecycleState, ExecutionOutcome } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { AppError } from "@/lib/errors";
 import {
+  describeTransitionBlock,
   ensureIssueKeyMutable,
   normalizeJiraIssueKey,
   sanitizeFailureReason,
   shouldTransitionIssue,
+  transitionAlreadyCovers,
   type SyncCandidate
 } from "./jira-sync";
 
@@ -186,5 +188,78 @@ describe("ensureIssueKeyMutable", () => {
       expect(appError.code).toBe("FORBIDDEN_TRANSITION");
       expect(appError.field).toBe("jiraIssueKey");
     }
+  });
+});
+
+describe("transitionAlreadyCovers", () => {
+  const at = (iso: string) => new Date(iso);
+
+  it("does not cover an issue that has never been transitioned", () => {
+    expect(transitionAlreadyCovers(null, [{ finalizedAt: at("2026-08-11T06:00:00Z") }])).toBe(false);
+  });
+
+  it("covers a run that finalized before the last successful transition", () => {
+    expect(
+      transitionAlreadyCovers(at("2026-08-10T07:49:32Z"), [{ finalizedAt: at("2026-08-10T07:49:29Z") }])
+    ).toBe(true);
+  });
+
+  it("does NOT cover a run finalized after it -- the reported defect", () => {
+    // The exact shape of the incident: an issue transitioned by an earlier run on 10 August,
+    // and a separate run finalized all-Pass on 11 August. The old rule suppressed this
+    // forever; new evidence must earn a fresh transition (ADR-0005).
+    expect(
+      transitionAlreadyCovers(at("2026-08-10T07:49:32Z"), [
+        { finalizedAt: at("2026-08-10T07:49:29Z") },
+        { finalizedAt: at("2026-08-11T06:00:39Z") }
+      ])
+    ).toBe(false);
+  });
+
+  it("covers a run finalized at the same instant, so a replay cannot re-close a ticket", () => {
+    const instant = at("2026-08-11T06:00:39Z");
+    expect(transitionAlreadyCovers(instant, [{ finalizedAt: instant }])).toBe(true);
+  });
+
+  it("treats an unstamped finalize as uncovered rather than assuming it was reported", () => {
+    expect(transitionAlreadyCovers(at("2026-08-10T07:49:32Z"), [{ finalizedAt: null }])).toBe(false);
+  });
+});
+
+describe("describeTransitionBlock", () => {
+  const named = (businessId: string, state: ExecutionLifecycleState, result: ExecutionOutcome | null) => ({
+    businessId,
+    state,
+    result
+  });
+
+  it("names the runs that have not finalized", () => {
+    const reason = describeTransitionBlock([
+      named("EXE-0012", ExecutionLifecycleState.FINALIZED, ExecutionOutcome.PASS),
+      named("EXE-0013", ExecutionLifecycleState.IN_PROGRESS, null)
+    ]);
+    expect(reason).toContain("EXE-0013 not finalized yet");
+    expect(reason).not.toContain("EXE-0012");
+  });
+
+  it("names the runs that finalized without passing, with their result", () => {
+    const reason = describeTransitionBlock([
+      named("EXE-0012", ExecutionLifecycleState.FINALIZED, ExecutionOutcome.PASS),
+      named("EXE-0014", ExecutionLifecycleState.FINALIZED, ExecutionOutcome.FAIL)
+    ]);
+    expect(reason).toContain("EXE-0014 (FAIL) did not pass");
+  });
+
+  it("reports both causes at once rather than only the first", () => {
+    const reason = describeTransitionBlock([
+      named("EXE-0013", ExecutionLifecycleState.PLANNED, null),
+      named("EXE-0014", ExecutionLifecycleState.FINALIZED, ExecutionOutcome.BLOCKED)
+    ]);
+    expect(reason).toContain("EXE-0013 not finalized yet");
+    expect(reason).toContain("EXE-0014 (BLOCKED) did not pass");
+  });
+
+  it("answers the unreachable empty set rather than rendering an empty string", () => {
+    expect(describeTransitionBlock([])).toBe("No execution carries this issue key.");
   });
 });

@@ -19,3 +19,4 @@ recording.
 | [0002](0002-catalogue-search-is-a-flat-ranked-list.md) | Catalogue search is a flat ranked list, not a filtered tree |
 | [0003](0003-jira-sync-is-decoupled-from-finalize.md) | Jira sync is decoupled from finalize, and triggers on the last passing execution |
 | [0004](0004-result-comments-are-posted-on-every-finalize.md) | Result comments are posted on every finalize, in their own table and without retries |
+| [0005](0005-a-later-run-transitions-its-issue-again.md) | A later run transitions its issue again, and a declined transition is recorded |

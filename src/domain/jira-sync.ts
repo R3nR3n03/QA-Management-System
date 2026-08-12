@@ -25,6 +25,13 @@ import { AppError } from "@/lib/errors";
  * The issue is therefore transitioned only when EVERY execution carrying its key is
  * Finalized and every one of them derived `PASS`. Finalizing one run is necessary, never
  * sufficient. See [ADR-0003](../../docs/adr/0003-jira-sync-is-decoupled-from-finalize.md).
+ *
+ * ## Why that is not the whole rule
+ *
+ * Because it is a property of the KEY rather than of one run, it stays true forever once met,
+ * and treating a single past success as "done with this issue" froze the key permanently —
+ * see `transitionAlreadyCovers`, which decides whether an eligible issue has anything NEW to
+ * report ([ADR-0005](../../docs/adr/0005-a-later-run-transitions-its-issue-again.md)).
  */
 
 /** The only two fields of an execution the rule reads. */
@@ -53,6 +60,81 @@ export function shouldTransitionIssue(executions: SyncCandidate[]): boolean {
     (execution) =>
       execution.state === ExecutionLifecycleState.FINALIZED &&
       execution.result === ExecutionOutcome.PASS
+  );
+}
+
+/** A candidate the caller can also name in a message a person will read. */
+export type NamedSyncCandidate = SyncCandidate & { businessId: string };
+
+/**
+ * Why `shouldTransitionIssue` said no, in a sentence for the run screen.
+ *
+ * The rule needs every execution sharing the key, so the answer to "I finalized my run and
+ * nothing happened" is almost always a DIFFERENT run — one still open, or one that failed
+ * weeks ago. A tester cannot see those from their own run, and until this existed the screen
+ * showed nothing at all, so the only way to find out was to read `shouldTransitionIssue`.
+ */
+export function describeTransitionBlock(executions: NamedSyncCandidate[]): string {
+  if (executions.length === 0) {
+    // Unreachable from finalize: the run that triggered this carries the key, so it is a
+    // member of its own sibling set. Answered rather than left to render as an empty string.
+    return "No execution carries this issue key.";
+  }
+
+  const open = executions
+    .filter((execution) => execution.state !== ExecutionLifecycleState.FINALIZED)
+    .map((execution) => execution.businessId);
+  const notPassed = executions
+    .filter(
+      (execution) =>
+        execution.state === ExecutionLifecycleState.FINALIZED &&
+        execution.result !== ExecutionOutcome.PASS
+    )
+    .map((execution) => `${execution.businessId} (${execution.result ?? "no result"})`);
+
+  const parts: string[] = [];
+  if (open.length > 0) parts.push(`${open.join(", ")} not finalized yet`);
+  if (notPassed.length > 0) parts.push(`${notPassed.join(", ")} did not pass`);
+
+  return `Every run on this issue must be finalized and pass before it is transitioned: ${parts.join("; ")}.`;
+}
+
+/**
+ * Has a successful transition already accounted for every run currently carrying the key?
+ *
+ * ## Why this replaced "one SUCCEEDED row means never again"
+ *
+ * That was the original rule, and it is what made a finalize stop moving tickets. Eligibility
+ * is a property of the whole key, so once any transition succeeded, EVERY later run on that
+ * key was suppressed forever — including a genuine re-test of an issue a person had since
+ * moved back to In Progress. The report that found it: an issue was transitioned by one run,
+ * moved back by hand, worked on, re-tested by a second run that passed every case, and never
+ * moved again. Nothing was recorded, so it read as a broken integration.
+ *
+ * The rule now asks whether anything has happened SINCE the last successful transition. A run
+ * finalized after it is new evidence and earns a fresh transition; a repeat of work already
+ * reported does not. That keeps the property the old rule was protecting — one transition per
+ * body of work, so a replay cannot re-close a ticket — without freezing the key forever.
+ *
+ * Re-transitioning an issue already in a done status is a no-op in Jira's own terms: the
+ * workflow either offers a transition whose target is that same status, which changes nothing,
+ * or offers none at all, which is recorded as a failed attempt with a readable reason
+ * (`pickDoneTransition`).
+ *
+ * A `null` `finalizedAt` counts as NOT covered. It cannot occur on a run that got past
+ * `shouldTransitionIssue`, and an unstamped instant is no evidence that the last transition
+ * included it — the direction that transitions is the safe one here, because the failure this
+ * rule exists to prevent is a ticket that never moves.
+ */
+export function transitionAlreadyCovers(
+  lastSuccessAt: Date | null,
+  executions: { finalizedAt: Date | null }[]
+): boolean {
+  if (lastSuccessAt === null) return false;
+
+  return executions.every(
+    (execution) =>
+      execution.finalizedAt !== null && execution.finalizedAt.getTime() <= lastSuccessAt.getTime()
   );
 }
 

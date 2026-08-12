@@ -8,6 +8,11 @@ deliberately weaker than the ones below. See
 [ADR-0004](0004-result-comments-are-posted-on-every-finalize.md); nothing here is superseded by
 it.
 
+**Amended by [ADR-0005](0005-a-later-run-transitions-its-issue-again.md).** The trigger below
+is unchanged, but it is no longer capped at one transition per issue for all time: a run that
+finalizes after a successful transition, and passes, transitions the issue again. A finalize
+that declines to transition now records why.
+
 Finalizing a test execution never calls Jira. The finalize transaction commits on QAMS data
 alone, and the Jira transition is attempted afterwards as a separate, retryable unit of work
 whose outcome is recorded in its own append-only row.

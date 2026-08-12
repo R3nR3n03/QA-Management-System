@@ -35,10 +35,19 @@ enum ExecutionOutcome {
 /// The outcome of one attempt to transition a Jira issue
 /// (`docs/architecture.md#Jira execution sync`). ABANDONED is terminal: the retry budget is
 /// spent and only a person can move it forward.
+///
+/// SKIPPED is the odd one out: it records a decision NOT to call Jira, so it is the only
+/// value here that never involved a request. It exists because the alternative was silence --
+/// a finalize that declined to transition wrote no row and no audit event, so "QAMS chose not
+/// to" and "QAMS is broken" looked identical from the run screen, and telling them apart
+/// meant reading the source. The retry worker ignores it (it queues on FAILED) and it does
+/// not settle an issue (that is SUCCEEDED or ABANDONED), so it is inert to every existing
+/// query by construction.
 enum JiraSyncOutcome {
   SUCCEEDED
   FAILED
   ABANDONED
+  SKIPPED
 }
 
 /// The outcome of one attempt to post a result comment
