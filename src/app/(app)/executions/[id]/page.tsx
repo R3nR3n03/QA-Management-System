@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
-import { ExecutionLifecycleState, ExecutionOutcome, JiraCommentOutcome, QamsRole } from "@prisma/client";
+import {
+  ExecutionLifecycleState,
+  ExecutionOutcome,
+  JiraCommentOutcome,
+  JiraSyncOutcome,
+  QamsRole
+} from "@prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarDays, CircleCheckBig, Clock, FileText } from "lucide-react";
@@ -115,6 +121,8 @@ export default async function ExecutionPage({
   const jiraIssueHref = jiraIssueUrl(jira.baseUrl, execution.jiraIssueKey);
   /* The latest result-comment attempt, or undefined when none was ever made. */
   const commentAttempt = execution.jiraCommentAttempts[0];
+  /* The latest transition attempt, including one QAMS deliberately skipped (ADR-0005). */
+  const syncAttempt = execution.jiraSyncAttempts[0];
 
   const controlled = await listControlledValues();
   const priorities = controlled
@@ -291,6 +299,29 @@ export default async function ExecutionPage({
                 <span className="muted-warn">
                   {" · Results not posted to Jira"}
                   {commentAttempt.failureReason ? `: ${commentAttempt.failureReason}` : ""}
+                </span>
+              )
+            ) : null}
+            {/* Whether the ISSUE moved, which is the half a reader actually asks about.
+                Nothing renders without an attempt row, on the same rule as the comment above.
+
+                SKIPPED is the case this line exists for: QAMS was working correctly and chose
+                not to transition, and before ADR-0005 that decision was indistinguishable
+                from a broken integration because it wrote nothing anywhere. It reads as
+                neutral rather than as a warning, because nothing is wrong and there may be
+                nothing to fix — the reason names the run that is holding the issue open. */}
+            {syncAttempt ? (
+              syncAttempt.outcome === JiraSyncOutcome.SUCCEEDED ? (
+                <span className="muted"> · Issue transitioned to Done</span>
+              ) : syncAttempt.outcome === JiraSyncOutcome.SKIPPED ? (
+                <span className="muted">
+                  {" · Issue not transitioned"}
+                  {syncAttempt.failureReason ? `: ${syncAttempt.failureReason}` : ""}
+                </span>
+              ) : (
+                <span className="muted-warn">
+                  {" · Issue could not be transitioned"}
+                  {syncAttempt.failureReason ? `: ${syncAttempt.failureReason}` : ""}
                 </span>
               )
             ) : null}

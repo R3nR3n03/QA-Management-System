@@ -70,6 +70,9 @@
 | Jira sync | Finalize an execution with no issue key | Execution finalizes; no Jira call and no sync attempt record. |
 | Jira sync | Inspect a sync attempt record or its audit event | Actor, execution, issue key, and outcome are present; no token or credential material appears anywhere. |
 | Jira sync | Jira issue moved to Done by a person in Jira | QAMS state is unchanged; the sync is one-way and QAMS never reads Jira status back. |
+| Jira sync | Finalize a passing run on an issue QAMS already transitioned, where that run finalized after the transition | The issue is transitioned again and a second attempt is recorded. A later run passing every case is new evidence, and an issue a person has since moved on from must not be frozen out of ever moving again. |
+| Jira sync | Re-run the sync for a set of runs already reported | No call is made and the issue is not transitioned twice for the same body of work; the decision is recorded as skipped. |
+| Jira sync | Finalize a passing run while another run sharing its issue key is unfinalized or failed | No transition; a skipped attempt is recorded naming the run that is holding the issue open, and the run's screen shows that reason. A tester can tell a deliberate decision from a broken integration without reading the source. |
 | Result comment | Finalize a run carrying an issue key, result comments enabled | Execution finalizes; one comment is posted on that issue naming the run, its purpose, tester, derived result and case tallies; the attempt is recorded and audited. |
 | Result comment | Finalize a run carrying an issue key, result comments not enabled | Execution finalizes; no comment, no comment attempt record. The deployment behaves exactly as it did before the feature existed. |
 | Result comment | Finalize one of several runs sharing an issue key | Each run posts its own comment as it finalizes. Unlike the transition, a comment never waits for the other runs. |

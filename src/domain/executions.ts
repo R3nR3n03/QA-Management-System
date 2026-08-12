@@ -20,12 +20,14 @@ import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-c
 import { appendAudit } from "@/lib/audit";
 import { defectIdFormat } from "@/domain/defects";
 import {
+  describeTransitionBlock,
   ensureIssueKeyMutable,
   getJiraTransport,
   normalizeJiraIssueKey,
   sanitizeFailureReason,
   setJiraTransport,
   shouldTransitionIssue,
+  transitionAlreadyCovers,
   type JiraCommentResult,
   type JiraTransitionResult
 } from "@/domain/jira-sync";
@@ -821,6 +823,54 @@ async function settleJiraComment(
 }
 
 /**
+ * Record that QAMS decided NOT to transition an issue, and why.
+ *
+ * A row and an audit event, exactly like an attempt that reached Jira, because a reader
+ * asking "why is this ticket still open?" needs one place to look rather than a rule to
+ * reconstruct. `SKIPPED` is inert to the retry worker, which queues on `FAILED`, and does not
+ * settle an issue, which is `SUCCEEDED` or `ABANDONED` — so this adds a story without
+ * changing any existing one (ADR-0005).
+ *
+ * The reason is written by QAMS from its own records — run business IDs, states and results —
+ * and never quotes a third party, so it needs no sanitizing. It is stored through the same
+ * column as a failure reason, which is read by anyone who can open the run.
+ */
+async function recordSyncSkip(
+  executionId: string,
+  issueKey: string,
+  actor: Actor,
+  reason: string
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const attempt = await tx.jiraSyncAttempt.create({
+      data: {
+        executionId,
+        jiraIssueKey: issueKey,
+        outcome: JiraSyncOutcome.SKIPPED,
+        failureReason: reason,
+        // No credential was used, because no call was made. Distinct from the null that means
+        // "the service account did it", which only ever appears on a row that reached Jira.
+        actorId: null
+      }
+    });
+    await appendAudit(tx, {
+      actorId: actor.userId,
+      action: "JIRA_SYNC_SKIPPED",
+      entityType: "Execution",
+      entityId: executionId,
+      requestId: actor.requestId,
+      beforeAfterJson: {
+        after: {
+          jiraIssueKey: issueKey,
+          outcome: attempt.outcome,
+          failureReason: attempt.failureReason
+        }
+      }
+    });
+  });
+}
+
+/**
  * Decide whether finalizing this run completes its Jira issue, and act on it.
  *
  * Never throws. Every failure path here is a Jira problem, and a Jira problem must not
@@ -844,30 +894,50 @@ async function settleJiraSync(
 
     const siblings = await prisma.testExecution.findMany({
       where: { jiraIssueKey: issueKey },
-      select: { state: true, result: true }
+      select: { businessId: true, state: true, result: true, finalizedAt: true }
     });
 
-    if (!shouldTransitionIssue(siblings)) return;
+    // Every declined transition below is RECORDED rather than returned from silently. The
+    // three states a reader needs to tell apart — moved it, chose not to, tried and failed —
+    // were previously two empty tables and one populated one (ADR-0005).
+    if (!shouldTransitionIssue(siblings)) {
+      await recordSyncSkip(execution.id, issueKey, actor, describeTransitionBlock(siblings));
+      return;
+    }
 
     /**
-     * Transition once per issue, ever.
+     * Transition once per body of work — not once per issue, ever.
      *
-     * Eligibility is a property of the whole key, not of this run, so it stays true forever
-     * once met — a regression re-run planned against the same key and finalized Pass would
-     * satisfy it again and fire a second transition. That would silently re-close a ticket a
-     * person had deliberately moved back to In Progress.
+     * The old rule was the latter, and it is the defect ADR-0005 records: any SUCCEEDED row
+     * for the key suppressed every later run forever, so an issue that was transitioned,
+     * moved back to In Progress by a person, fixed and then re-tested never moved again.
+     *
+     * `transitionAlreadyCovers` asks the narrower question the old rule was reaching for —
+     * has anything finalized SINCE the last successful transition? — which still refuses a
+     * replay of work already reported while letting a genuine re-test through.
      *
      * This narrows but does not fully close the concurrent case: two runs for the same key
-     * finalizing at the same instant can both read "no success yet". Closing that completely
+     * finalizing at the same instant can both read "nothing since". Closing that completely
      * needs a partial unique index on `(jiraIssueKey) WHERE outcome = 'SUCCEEDED'`, which
      * Prisma's schema language cannot express; the duplicate would be a second SUCCEEDED row
      * and a repeat transition Jira treats as a no-op.
      */
-    const alreadyTransitioned = await prisma.jiraSyncAttempt.findFirst({
+    const lastSuccess = await prisma.jiraSyncAttempt.findFirst({
       where: { jiraIssueKey: issueKey, outcome: JiraSyncOutcome.SUCCEEDED },
-      select: { id: true }
+      orderBy: { attemptedAt: "desc" },
+      select: { attemptedAt: true, execution: { select: { businessId: true } } }
     });
-    if (alreadyTransitioned) return;
+
+    if (lastSuccess && transitionAlreadyCovers(lastSuccess.attemptedAt, siblings)) {
+      await recordSyncSkip(
+        execution.id,
+        issueKey,
+        actor,
+        `${issueKey} was already transitioned by ${lastSuccess.execution.businessId} on ` +
+          `${lastSuccess.attemptedAt.toISOString()}, and no run has finalized since.`
+      );
+      return;
+    }
 
     // A transport that REJECTS is the normal shape of a network failure, and it must be
     // recorded exactly like one that resolves `FAILED` — otherwise the QA Lead failure list
@@ -1179,7 +1249,12 @@ export async function executionDetail(executionId: string) {
          the issue key. Only the latest attempt: a comment is posted once and never retried, so
          earlier rows exist only where a previous attempt failed, and the run screen answers
          "did Jira get this?" rather than telling the history of trying. */
-      jiraCommentAttempts: { orderBy: { attemptedAt: "desc" as const }, take: 1 }
+      jiraCommentAttempts: { orderBy: { attemptedAt: "desc" as const }, take: 1 },
+      /* Whether the issue moved, for the line beside the comment's. Only the latest attempt,
+         on the same reasoning: the screen answers "where does this run stand with Jira?", not
+         the history of trying. Unlike a comment this one IS retried, so the latest row is
+         also the current state of that retry story. */
+      jiraSyncAttempts: { orderBy: { attemptedAt: "desc" as const }, take: 1 }
     }
   });
 }
