@@ -24,6 +24,19 @@ npm run prisma:seed      # Bootstrap QA Lead user; requires SEED_QA_LEAD_PASSWOR
 
 Environment: copy `.env.example` to `.env`; requires `DATABASE_URL` (local PostgreSQL) and `SESSION_SECRET`. Prisma config (schema path, seed command) lives in `prisma.config.ts`.
 
+## Releases
+
+`CHANGELOG.md` is the release history. **Every release adds an entry, in the same commit as the version bump** — it is the only human-readable record of what a version contains, and reconstructing one afterwards from git means reading tag messages that may not exist (see its "Notes on this history").
+
+1. Merge the work to `main` — a PR merge, or `--no-ff` locally; the history is merge commits.
+2. `npm version X.Y.Z --no-git-tag-version`, so `package-lock.json` moves too.
+3. Add the `X.Y.Z` entry at the top of `CHANGELOG.md`: what changed **for someone using the system**, not which files moved. Policy lives in `docs/` — record when it took effect, never restate what it says.
+4. Commit both on `main` as `chore: bump version to X.Y.Z`.
+5. `git branch X.Y.Z` — **bare version number, not `release/X.Y.Z`** — and `git tag -a vX.Y.Z`. Branch, tag and `main` all point at that one bump commit.
+6. Push `main`, the branch, and the tag.
+
+Verify typecheck, lint, tests and a production build **on the bump commit itself** before pushing. `main` on `origin` requires a pull request, so the bump commit's direct push reports `Bypassed rule violations` — expected for this procedure, but say so rather than letting it pass unremarked.
+
 ## Documentation is the source of truth
 
 `docs/` is the single source of truth for all policy and business rules. When documents conflict, the authority order (defined in `docs/README.md`) is: business-rules-and-validation → roles-workflows → data-model → api-and-security → architecture → sops → excel-source-map → ai-agent-governance.
