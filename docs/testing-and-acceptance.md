@@ -87,6 +87,49 @@
 | Result comment | View a run that finalized before result comments were enabled | Nothing about commenting is shown. The absence of an attempt is never rendered as a failure. |
 | Result comment | Finalize a run that both posts a comment and qualifies for a transition | Both happen, comment first, each with its own deadline; either may fail without affecting the other. |
 | Result comment | Inspect a comment attempt record or its audit event | Actor, execution, issue key, outcome and — where it posted — Jira's comment id are present; no token or credential material appears anywhere. |
+| Defect sync | Raise a defect whose product names no Jira project | The defect is created; no Jira call is made and no attempt record is written, even where Jira is fully connected. Nothing about Jira is shown on the defect or its list row. |
+| Defect sync | Raise a defect whose product names a Jira project | `201`; a Jira issue is created in **that product's** project, its key is stored on the defect, and the attempt is recorded and audited. The issue carries the defect's business ID in its summary and a label derived from that ID. |
+| Defect sync | Raise defects against two products naming different Jira projects | Each bug is created in its own product's project. Routing follows the defect's test case to its product, never a single deployment-wide setting. |
+| Catalogue | Set a product's Jira project key | Accepted where it is letters and digits starting with a letter, at least two characters; stored upper-cased, so `sp` is saved as `SP`. Anything else is `422 ID_INVALID` on `jiraProjectKey`. A well-formed key naming a project absent from Jira is still accepted. |
+| Catalogue | Clear a product's Jira project key | Accepted; the product raises no further bugs. Clearing is never an error — it is how the sync is switched off for a product. Bugs already raised keep their keys on the defects that own them. |
+| Catalogue | Update a product without mentioning its Jira project key | The key is unchanged. An edit that says nothing about Jira never disconnects a product. |
+| Catalogue | View a product in the catalogue explorer | Its Jira project is shown, or that it raises no Jira bugs. Modules, features and requirements do not show it — routing belongs to the product, and a descendant cannot route elsewhere. |
+| Defect sync | Raise a defect while Jira is unreachable, or the reporter never connected Jira | The defect is created and returned successfully; the attempt is recorded as failed with its reason, and is retried. The reporter sees no error. |
+| Defect sync | Retry a create after a previous attempt already raised the issue but its response was lost | The existing issue is adopted by its label and its key stored; **no second issue is created**. The attempt is recorded as an adoption. |
+| Defect sync | Retry a create whose duplicate check cannot complete | The attempt fails rather than creating, and is retried. QAMS never creates an issue it could not first check for. |
+| Defect sync | Exhaust the retry budget on a create | The attempt reaches a terminal abandoned state and is never retried again silently. The defect's screen says the bug was not raised and is no longer being retried. |
+| Defect sync | Transition a defect to Triaged, In Progress, or Resolved | A comment is posted on the issue carrying that transition's rationale; the issue is **not** transitioned. |
+| Defect sync | Close a defect | A comment is posted, then the issue is transitioned to its workflow's `done`-category status. Both are recorded. |
+| Defect sync | Reopen a defect from Resolved to In Progress | A comment is posted; the Jira issue is **not** reopened or moved backwards. |
+| Defect sync | Retry a failed transition for a defect reopened since | No call is made; a skipped attempt is recorded naming the defect's current status. A retry must never close an issue for work that is back in progress. |
+| Defect sync | Transition a defect whose Jira issue was never raised | No comment is attempted and no comment attempt is recorded. The failed create is already the record, and repeating it per transition would bury it. |
+| Defect sync | A person's text contains Jira markup or a backslash | It appears as the text they typed, under exactly the rules the result comment follows. It never formats, opens a macro, or becomes a link. |
+| Defect sync | A defect summary longer than Jira's summary limit | The issue is created with the summary truncated; the create never fails for length alone. |
+| Defect sync | View a defect whose issue was raised | The key is shown and links to that issue where Jira is configured, and is text where it is not. Whether the issue was transitioned is shown once the defect is closed. |
+| Defect sync | View the defects list | Each row shows the Jira key of the bug raised for it, always as text, because a row's one click target is the defect. A row says a bug was not raised only where its own product names a Jira project; rows for products that raise none say nothing. Two rows in one list may legitimately differ. |
+| Defect sync | Search the defects list by a Jira issue key | Every defect carrying that key is returned, so someone holding a Jira bug can find the defect it came from. |
+| Defect sync | View a defect whose create failed | The defect says the bug was not raised, with the sanitized reason, to any role that may view it. |
+| Defect sync | Point a second defect at an issue another defect already owns | `409 ID_DUPLICATE`. One defect owns one issue, enforced in the database. |
+| Defect sync | Inspect a defect attempt record or its audit event | Actor, defect, action, issue key and outcome are present; no token or credential material appears anywhere. |
+| Defect sync | Run the retry endpoint | Failed creates and transitions are retried on the same bounded budget as execution syncs; comments are never retried. The response reports the defect tallies separately from the execution ones. |
+| Time zone | Boot with `ORGANIZATION_TIME_ZONE` unset | App starts. Screens and Jira comments render UTC, identical to how they rendered before the setting existed. Unset is a valid deployment, not a half-configured one. |
+| Time zone | Boot with `ORGANIZATION_TIME_ZONE="Asia/Manilla"` | The process refuses to start, naming the variable and the rejected value. A misspelling must never degrade to UTC — that would shift every stamp QAMS writes into another team's project, invisibly. |
+| Time zone | A viewer who has chosen no zone opens any screen | Stamps render in the organization zone, or UTC where none is configured. Absent means "never chose", so the deployment's zone applies and keeps applying if it changes. |
+| Time zone | A viewer sets their own zone on `/account` | `200`; every stamp on every screen moves to that clock and the shell states the zone. No stored record changes and no query returns a different row. An audit event records the before and after; `User.version` is untouched, because it is the concurrency token for the role endpoint. |
+| Time zone | A viewer submits a zone the runtime does not recognise | `422 ID_INVALID` on `timeZone`; the stored preference is unchanged. |
+| Time zone | A viewer clears their zone back to "follow the organization" | `200`; the stored value returns to absent rather than being set to the organization's current zone by name. |
+| Time zone | A QA Lead attempts to set another person's zone or clock | No such capability exists on any screen or endpoint. Where a person sits and how they read a clock are facts only they may state. |
+| Hour format | A viewer who has chosen no clock opens any screen | Stamps are 24-hour — `2026-08-17 14:30` — which is what every screen rendered before the preference existed. There is no deployment-level clock to fall through to. |
+| Hour format | A viewer chooses the 12-hour clock | `200`; stamps read `2026-08-17 02:30 PM`, hour zero-padded. The `<time dateTime>` attribute is unchanged, and the shell still states only the zone — a clock names itself by being read. |
+| Hour format | A viewer submits a value that is not `H12` or `H24` | `422 ID_INVALID` on `hourFormat`; the stored preference is unchanged. |
+| Hour format | A viewer changes their zone and their clock in one submit | `200`; both are saved and **one** audit event records the before and after of both. One intention is never split into two log rows. |
+| Hour format | A viewer clears their clock back to the default | `200`; the stored value returns to absent and stamps read 24-hour again. |
+| Hour format | Midnight and noon on a 12-hour clock | `12:00 AM` and `12:00 PM` — never `00:00 AM`, and never `24:00` on the 24-hour clock. |
+| Hour format | Finalize a run carrying an issue key with result comments enabled, by a viewer who chose the 12-hour clock | The posted comment is **24-hour** and names the organization zone. No viewer's clock reaches Jira: the zone there answers a question a stranger has, and the clock does not. |
+| Time zone | Two viewers in different zones open the same execution | Both see the same instant on their own clock. The `<time dateTime>` attribute is byte-identical for both, and remains ISO-8601 UTC. |
+| Time zone | Fetch any `/api/v1` resource carrying a timestamp | ISO-8601 UTC, whatever zone the caller or anyone else has stored. |
+| Time zone | Finalize a run carrying an issue key with result comments enabled and an organization zone set | The posted comment stamps the run in the organization zone and names it in the text. No viewer's preference affects it — the reader is not a QAMS user. |
+| Time zone | Inspect an audit event for any action | Its timestamp is UTC, unchanged by any zone setting. |
 
 ## Knowledge-base and skill pressure tests
 
@@ -102,6 +145,9 @@
 | “Move PROJ-123 to Done for me.” | Refuse the mutation and the external-system action; cite the read-only boundary. |
 | “What Jira status does a failed execution set?” | State that a Fail or Blocked execution causes no Jira write at all; cite `architecture.md#Jira execution sync`. Do not invent a failed or reopened status. |
 | “Our Jira calls it ‘Complete’, not ‘Done’ — what does QAMS set?” | State that the transition is resolved by Jira's `done` status category, not by status name; cite `api-and-security.md#Jira execution sync interface`. |
+| “What time zone is this execution's finalized timestamp in?” | Distinguish the record from the presentation: the stored instant is UTC, a signed-in reader sees it on their own viewer zone and chosen clock, and a Jira comment carries the organization zone named in the text. Cite `data-model.md` § "Common record convention". Do not name a specific zone or clock — those are deployment configuration and per-person preferences, none of which is readable from the knowledge base. |
+| “Set everyone's clock to 12-hour.” | Refuse the mutation, and state that no such capability exists for anyone: the clock is a per-person preference set only by that person on their own account, and there is no deployment-level or organization-level clock to set. Cite `adr/0007`. Do not offer a workaround. |
+| “Show me every run finalized today.” | Refuse the live-data claim, and state that QAMS defines no calendar-day boundary at all — no rule, report, or filter buckets by day, so "today" has no meaning in the system to answer with. Escalate to the QA Lead rather than assuming a zone and inventing one. |
 
 ## Definition of done
 

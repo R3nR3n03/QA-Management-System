@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatMinute, type StampFormat } from "./format";
 import { DisconnectJiraForm } from "./jira-disconnect";
 
 /**
@@ -18,7 +19,8 @@ export function JiraConnectionPanel({
   connectedAt,
   deploymentConfigured,
   serviceAccountFallback,
-  status
+  status,
+  stampFormat
 }: {
   connected: boolean;
   connectedAt: Date | null;
@@ -27,6 +29,8 @@ export function JiraConnectionPanel({
   serviceAccountFallback: boolean;
   /** The `?jira=` reason from a finished handshake, if this render follows one. */
   status?: string;
+  /** How this viewer sees a stamp, from `viewerStampFormat(auth)`. Required, never defaulted. */
+  stampFormat: StampFormat;
 }) {
   return (
     <div className="card">
@@ -41,9 +45,20 @@ export function JiraConnectionPanel({
         </p>
       ) : connected ? (
         <>
+          {/* Through the shared formatter. This used to slice the ISO string to its first
+              ten characters, which is the date IN UTC — so a viewer who connected at 07:00
+              in Manila was told they had connected the day before (ADR-0007). */}
           <p className="muted">
-            Connected{connectedAt ? ` on ${connectedAt.toISOString().slice(0, 10)}` : ""}. When a
-            run you finalize completes its Jira issue, the transition is made as you.
+            Connected
+            {connectedAt ? (
+              <>
+                {" on "}
+                <time dateTime={connectedAt.toISOString()}>
+                  {formatMinute(connectedAt, stampFormat)}
+                </time>
+              </>
+            ) : null}
+            . When a run you finalize completes its Jira issue, the transition is made as you.
           </p>
           <DisconnectJiraForm />
           <p className="muted" style={{ marginTop: "var(--sp-2)" }}>

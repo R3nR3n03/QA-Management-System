@@ -33,6 +33,10 @@ Every rejected request returns HTTP `422` with stable error code, field path, an
 - The execution-level result is derived from the per-case results: `Fail` if any case failed, else `Blocked` if any case is blocked, else `Pass`.
 - A defect requires test case, non-blank summary, status, priority, and severity. New defects may omit investigation owner and resolution summary; Triaged defects require priority and severity.
 - Resolution requires non-blank resolution summary. Closure requires a non-blank retest evidence reference or closure rationale.
+- A defect's Jira issue key is written by QAMS when it raises that issue and is never supplied, edited, or cleared by a person — the opposite of an execution's issue key, which is typed in while the run is Planned. No request accepts one, so there is no validation to fail; a defect that carries none simply has no issue yet.
+- A defect owns at most one Jira issue, and an issue belongs to at most one defect. A second defect claiming an issue already bound to another is `ID_DUPLICATE`. This is enforced in the database, not only in the service.
+- Where the defect's product names a Jira project, raising a defect raises the Jira issue and every subsequent transition of that defect is reported on it. Neither is part of the defect's transaction: a Jira failure never fails the create or the transition, and never returns an error to the caller. The outcome is recorded against the defect and shown on its screen.
+- A product's Jira project key is optional and is set in the Catalogue by a role that may administer the catalogue. It is letters and digits starting with a letter, at least two characters, and is stored upper-cased; anything else is `ID_INVALID` on `jiraProjectKey`. Blank and absent both mean the product raises no bugs — clearing the field is how that is switched off, and is never an error. Omitting the field from an update leaves it unchanged, so an edit that says nothing about Jira can never silently disconnect a product.
 
 ## Traceability and reporting rules
 

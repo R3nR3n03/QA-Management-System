@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Component, FolderTree, ListChecks, Package, SearchX } from "lucide-react";
 import type { CatalogueDetail, DetailChild } from "@/domain/catalogue";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
-import { formatUtcMinute } from "@/ui/format";
+import { formatMinute, type StampFormat } from "@/ui/format";
 import { ListEmpty } from "@/ui/list-empty";
 import type { ListSearchParams } from "@/ui/list-params";
 import { Pager } from "@/ui/pager";
@@ -46,7 +46,8 @@ export function DetailPanel({
   needle,
   totals,
   hasAnyProduct,
-  mayAdminCatalogue
+  mayAdminCatalogue,
+  stampFormat
 }: {
   detail: CatalogueDetail | null;
   params: ListSearchParams | undefined;
@@ -65,6 +66,8 @@ export function DetailPanel({
    * states for nav items and `docs/testing-and-acceptance.md` now states for this screen.
    */
   mayAdminCatalogue: boolean;
+  /** How this viewer sees a stamp, from `viewerStampFormat(auth)`. Required, never defaulted. */
+  stampFormat: StampFormat;
 }) {
   if (detail === null) {
     return <Overview needle={needle} totals={totals} hasAnyProduct={hasAnyProduct} />;
@@ -72,7 +75,12 @@ export function DetailPanel({
 
   return (
     <>
-      <RecordHeader detail={detail} params={params} mayAdminCatalogue={mayAdminCatalogue} />
+      <RecordHeader
+        detail={detail}
+        params={params}
+        mayAdminCatalogue={mayAdminCatalogue}
+        stampFormat={stampFormat}
+      />
       {/* A requirement is a leaf: nothing hangs off it, so there is no child section
           rather than an empty one claiming something is missing. */}
       {detail.childKind === null ? null : (
@@ -82,6 +90,7 @@ export function DetailPanel({
           params={params}
           childPage={childPage}
           mayAdminCatalogue={mayAdminCatalogue}
+          stampFormat={stampFormat}
         />
       )}
     </>
@@ -93,11 +102,13 @@ export function DetailPanel({
 function RecordHeader({
   detail,
   params,
-  mayAdminCatalogue
+  mayAdminCatalogue,
+  stampFormat
 }: {
   detail: CatalogueDetail;
   params: ListSearchParams | undefined;
   mayAdminCatalogue: boolean;
+  stampFormat: StampFormat;
 }) {
   const inherited = detail.kind !== "product";
 
@@ -136,6 +147,26 @@ function RecordHeader({
           label={inherited ? "Product status" : "Status"}
           value={<span className="state">{detail.product.status}</span>}
         />
+        {/* Only on the product itself, unlike version and status above.
+            Those are inherited facts a module or feature genuinely has — a feature does
+            belong to a product with a status. Where defects go is a routing decision that a
+            reader would take as being about the record in front of them, and repeating it on
+            every descendant would suggest a feature could route somewhere else. It cannot.
+
+            Shown whenever the record is a product, including when it is unset: "raises no
+            Jira bugs" is the fact a QA Lead is looking for when they come here to check. */}
+        {detail.kind === "product" ? (
+          <Fact
+            label="Jira project"
+            value={
+              detail.product.jiraProjectKey ? (
+                <span className="jira-key">{detail.product.jiraProjectKey}</span>
+              ) : (
+                <span className="muted">Raises no Jira bugs</span>
+              )
+            }
+          />
+        ) : null}
         {detail.stats.modules !== null ? (
           <Fact label="Modules" value={detail.stats.modules} />
         ) : null}
@@ -148,7 +179,7 @@ function RecordHeader({
         {/* The optimistic-lock counter, not a release number — named so nobody reads it
             as one beside the product version two cells to the left. */}
         <Fact label="Record version" value={detail.version} />
-        <Fact label="Updated" value={formatUtcMinute(detail.updatedAt)} />
+        <Fact label="Updated" value={formatMinute(detail.updatedAt, stampFormat)} />
         {/* Stands in for an owner, which no catalogue model has. */}
         <Fact label="Updated by" value={detail.updatedByName ?? "—"} />
       </dl>
@@ -184,6 +215,7 @@ function EditFor({
         name={detail.title}
         versionTag={detail.product.versionTag}
         status={detail.product.status}
+        jiraProjectKey={detail.product.jiraProjectKey}
       />
     );
   }
@@ -233,13 +265,15 @@ function ChildSection({
   childKind,
   params,
   childPage,
-  mayAdminCatalogue
+  mayAdminCatalogue,
+  stampFormat
 }: {
   detail: CatalogueDetail;
   childKind: ChildKind;
   params: ListSearchParams | undefined;
   childPage: number;
   mayAdminCatalogue: boolean;
+  stampFormat: StampFormat;
 }) {
   const noun = CHILD_NOUN[childKind];
 
@@ -279,6 +313,7 @@ function ChildSection({
                 childKind={childKind}
                 params={params}
                 mayAdminCatalogue={mayAdminCatalogue}
+                stampFormat={stampFormat}
               />
             ))}
           </ul>
@@ -303,12 +338,14 @@ function ChildRow({
   child,
   childKind,
   params,
-  mayAdminCatalogue
+  mayAdminCatalogue,
+  stampFormat
 }: {
   child: DetailChild;
   childKind: ChildKind;
   params: ListSearchParams | undefined;
   mayAdminCatalogue: boolean;
+  stampFormat: StampFormat;
 }) {
   const kind = CHILD_SELECTION[childKind];
   const grandchildNoun = childKind === "module" ? "feature" : "requirement";
@@ -342,7 +379,7 @@ function ChildRow({
       )}
 
       <time className="muted cat-child-time" dateTime={child.updatedAt.toISOString()}>
-        {formatUtcMinute(child.updatedAt)}
+        {formatMinute(child.updatedAt, stampFormat)}
       </time>
 
       <EditChild child={child} childKind={childKind} mayAdminCatalogue={mayAdminCatalogue} />

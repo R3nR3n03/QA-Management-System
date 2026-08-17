@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import type { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome } from "@prisma/client";
 import { DefectStatusChip, ExecutionStateChip, OutcomeChip } from "./chips";
-import { formatUtcMinute, outcomeBreakdown } from "./format";
+import { formatMinute, outcomeBreakdown, type StampFormat } from "./format";
 import { ListEmpty } from "./list-empty";
 import { hrefWith, readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
@@ -85,7 +85,8 @@ export function ExecutionList({
   productKey = "product",
   features,
   featureKey = "feature",
-  jiraConfigured = false
+  jiraConfigured = false,
+  stampFormat
 }: {
   rows: ExecutionRowData[];
   total: number;
@@ -112,6 +113,12 @@ export function ExecutionList({
    * of the run whether or not anything will ever be sent.
    */
   jiraConfigured?: boolean;
+  /**
+   * How this viewer sees a stamp, from `viewerStampFormat(auth)`. Required rather than
+   * defaulted: a default here would let a screen render stamps in a zone or on a clock nobody
+   * chose, and the reader would have no way to tell (ADR-0007).
+   */
+  stampFormat: StampFormat;
 }) {
   const query = readParam(params, queryKey);
   const activeState = readParam(params, stateKey) || "ALL";
@@ -231,7 +238,7 @@ export function ExecutionList({
                     {" · "}
                     {row.testerName}
                     {" · "}
-                    {event.verb} <time dateTime={event.at.toISOString()}>{formatUtcMinute(event.at)}</time>
+                    {event.verb} <time dateTime={event.at.toISOString()}>{formatMinute(event.at, stampFormat)}</time>
                     {/* The Jira issue, last in the line and text rather than a link. The
                         row's one click target is its title — the reason the row is not a
                         stretched link and the reason "View" is skipped in the tab order.
@@ -288,6 +295,14 @@ export type DefectRowData = {
   priority: string;
   severity: string;
   caseBusinessId: string;
+  /** The Jira bug QAMS raised for this defect, or null when none was. */
+  jiraIssueKey: string | null;
+  /**
+   * Whether this defect's product raises bugs in Jira at all — its product carries a project
+   * key. Decides whether a missing bug is worth remarking on, and is per row rather than per
+   * screen because two defects in one list can legitimately disagree.
+   */
+  jiraExpected: boolean;
 };
 
 export function DefectList({
@@ -300,7 +315,8 @@ export function DefectList({
   queryKey = "q",
   pageKey = "page",
   products,
-  productKey = "product"
+  productKey = "product",
+  jiraConfigured = false
 }: {
   rows: DefectRowData[];
   total: number;
@@ -313,6 +329,13 @@ export function DefectList({
   /** Omit to leave the product filter off this screen entirely. */
   products?: ProductOption[];
   productKey?: string;
+  /**
+   * Whether this deployment uses Jira at all. A deployment that never configured Jira must
+   * not be told, once per row, about an integration it does not have. Same contract as
+   * `ExecutionList` — but here it is only half the question: a connected deployment still
+   * says nothing about a defect whose product raises no bugs (`jiraExpected`).
+   */
+  jiraConfigured?: boolean;
 }) {
   const query = readParam(params, queryKey);
   const product = readParam(params, productKey);
@@ -334,7 +357,7 @@ export function DefectList({
         <div className="row" style={{ marginBottom: "var(--sp-3)" }}>
           {showNeedle ? (
             <UrlFilterToolbar
-              placeholder="Filter by ID, summary, severity, or status…"
+              placeholder="Filter by ID, summary, severity, status, or Jira key…"
               label="Filter defects"
               paramKey={queryKey}
               pageKey={pageKey}
@@ -392,6 +415,29 @@ export function DefectList({
                     <span className="bid">{defect.caseBusinessId}</span>
                     {" · "}
                     {defect.priority || "no"} priority · {defect.severity || "no"} severity
+                    {/* The Jira bug, last in the line and text rather than a link, on the
+                        same reasoning as the executions list: the row's one click target is
+                        its summary, and an external anchor per row would add a tab stop
+                        each to serve the rarer intention. The detail page one click away
+                        links it.
+
+                        "Not raised in Jira" rather than "No Jira issue", which is what a
+                        run says: a run legitimately has no issue because nobody typed one,
+                        while a defect whose product raises bugs has none only because QAMS
+                        did not manage to. The two absences mean opposite things and must not
+                        read alike.
+
+                        Silent when the product carries no project key. That product was
+                        never meant to raise anything, so "not raised" would report a fault
+                        where there is none — on every one of its defects, forever. */}
+                    {defect.jiraIssueKey ? (
+                      <>
+                        {" · "}
+                        <span className="jira-key">{defect.jiraIssueKey}</span>
+                      </>
+                    ) : jiraConfigured && defect.jiraExpected ? (
+                      " · Not raised in Jira"
+                    ) : null}
                   </div>
                 </div>
                 <Link

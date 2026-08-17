@@ -67,7 +67,26 @@ export function makeExecutionRows(
   });
 }
 
-export function makeDefectRows(count: number): DefectRowData[] {
+export function makeDefectRows(
+  count: number,
+  options: {
+    /**
+     * The Jira bug each generated row carries. Unlike an execution's, a defect's key is
+     * unique, so the rows are numbered rather than sharing one — a fixture that gave two
+     * defects the same key would model something the database forbids.
+     */
+    jiraIssueKeys?: boolean;
+    /**
+     * Whether the generated rows' products raise Jira bugs at all.
+     *
+     * Independent of `jiraIssueKeys`, because the interesting combination is one without the
+     * other: a product that raises bugs and a defect with none is the state the screen has to
+     * report, and a product that raises none is the state it must stay silent about.
+     */
+    jiraExpected?: boolean;
+  } = {}
+): DefectRowData[] {
+  const { jiraIssueKeys = false, jiraExpected = jiraIssueKeys } = options;
   return Array.from({ length: count }, (_, index) => {
     const n = index + 1;
     return {
@@ -77,7 +96,9 @@ export function makeDefectRows(count: number): DefectRowData[] {
       summary: `Defect summary ${n}`,
       priority: "High",
       severity: "Major",
-      caseBusinessId: `TC-FIX-${pad(n)}`
+      caseBusinessId: `TC-FIX-${pad(n)}`,
+      jiraIssueKey: jiraIssueKeys ? `JIRA-${pad(n)}` : null,
+      jiraExpected
     };
   });
 }

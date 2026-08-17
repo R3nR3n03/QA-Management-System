@@ -27,7 +27,7 @@ export async function register(): Promise<void> {
 
   // Imported dynamically so the Edge runtime never pulls it in at module load.
   const { jiraConfig } = await import("@/lib/jira-config");
-  const { appBaseUrl } = await import("@/lib/app-config");
+  const { appBaseUrl, organizationTimeZone } = await import("@/lib/app-config");
 
   // Throws on a partly configured integration. Deliberately not caught: that is the
   // "fail at boot" contract.
@@ -37,6 +37,12 @@ export async function register(): Promise<void> {
   // then carries no link — but a malformed one would render a dead link into someone else's
   // Jira ticket, found by a stranger weeks after whoever typed it could connect the two.
   const baseUrl = appBaseUrl();
+
+  // Third instance of the same contract (ADR-0007). Unset is fine and means UTC, which is
+  // exactly how this deployment rendered before the setting existed. A misspelled zone is
+  // fatal: it would silently shift every stamp QAMS writes into someone else's Jira project,
+  // and nothing inside QAMS would ever look wrong.
+  const orgZone = organizationTimeZone();
 
   // The Jira transport is deliberately NOT installed here. It reaches `src/lib/db.ts`, which
   // constructs PrismaPg at module scope and pulls in `pg` and `node:fs` — and this file is
@@ -56,5 +62,20 @@ export async function register(): Promise<void> {
     message: config.enabled
       ? `Jira execution sync enabled for ${config.baseUrl}; service-account fallback ${config.serviceAccountFallback ? "enabled" : "disabled"}; ${config.transitionOverrides.size} transition override(s); result comments ${config.commentOnFinalize ? "on" : "off"}${config.commentOnFinalize && baseUrl === null ? " (no APP_BASE_URL, so comments carry no link)" : ""}.`
       : "Jira execution sync disabled: no JIRA_* configuration present."
+  });
+
+  // Its own line rather than folded into the one above. Only Jira reads the organization
+  // zone today, but it is not a Jira value — the same reasoning that keeps APP_BASE_URL out
+  // of `jira-config.ts`. An operator diagnosing a wrong-looking stamp should find it under
+  // its own name.
+  logRequest({
+    occurredAt: new Date().toISOString(),
+    requestId: "startup",
+    status: 200,
+    action: "TIME_ZONE_CONFIG_LOADED",
+    message:
+      orgZone === null
+        ? "No ORGANIZATION_TIME_ZONE set: stamps written for outside readers, and for viewers who have chosen no zone, render in UTC."
+        : `Organization zone ${orgZone}. Viewers who have chosen no zone of their own see this one.`
   });
 }

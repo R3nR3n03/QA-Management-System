@@ -1,4 +1,5 @@
 import { ExecutionOutcome } from "@prisma/client";
+import { formatInZoneWithName } from "@/lib/time-zone";
 
 /**
  * Composing the result comment QAMS posts on a Jira issue when a run finalizes
@@ -30,6 +31,15 @@ export type ResultCommentInput = {
   cases: ResultCommentCase[];
   /** Deep link back into QAMS, or null when no APP_BASE_URL is configured. */
   runUrl: string | null;
+  /**
+   * The ORGANIZATION zone the stamp is drawn in — `Asia/Manila`, or `UTC` when the
+   * deployment configures none.
+   *
+   * Passed in rather than read here, exactly as `runUrl` is: this module stays free of the
+   * environment so the part of the feature that can corrupt someone else's ticket remains
+   * testable without one.
+   */
+  timeZone: string;
 };
 
 /**
@@ -109,9 +119,12 @@ export const MAX_COMMENT_CHARS = 30_000;
  * ellipsis instead — and, worse, could sever the escape from a `{` and reopen the macro
  * problem this module exists to prevent. Capping the text a reader sees is also the more
  * honest reading of the limit.
+ *
+ * Exported for `jira-defect.ts`, which writes into the same Jira with the same obligations and
+ * must not grow a second, quietly different idea of how long a field may be.
  */
-function cap(raw: string): string {
-  return raw.length <= MAX_FIELD_CHARS ? raw : `${raw.slice(0, MAX_FIELD_CHARS)}…`;
+export function cap(raw: string, limit: number = MAX_FIELD_CHARS): string {
+  return raw.length <= limit ? raw : `${raw.slice(0, limit)}…`;
 }
 
 /**
@@ -136,13 +149,22 @@ export function escapeWikiMarkup(raw: string): string {
 }
 
 /**
- * `2026-08-11 14:32 UTC`.
+ * `2026-08-11 14:32 Asia/Manila`, or `… UTC` where no organization zone is configured.
  *
- * Formatted from the ISO string rather than through `toLocaleString`, so the output does not
- * depend on the server's locale or timezone. A reader in Jira gets one unambiguous instant.
+ * The ORGANIZATION zone, never a viewer's: this comment is read in Jira, by someone who may
+ * not be a QAMS user at all and has no preference QAMS could consult, so a viewer zone is
+ * undefined here by construction rather than merely unavailable (ADR-0007).
+ *
+ * The zone is named in full because the reader is a stranger. An abbreviation would not
+ * survive that — `IST` is three different zones — and a bare `14:32` would be worse than the
+ * old `UTC` suffix, since it would look unambiguous while being anything but.
+ *
+ * Assembled through `formatInZone`, which fixes the field order itself rather than taking a
+ * locale pattern. That preserves the property this function has always had: the output does
+ * not depend on where the process happens to be running.
  */
-function formatInstant(at: Date): string {
-  return `${at.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+function formatInstant(at: Date, zone: string): string {
+  return formatInZoneWithName(at, zone);
 }
 
 /** `3 passed, 2 failed, 1 blocked`, dropping the tallies that are zero. */
@@ -230,7 +252,7 @@ function render(input: ResultCommentInput, nonPassing: ResultCommentCase[], show
     // Counted from every case, never from the truncated list: the header is the one part of
     // the comment that still tells the whole truth about the run.
     `Result: ${input.result} · ${input.cases.length} ${input.cases.length === 1 ? "case" : "cases"}: ${tallies(input.cases)}`,
-    `Tester: ${escapeWikiMarkup(cap(input.testerName))} · Finalized ${formatInstant(input.finalizedAt)}`,
+    `Tester: ${escapeWikiMarkup(cap(input.testerName))} · Finalized ${formatInstant(input.finalizedAt, input.timeZone)}`,
     ...section("Failed", listed, ExecutionOutcome.FAIL),
     ...section("Blocked", listed, ExecutionOutcome.BLOCKED),
     // Silent truncation would read as a complete list, and a reader would draw conclusions

@@ -32,7 +32,8 @@ import {
   type JiraTransitionResult
 } from "@/domain/jira-sync";
 import { buildResultComment, type ResultCommentCase } from "@/domain/jira-comment";
-import { appBaseUrl, executionUrl } from "@/lib/app-config";
+import { appBaseUrl, executionUrl, organizationTimeZone } from "@/lib/app-config";
+import { UTC } from "@/lib/time-zone";
 import { jiraConfig } from "@/lib/jira-config";
 import { logRequest } from "@/lib/logging";
 import { runPaged, type PageRequest } from "@/lib/pagination";
@@ -753,7 +754,11 @@ async function settleJiraComment(
       result: detail.result,
       finalizedAt: detail.finalizedAt,
       cases,
-      runUrl: executionUrl(appBaseUrl(), execution.id)
+      runUrl: executionUrl(appBaseUrl(), execution.id),
+      // The ORGANIZATION zone, resolved here for the same reason `runUrl` is: this is where
+      // the environment is read, and `jira-comment.ts` stays pure. Nobody's viewer zone
+      // reaches a Jira comment — the reader of one is not a QAMS user (ADR-0007).
+      timeZone: organizationTimeZone() ?? UTC
     });
 
     // A transport that REJECTS is the ordinary shape of a network failure and is recorded

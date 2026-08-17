@@ -3,6 +3,7 @@ import { QamsRole } from "@prisma/client";
 import { profile } from "@/domain/auth";
 import { openAssignedExecutionCount } from "@/domain/executions";
 import { reviewQueueCount } from "@/domain/test-cases";
+import { viewerStampFormat } from "@/ui/format";
 import { navGroupsFor, roleLabel } from "@/ui/navigation";
 import { Sidebar } from "@/ui/sidebar";
 import { ToastProvider } from "@/ui/toast";
@@ -47,7 +48,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar
         groups={groups}
         badges={badges}
-        user={{ displayName: me.displayName, roleLabel: roleLabel(me.role) }}
+        user={{
+          displayName: me.displayName,
+          roleLabel: roleLabel(me.role),
+          // Only the zone is stated in the rail. The clock needs no label: `02:30 PM` and
+          // `14:30` announce which one they are simply by being read (ADR-0007).
+          timeZone: viewerStampFormat(me).timeZone
+        }}
         signOutAction={signOut}
       />
       <main id="main" className="shell-main">

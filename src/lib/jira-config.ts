@@ -55,6 +55,13 @@ export type JiraEnv = {
   JIRA_TRANSITION_TIMEOUT_MS?: string;
   /** Opt-in. See `commentOnFinalize`. */
   JIRA_COMMENT_ON_FINALIZE?: string;
+  /**
+   * The issue type created for a raised defect. Defaults to `Bug`.
+   *
+   * The project those bugs land in is NOT here: it is a property of the product, set in the
+   * Catalogue (`Product.jiraProjectKey`). See the note on `defectIssueType`.
+   */
+  JIRA_DEFECT_ISSUE_TYPE?: string;
 };
 
 /**
@@ -132,7 +139,31 @@ export type JiraConfig = {
    * Always false when the integration is not configured at all: there is nowhere to post.
    */
   commentOnFinalize: boolean;
+  /**
+   * The issue type name used for a raised defect.
+   *
+   * `Bug` is Jira's own default name for it and exists in every stock project, so a
+   * deployment that has not renamed its issue types needs no configuration here. An override
+   * exists because the name IS editable and a project using `Defect` or a localized name
+   * would otherwise have every create refused.
+   *
+   * ## Why this stayed in the environment when the project key did not
+   *
+   * The project a product's bugs belong in is a fact about that product, and it differs
+   * between them — so it lives on `Product.jiraProjectKey`, editable in the Catalogue. The
+   * issue type is a fact about how a Jira SITE names its types, is the same for almost every
+   * project on one site, and has a default that is correct unless someone renamed it. Putting
+   * it on every product would be four places to say `Bug`.
+   *
+   * The honest limit: a site where one project renamed its issue type and another did not
+   * cannot express that here. Nothing in the knowledge base establishes that case, and
+   * inventing a per-product override for it would be policy this document may not set.
+   */
+  defectIssueType: string;
 };
+
+/** The issue type used when a deployment does not name one. */
+export const DEFAULT_JIRA_DEFECT_ISSUE_TYPE = "Bug";
 
 function present(value: string | undefined): string | null {
   if (value === undefined) return null;
@@ -220,7 +251,8 @@ export function jiraConfig(env: JiraEnv & Record<string, string | undefined> = p
       transitionOverrides: new Map(),
       // Not `parseFlag` here: with no Jira configured there is nothing to post to, and
       // reporting the flag as on would describe a capability this deployment does not have.
-      commentOnFinalize: false
+      commentOnFinalize: false,
+      defectIssueType: DEFAULT_JIRA_DEFECT_ISSUE_TYPE
     };
   }
 
@@ -269,7 +301,8 @@ export function jiraConfig(env: JiraEnv & Record<string, string | undefined> = p
     encryptionKey,
     timeoutMs: parseTimeout(env.JIRA_TRANSITION_TIMEOUT_MS),
     transitionOverrides: parseTransitionOverrides(env),
-    commentOnFinalize: parseFlag(env.JIRA_COMMENT_ON_FINALIZE)
+    commentOnFinalize: parseFlag(env.JIRA_COMMENT_ON_FINALIZE),
+    defectIssueType: present(env.JIRA_DEFECT_ISSUE_TYPE) ?? DEFAULT_JIRA_DEFECT_ISSUE_TYPE
   };
 }
 

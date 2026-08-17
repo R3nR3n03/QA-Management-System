@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { ExecutionLifecycleState, type ExecutionOutcome } from "@prisma/client";
 import { ExecutionStateChip, OutcomeChip } from "./chips";
-import { formatUtcMinute, outcomeBreakdown } from "./format";
+import { formatMinute, outcomeBreakdown, type StampFormat } from "./format";
 import { ListEmpty } from "./list-empty";
 import { hrefWith, readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
@@ -196,7 +196,8 @@ export function WorkQueue({
   productKey = "product",
   features,
   featureKey = "feature",
-  jiraConfigured = false
+  jiraConfigured = false,
+  stampFormat
 }: {
   rows: WorkRowData[];
   total: number;
@@ -217,6 +218,8 @@ export function WorkQueue({
   featureKey?: string;
   /** Whether this deployment has Jira configured at all. See `JiraNote`. */
   jiraConfigured?: boolean;
+  /** How this viewer sees a stamp, from `viewerStampFormat(auth)`. Required, never defaulted. */
+  stampFormat: StampFormat;
 }) {
   const tab = readWorkTab(params, stateKey);
   const query = readParam(params, queryKey);
@@ -367,7 +370,7 @@ export function WorkQueue({
                 <span className="muted work-when">
                   <CalendarClock size={13} aria-hidden />
                   {event.verb}{" "}
-                  <time dateTime={event.at.toISOString()}>{formatUtcMinute(event.at)}</time>
+                  <time dateTime={event.at.toISOString()}>{formatMinute(event.at, stampFormat)}</time>
                 </span>
                 {/* The verb is the state's next move, so the row says what the click
                     does. Same destination as the title, so it leaves the tab order:
@@ -414,7 +417,8 @@ export function FinalizedRecap({
   rows,
   total,
   href = "/executions",
-  jiraConfigured = false
+  jiraConfigured = false,
+  stampFormat
 }: {
   rows: FinalizedRowData[];
   /** Finalized runs matching the current filters, before the cap. */
@@ -422,6 +426,8 @@ export function FinalizedRecap({
   href?: string;
   /** Whether this deployment has Jira configured at all. See `JiraNote`. */
   jiraConfigured?: boolean;
+  /** How this viewer sees a stamp, from `viewerStampFormat(auth)`. Required, never defaulted. */
+  stampFormat: StampFormat;
 }) {
   if (rows.length === 0) return null;
 
@@ -489,7 +495,7 @@ export function FinalizedRecap({
                     <CalendarClock size={13} aria-hidden />
                     Finalized{" "}
                     <time dateTime={row.finalizedAt.toISOString()}>
-                      {formatUtcMinute(row.finalizedAt)}
+                      {formatMinute(row.finalizedAt, stampFormat)}
                     </time>
                   </span>
                 ) : null}

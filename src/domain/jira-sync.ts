@@ -219,11 +219,19 @@ export function ensureIssueKeyMutable(state: ExecutionLifecycleState): void {
  * `jiraConfig()`; this module keeps only the type it flows through.
  */
 
-/** What the caller asks the transport to do. */
+/**
+ * What the caller asks the transport to do.
+ *
+ * `executionId` is optional because a defect transitions its own issue and has no execution
+ * (`docs/architecture.md#Jira defect sync`). The transport reads neither it nor `defectId` —
+ * both are here so a caller can correlate a request with the row it will write, and so this
+ * type says out loud which subjects reach Jira.
+ */
 export type JiraTransitionRequest = {
   issueKey: string;
-  executionId: string;
-  /** The user whose run triggered this; the transport decides whose credential is used. */
+  executionId?: string;
+  defectId?: string;
+  /** The user whose action triggered this; the transport decides whose credential is used. */
   actorId: string;
   /**
    * The transport MUST abandon the attempt after this long and settle, by rejecting or by
@@ -246,8 +254,10 @@ export type JiraTransitionResult = {
 /** What the caller asks the transport to post, and where. */
 export type JiraCommentRequest = {
   issueKey: string;
-  executionId: string;
-  /** The user whose run finalized; the transport decides whose credential is used. */
+  /** Optional for the same reason as on `JiraTransitionRequest`: a defect has no execution. */
+  executionId?: string;
+  defectId?: string;
+  /** The user whose action triggered this; the transport decides whose credential is used. */
   actorId: string;
   /** The finished comment body, in Jira wiki markup (`src/domain/jira-comment.ts`). */
   body: string;
@@ -270,6 +280,42 @@ export type JiraCommentResult = {
   actorId?: string | null;
 };
 
+/** What the caller asks the transport to raise, and where. */
+export type JiraCreateIssueRequest = {
+  /** The Jira project the bug is raised in (`JIRA_DEFECT_PROJECT_KEY`). */
+  projectKey: string;
+  /** The issue type name, `Bug` unless a deployment renamed it. */
+  issueType: string;
+  summary: string;
+  /** The description, in Jira wiki markup (`src/domain/jira-defect.ts`). */
+  description: string;
+  /**
+   * Labels applied to the created issue. One of them ties the issue back to the QAMS defect
+   * and is what makes a retry able to recognise its own work (`qamsDefectLabel`).
+   */
+  labels: string[];
+  defectId: string;
+  /** The user who raised the defect; the transport decides whose credential is used. */
+  actorId: string;
+  timeoutMs: number;
+};
+
+/**
+ * What happened. `issueKey` is the key of the issue now standing for this defect — whether
+ * this call created it or found one an earlier attempt had already created.
+ *
+ * `adopted` says which of those it was. It exists because the two are indistinguishable from
+ * the key alone, and a reader looking at a retry that "succeeded" deserves to know whether a
+ * second bug was raised or an orphan was reclaimed.
+ */
+export type JiraCreateIssueResult = {
+  outcome: JiraSyncOutcome;
+  issueKey?: string | null;
+  adopted?: boolean;
+  failureReason?: string;
+  actorId?: string | null;
+};
+
 /**
  * The boundary between this domain and Jira itself.
  *
@@ -281,6 +327,14 @@ export type JiraCommentResult = {
 export type JiraTransport = {
   transitionToDone(request: JiraTransitionRequest): Promise<JiraTransitionResult>;
   postComment(request: JiraCommentRequest): Promise<JiraCommentResult>;
+  /**
+   * Raise a bug for a defect, or adopt the one an earlier attempt already raised.
+   *
+   * The adoption is not an optimisation: creation is the one write here that is not
+   * idempotent, and the only reason a failed create can be retried at all is that this looks
+   * for its own label first (ADR-0006).
+   */
+  createIssue(request: JiraCreateIssueRequest): Promise<JiraCreateIssueResult>;
 };
 
 /**

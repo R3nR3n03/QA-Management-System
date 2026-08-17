@@ -3,7 +3,7 @@ import { ChevronRight, Download } from "lucide-react";
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { listImportRuns } from "@/domain/imports";
-import { formatUtcMinute } from "@/ui/format";
+import { formatMinute, viewerStampFormat } from "@/ui/format";
 import { readPage, readPageSize, type ListSearchParams } from "@/ui/list-params";
 import { RUN_STATUS_TONE, toneFor } from "./[id]/outcome-tone";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
@@ -26,6 +26,7 @@ export default async function ImportsPage({
   const page = readPage(params);
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const { rows: runs, total } = await listImportRuns(auth.role, { page, pageSize });
+  const stampFormat = viewerStampFormat(auth);
 
   return (
     <>
@@ -77,13 +78,13 @@ export default async function ImportsPage({
                         the only ones printing a raw `2026-08-04T09:12:33.123Z`. */}
                     <div className="muted">
                       <time dateTime={run.startedAt.toISOString()}>
-                        {formatUtcMinute(run.startedAt)}
+                        {formatMinute(run.startedAt, stampFormat)}
                       </time>
                       {run.completedAt ? (
                         <>
                           {" · completed "}
                           <time dateTime={run.completedAt.toISOString()}>
-                            {formatUtcMinute(run.completedAt)}
+                            {formatMinute(run.completedAt, stampFormat)}
                           </time>
                         </>
                       ) : null}

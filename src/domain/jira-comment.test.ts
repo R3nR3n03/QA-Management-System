@@ -27,6 +27,9 @@ const run = (over: Partial<ResultCommentInput> = {}): ResultCommentInput => ({
   finalizedAt: new Date("2026-08-11T14:32:07.000Z"),
   cases: [passing("TC-LOGIN-0001", "Sign in with valid credentials")],
   runUrl: null,
+  // What an unconfigured deployment renders, so every assertion below reads as the
+  // pre-existing behaviour unless a test deliberately sets a zone (ADR-0007).
+  timeZone: "UTC",
   ...over
 });
 
@@ -51,6 +54,14 @@ describe("buildResultComment", () => {
 
   it("counts a single covered case in the singular", () => {
     expect(buildResultComment(run())).toContain("Result: PASS · 1 case: 1 passed");
+  });
+
+  // The ORGANIZATION zone, named in the text. No viewer's preference can reach a Jira
+  // comment: the reader is not a QAMS user and has none (ADR-0007).
+  it("stamps the organization zone, named, when one is configured", () => {
+    const body = buildResultComment(run({ timeZone: "Asia/Manila" }));
+    expect(body).toContain("Finalized 2026-08-11 22:32 Asia/Manila");
+    expect(body).not.toContain("14:32");
   });
 
   it("lists each failed case with its defect and what actually happened", () => {

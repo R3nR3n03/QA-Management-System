@@ -143,6 +143,32 @@ describe("jiraConfig", () => {
   it("reports no commenting when Jira is not configured at all", () => {
     expect(jiraConfig({ JIRA_COMMENT_ON_FINALIZE: "true" }).commentOnFinalize).toBe(false);
   });
+
+  // ADR-0006. `Bug` is Jira's own default name and exists in every stock project, so a
+  // deployment that has not renamed its issue types configures nothing here.
+  it("defaults the issue type to Bug", () => {
+    expect(jiraConfig(complete).defectIssueType).toBe("Bug");
+  });
+
+  it("takes an issue type override for a site that renamed it", () => {
+    expect(jiraConfig({ ...complete, JIRA_DEFECT_ISSUE_TYPE: "Defect" }).defectIssueType).toBe("Defect");
+  });
+
+  // The project a product's bugs go to is catalogue data on `Product.jiraProjectKey`, not
+  // deployment configuration. A deployment that still sets the retired variable is not
+  // half-configured and must not be treated as such — the value is simply ignored.
+  it("ignores a retired JIRA_DEFECT_PROJECT_KEY rather than failing on it", () => {
+    const config = jiraConfig({ ...complete, JIRA_DEFECT_PROJECT_KEY: "BUG" } as JiraEnv);
+    expect(config.enabled).toBe(true);
+    expect(config).not.toHaveProperty("defectProjectKey");
+  });
+
+  it("does not treat the retired variable as intent to use Jira", () => {
+    // Alone, it says nothing: this deployment has no Jira connection at all, and reporting it
+    // as half-configured would demand five variables to fix a value nothing reads.
+    expect(isJiraConfigured({ JIRA_DEFECT_PROJECT_KEY: "BUG" } as JiraEnv)).toBe(false);
+    expect(jiraConfig({ JIRA_DEFECT_PROJECT_KEY: "BUG" } as JiraEnv).enabled).toBe(false);
+  });
 });
 
 /**

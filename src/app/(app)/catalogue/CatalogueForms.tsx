@@ -59,7 +59,22 @@ export function ProductForm({ onDone }: { onDone: () => void }) {
             <option value="Inactive">Inactive</option>
           </select>
         </label>
+        {/* The one optional field on this form. Empty is the default and the safe direction:
+            a new product raises nothing in Jira until someone says where its bugs go. */}
+        <label className={bad("jiraProjectKey")}>
+          <span>Jira project key</span>
+          <input
+            name="jiraProjectKey"
+            disabled={pending}
+            placeholder="Optional"
+            {...fieldProps(state, "jiraProjectKey", PRODUCT_FORM_ID)}
+          />
+        </label>
       </div>
+      <p className="hint">
+        Defects against this product are raised as bugs in that Jira project, for example SP.
+        Leave it empty to raise none; it can be set later.
+      </p>
       <p className="hint id-hint">Product ID is assigned automatically, in the format PROD###.</p>
       <button className="btn" type="submit" disabled={pending}>
         {pending ? "Adding…" : "Add product"}

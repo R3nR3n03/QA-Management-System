@@ -16,7 +16,7 @@ import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-c
 import { jiraConnectionStatus, jiraIssueUrl } from "@/lib/jira-config";
 import { ExecutionStateChip, OutcomeChip, TestCaseStateChip } from "@/ui/chips";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
-import { formatUtcMinute } from "@/ui/format";
+import { formatMinute, viewerStampFormat, type StampFormat } from "@/ui/format";
 import { hrefWith, readPage, readParam, type ListSearchParams } from "@/ui/list-params";
 import { Pager } from "@/ui/pager";
 import { pageSlice } from "@/ui/paging";
@@ -58,12 +58,13 @@ const RAIL: { state: ExecutionLifecycleState; label: string; icon: ReactNode }[]
  */
 function railHint(
   state: ExecutionLifecycleState,
-  execution: { createdAt: Date; startedAt: Date | null; finalizedAt: Date | null }
+  execution: { createdAt: Date; startedAt: Date | null; finalizedAt: Date | null },
+  stampFormat: StampFormat
 ): string {
-  if (state === ExecutionLifecycleState.PLANNED) return formatUtcMinute(execution.createdAt);
+  if (state === ExecutionLifecycleState.PLANNED) return formatMinute(execution.createdAt, stampFormat);
   if (state === ExecutionLifecycleState.IN_PROGRESS)
-    return execution.startedAt ? formatUtcMinute(execution.startedAt) : "Not yet";
-  return execution.finalizedAt ? formatUtcMinute(execution.finalizedAt) : "Not yet";
+    return execution.startedAt ? formatMinute(execution.startedAt, stampFormat) : "Not yet";
+  return execution.finalizedAt ? formatMinute(execution.finalizedAt, stampFormat) : "Not yet";
 }
 
 /**
@@ -113,6 +114,10 @@ export default async function ExecutionPage({
   const auth = await requireSession();
   const execution = await executionDetail(id);
   if (!execution) notFound();
+
+  /* Resolved once for the whole render: their zone, else the organization's, else UTC
+     (ADR-0007). Every stamp below goes through it, so no two on this page can disagree. */
+  const stampFormat = viewerStampFormat(auth);
 
   /* Deployment configuration, so it is read here and never asked for by a component.
      `jiraIssueHref` is null in the two cases that both render plain text: no Jira configured,
@@ -337,7 +342,7 @@ export default async function ExecutionPage({
           steps={RAIL.map((step) => ({
             key: step.state,
             label: step.label,
-            hint: railHint(step.state, execution),
+            hint: railHint(step.state, execution, stampFormat),
             icon: step.icon
           }))}
           currentIndex={currentIndex}
@@ -532,7 +537,7 @@ export default async function ExecutionPage({
                     <dd>
                       {execution.finalizedAt ? (
                         <time dateTime={execution.finalizedAt.toISOString()}>
-                          {formatUtcMinute(execution.finalizedAt)}
+                          {formatMinute(execution.finalizedAt, stampFormat)}
                         </time>
                       ) : (
                         "Not recorded"
@@ -584,7 +589,7 @@ export default async function ExecutionPage({
                     ) : null}
                     <OutcomeChip outcome={row.result} />
                     <time className="muted" dateTime={row.occurredAt.toISOString()}>
-                      {formatUtcMinute(row.occurredAt)}
+                      {formatMinute(row.occurredAt, stampFormat)}
                     </time>
                   </li>
                 ))}

@@ -9,6 +9,7 @@ import { jiraConnectionStatus } from "@/lib/jira-config";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
 import { navFor } from "@/ui/navigation";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
+import { viewerStampFormat } from "@/ui/format";
 import { requireSession } from "@/ui/session";
 import { UrlFilterToolbar } from "@/ui/toolbar";
 import { FinalizedRecap, readWorkTab, WorkQueue } from "@/ui/work-queue";
@@ -104,6 +105,7 @@ export default async function MyWorkPage({
      decides whether an UNLINKED run says "No Jira issue"; a recorded key shows either way.
      Same arrangement as the executions list. */
   const jiraConfigured = jiraConnectionStatus().connected;
+  const stampFormat = viewerStampFormat(auth);
 
   /* The rail's tip, chosen from the queue it sits beside. The two row-derived signals read
      the rows actually on screen rather than issuing a query of their own: a tip about
@@ -173,6 +175,7 @@ export default async function MyWorkPage({
           products={products}
           features={features}
           jiraConfigured={jiraConfigured}
+          stampFormat={stampFormat}
         />
 
         <FinalizedRecap
@@ -190,6 +193,7 @@ export default async function MyWorkPage({
           }))}
           total={done.total}
           jiraConfigured={jiraConfigured}
+          stampFormat={stampFormat}
         />
       </div>
 

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { jiraConnectionFor, jiraConnectionRoster } from "@/domain/jira-credentials";
 import { jiraConnectionStatus } from "@/lib/jira-config";
 import { JiraConnectionPanel } from "@/ui/jira-connection";
+import { viewerStampFormat } from "@/ui/format";
 import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +92,7 @@ export default async function IntegrationsPage() {
           connectedAt={mine.connectedAt}
           deploymentConfigured={jira.connected}
           serviceAccountFallback={jira.serviceAccountFallback}
+          stampFormat={viewerStampFormat(auth)}
         />
       </div>
 
