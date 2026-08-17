@@ -13,13 +13,35 @@ export async function changePasswordAction(_prev: FormState, formData: FormData)
   // throw and sign the caller out — the opposite of what the fresh cookie is for.
   let userId = "";
 
+  const newPassword = String(formData.get("newPassword") ?? "");
+
+  /*
+   * The two entries must agree, and this is the one check that cannot be left to the domain:
+   * the confirmation is not a fact about the credential, it is a fact about the FORM — a
+   * second reading of an input nobody can see, which is why it never reaches
+   * `changeOwnPassword`. Shape validation, the same job a route handler's Zod schema does
+   * before it calls a service, so no policy moves out of the domain here.
+   *
+   * The form checks this as it is typed as well. That check is JavaScript and this submit is
+   * not, so without this one a no-JS browser could still set a mistyped password — and a
+   * mistyped password is invisible until the next sign-in, by which time nothing on screen
+   * can be compared against anything.
+   */
+  if (newPassword !== String(formData.get("confirmPassword") ?? "")) {
+    return {
+      title: "The two new passwords do not match",
+      detail: "Type the new password again in the confirmation field. Nothing was changed.",
+      field: "confirmPassword"
+    };
+  }
+
   const result = await runAction((actor) => {
     userId = actor.userId;
     return changeOwnPassword(
       actor.userId,
       {
         currentPassword: String(formData.get("currentPassword") ?? ""),
-        newPassword: String(formData.get("newPassword") ?? "")
+        newPassword
       },
       actor.requestId
     );

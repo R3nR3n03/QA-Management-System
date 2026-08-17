@@ -337,6 +337,17 @@ a.jira-key {
 .btn-danger:hover:not(:disabled) {
   box-shadow: var(--elev-2);
 }
+/* A button whose label carries a glyph. `.btn` is `inline-block`, which leaves an icon and a
+   word sitting on the text baseline a pixel or two apart; this puts them on one cross-axis
+   centre instead. The icon is `aria-hidden` — the label is the accessible name. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.btn-icon > svg {
+  flex: none;
+}
 /* The pager's dead ends. They render as <span>, not <a> or <button>: an anchor with
    nowhere to go is a keyboard and screen-reader trap, so the disabled LOOK is all that
    is borrowed from .btn:disabled. */
@@ -406,6 +417,19 @@ a.jira-key {
 .why strong {
   color: var(--ink);
 }
+/* The same band with the glyph that says which kind of note it is. The icon is decoration —
+   the sentence already names the consequence — so it is `aria-hidden` at every call site and
+   the text keeps its own block, which is what stops the second line wrapping under the icon. */
+.why-icon {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+.why-icon > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--blocked);
+}
 
 .card {
   background: var(--surface);
@@ -415,11 +439,77 @@ a.jira-key {
   box-shadow: var(--shadow);
 }
 
+/* A card header that has to introduce itself: a medallion, the heading, and one line saying
+   what the panel is for. For a card whose contents are a TASK rather than a list — the account
+   panels — where a bare <h2> left the form starting cold. A card that holds rows does not need
+   one; the rows say what they are.
+
+   Deliberately no state chip here. A panel's state belongs beside the control that changes it,
+   where the two read as one thing; up here it is decoration, read once and then never again. */
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.panel-head > .medallion {
+  flex: none;
+}
+.panel-head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.panel-head-text > h2 {
+  margin: 0;
+}
+.panel-head-text > p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ink-3);
+  max-width: 46ch;
+}
+
+/* The icon that names a panel: a tinted disc, so the tone is carried by a mark beside the
+   heading rather than by the heading itself. Decorative at every call site — the <h2> next to
+   it is the name — so it is always `aria-hidden`. Tones reuse the chip washes, which the
+   contrast matrix already holds to 4.5:1 for their ink. */
+.medallion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+.medallion[data-tone="pass"] {
+  background: var(--pass-wash);
+  color: var(--pass);
+}
+.medallion[data-tone="blocked"] {
+  background: var(--blocked-wash);
+  color: var(--blocked);
+}
+/* The band-leading size. Bigger than the icon rule's 15–17px because it is the first mark on
+   the screen, not a glyph inside a line of text. */
+.medallion-lg {
+  width: 52px;
+  height: 52px;
+}
+
 .field {
   display: block;
   margin-bottom: var(--sp-4);
 }
-.field > span {
+/* Two shapes, one label treatment. Most fields ARE the `<label>`, with the caption as its
+   first child. A field that hosts a second control — the password reveal, the feature
+   picker's listbox — cannot be, because a `<button>` inside a `<label>` inherits the label's
+   activation behaviour and every press would also press the field; those are a `<div class=
+   "field">` with an explicit `<label for>` inside. Both selectors, or the second shape's
+   caption renders at body size, which is how the feature picker's did. */
+.field > span,
+.field > label > span {
   display: block;
   font-size: 13px;
   font-weight: 620;
@@ -465,6 +555,94 @@ a.jira-key {
 .field-bad textarea,
 .field-bad select {
   border-color: var(--fail);
+}
+
+/* An input with a control living inside its own right edge: today, the reveal on a password
+   field. Overlaid rather than placed beside the input, so the field keeps its full width and
+   the two read as one control instead of a control and its neighbour. The input reserves the
+   room, or a long value slides under the button. */
+.field-affix {
+  position: relative;
+  display: block;
+}
+.field-affix > input {
+  padding-right: 42px;
+}
+.field-affix-btn {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  /* Transparent, not `--surface`: the field turns `--fail` at its border when rejected and
+     wears no fill of its own, so a painted button would be a pale rectangle inside it. */
+  background: transparent;
+  border-radius: 0 var(--radius-ctl) var(--radius-ctl) 0;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color var(--ease), background var(--ease);
+}
+.field-affix-btn:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.field-affix-btn[aria-pressed="true"] {
+  color: var(--accent);
+}
+.field-affix-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Whether two masked entries agree, said as they are typed. Never red: a mismatch halfway
+   through the second entry is an unfinished field, not a mistake, and the real rejection
+   arrives from the server in the form's own notice. Silent until there is something to
+   compare — `[data-state="idle"]` renders nothing and takes no room. */
+.pw-match {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-top: var(--sp-1);
+}
+.pw-match[data-state="idle"] {
+  display: none;
+}
+.pw-match[data-state="on"] {
+  color: var(--pass);
+}
+.pw-match > svg {
+  flex: none;
+}
+
+/* A live echo of the setting above it: what the choice actually produces, in the words the
+   product will use for it. Reads as a stated fact, not a control — inset surface, no border
+   radius of a button, nothing to press. Announced politely, because it moves without being
+   the thing that was touched. */
+.setting-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-4);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-ctl);
+  background: var(--surface-2);
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.setting-preview > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.setting-preview strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Error copy. .notice-advisory is POLICY_NOT_DEFINED - reported calmly, not in red,
@@ -3651,6 +3829,173 @@ span.cat-node-more {
   background: var(--surface-2);
   color: var(--ink);
   font-size: 13.5px;
+}
+
+/* ---------- my account ---------- */
+
+/* The screen opts into the wider column, the same escape hatch `.work-screen` uses and at the
+   same 1440px: three panels that each hold two columns of their own had a third of a desktop
+   screen sitting empty to the right of them. The catalogue's `max-width: none` is not the
+   model here — that screen is two scroll panes pinned to the viewport, and a form stretched
+   to 1900px is a worse form, not a fuller one. */
+.shell-main:has(.acct-screen) {
+  max-width: 1440px;
+}
+
+/* One rhythm down the screen: header, band, settings. The gap is the same `--sp-5` the grid
+   below uses between its columns, so the vertical and horizontal spacing agree. */
+.acct-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* The band that opens a screen: a medallion, what the thing is, the state it is in, and the
+   one control that changes it — with the state drawn beside it. Only for a panel that REPORTS
+   something the reader did not set; a card of settings stays a plain `.card`, or every panel
+   is the loudest one. Used by `JiraConnectionPanel variant="hero"` and nothing else so far. */
+.hero-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  /* The accent edge is what separates it from the two cards under it. Quiet everywhere else
+     on the page, so one 3px rule is enough to say "start here". */
+  border-left: 3px solid var(--accent);
+  background: linear-gradient(105deg, var(--accent-wash), var(--surface) 62%);
+}
+/* Grows into the room it is given, but stops at a measure somebody can still read a line of.
+   Without the cap the copy ran the full 1400px of a wide screen — which is not more
+   information, only a longer distance for an eye to travel back along. */
+.hero-body {
+  flex: 1 1 360px;
+  min-width: 0;
+  max-width: 74ch;
+}
+.hero-body > p:last-child {
+  margin-bottom: 0;
+}
+/* One fact, so the inset hugs it instead of stretching to the column. */
+.hero-facts {
+  display: inline-grid;
+  margin: 0 0 var(--sp-3);
+}
+.hero-note {
+  margin: var(--sp-3) 0 0;
+}
+
+/* Two systems and the link between them. Decoration only — `aria-hidden`, and every state it
+   reflects is already in words beside it — so it is the first thing to go when the copy needs
+   the room. It reads the band's `data-state` rather than taking a prop, which keeps one
+   decision about which of the three states this is.
+
+   Sized as a share of the band rather than at the SVG's own 208px, so it keeps its place in
+   the composition instead of becoming a stamp in the corner of a wide one. The `viewBox` does
+   the scaling; `height: auto` is what lets it. */
+.hero-art {
+  flex: none;
+  width: min(420px, 34%);
+  height: auto;
+}
+.hero-art-panel {
+  fill: var(--surface);
+  stroke: var(--accent-2);
+  stroke-width: 1.5;
+  opacity: 0.55;
+}
+.hero-art-line {
+  fill: var(--accent);
+  opacity: 0.17;
+}
+.hero-art-link {
+  fill: none;
+  stroke: var(--accent-2);
+  stroke-width: 2.5;
+}
+.hero-art-node {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.hero-art-tick {
+  fill: none;
+  stroke: var(--pass);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hero-panel[data-state="on"] .hero-art-node {
+  fill: var(--pass-wash);
+  stroke: var(--pass);
+}
+/* Not connected: the link is drawn but not made, and there is nothing to tick. */
+.hero-panel:not([data-state="on"]) .hero-art-tick {
+  display: none;
+}
+.hero-panel:not([data-state="on"]) .hero-art-link {
+  stroke-dasharray: 5 5;
+  opacity: 0.6;
+}
+.hero-panel[data-state="unavailable"] .hero-art {
+  opacity: 0.45;
+}
+
+/* The two settings are peers and sit as peers. Stacked, "Change password" — the reason most
+   people open this screen — began below the fold under a form about timestamps. */
+.acct-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+/* A settings form that fills its card: the controls in one column, the note that qualifies
+   them in the next, and the submit under both.
+ *
+ * `auto-fit` and not a breakpoint, because the thing that decides whether there is room is the
+ * CARD, and a media query cannot see it — these cards are 700px wide beside each other on a
+ * desktop and 300px wide beside each other on a laptop, at viewport widths only 400px apart.
+ * The same rule also gives a phone the two columns back, where the card is the whole screen.
+ *
+ * Source order stays controls → note → submit whatever the column count, so the consequence is
+ * still read before the button that commits it (see "Interaction rules"). The submit sits
+ * outside this grid for exactly that reason: inside it, it would need explicit placement, and
+ * explicit placement is what `auto-fit` cannot have. */
+.settings-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--sp-4) var(--sp-5);
+  align-items: start;
+}
+/* The last control already carries a field's bottom margin; stacked, that plus the row gap
+   would be double the space between the controls and the note that follows them. */
+.settings-main > :last-child {
+  margin-bottom: 0;
+}
+
+/* The address the settings on this page belong to: lifted out of the muted line around it,
+   because it is the one word that says whose account this is. */
+.acct-who {
+  color: var(--ink-2);
+  font-weight: 620;
+}
+
+/* The submit under a `.settings-cols`. The note inside it carries no bottom margin of its own —
+   it is a band, and a gap under it would detach it from what it qualifies — so the space
+   between the form and its commit belongs here. */
+.acct-submit {
+  margin-top: var(--sp-4);
+}
+
+/* One column, and the artwork goes: below this the two forms are unusably narrow, and the
+   band's copy would be squeezed against a picture that says nothing the words do not. */
+@media (max-width: 900px) {
+  .acct-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hero-art {
+    display: none;
+  }
 }
 
 /* ---------- responsive ---------- */
