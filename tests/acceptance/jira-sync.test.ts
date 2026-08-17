@@ -45,6 +45,17 @@ const recordingTransport: JiraTransport = {
   async postComment(request) {
     comments.push(request);
     return { outcome: "SUCCEEDED", commentId: `fake-${comments.length}`, actorId: request.actorId };
+  },
+  // This suite covers the execution sync and never raises a defect issue. Implemented because
+  // the port requires it, and made to FAIL rather than succeed: if a change ever routes a
+  // defect create through here, that should show up as a failing expectation rather than as a
+  // silently invented issue key. The defect sync has its own suite.
+  async createIssue(request) {
+    return {
+      outcome: JiraSyncOutcome.FAILED,
+      failureReason: "The execution sync suite does not raise defect issues.",
+      actorId: request.actorId
+    };
   }
 };
 

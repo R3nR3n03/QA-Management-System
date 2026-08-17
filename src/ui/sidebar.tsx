@@ -52,7 +52,19 @@ export type SidebarGroup = {
   items: Array<{ href: string; label: string }>;
 };
 
-export type SidebarUser = { displayName: string; roleLabel: string };
+export type SidebarUser = {
+  displayName: string;
+  roleLabel: string;
+  /**
+   * The zone every stamp on every screen is drawn in, stated ONCE here.
+   *
+   * Per-row labelling was the alternative and it is worse: the zone is constant for a
+   * viewer, so repeating it down forty rows of a list is noise that trains people to stop
+   * reading it. Here it sits beside the identity it belongs to, which is where somebody
+   * unsure of it looks (ADR-0007).
+   */
+  timeZone: string;
+};
 
 const ICONS: Record<string, ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>> = {
   "/my-work": ListChecks,
@@ -285,6 +297,11 @@ export function Sidebar({
         <div className="rail-identity">
           <div className="rail-name">{user.displayName}</div>
           <div className="rail-role">{user.roleLabel}</div>
+          {/* Titled rather than left bare: the name alone answers "which clock", and the
+              title answers "why is this here" for somebody who has never wondered. */}
+          <div className="rail-zone" title={`Times are shown in ${user.timeZone}`}>
+            {user.timeZone}
+          </div>
         </div>
         <button
           type="button"

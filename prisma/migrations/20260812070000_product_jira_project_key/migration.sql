@@ -1,0 +1,11 @@
+-- Which Jira project a product's defects are raised in moves from deployment configuration
+-- (`JIRA_DEFECT_PROJECT_KEY`) onto the product itself, so a QA Lead can set it in the
+-- Catalogue instead of a deployment editing an environment file and restarting.
+--
+-- Nullable, with no default and no backfill. Null means defects against this product raise
+-- nothing, which keeps the feature off until someone names a project -- the property the
+-- retired environment variable used to carry. Nothing is lost by not backfilling: the
+-- variable was never set in any environment, and no defect has been raised in Jira yet.
+--
+-- Not unique: two products may legitimately share one Jira project.
+ALTER TABLE "Product" ADD COLUMN "jiraProjectKey" TEXT;

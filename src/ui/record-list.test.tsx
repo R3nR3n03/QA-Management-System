@@ -69,7 +69,7 @@ const metaLine = () => screen.getByText(/Fixture Tester/).textContent;
 describe("ExecutionList", () => {
   it("renders the lifecycle state chips (Prisma enum values resolve under jsdom)", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(2, { state: "IN_PROGRESS" })}
         total={2}
         page={1}
@@ -82,7 +82,7 @@ describe("ExecutionList", () => {
 
   it("pages from the server's total with the rows it was handed", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(50)}
         total={72}
         page={1}
@@ -99,7 +99,7 @@ describe("ExecutionList", () => {
 
   it("state chips are links that reset the page", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(50)}
         total={72}
         page={4}
@@ -117,7 +117,7 @@ describe("ExecutionList", () => {
   it("marks the active state chip and keeps the search needle when switching", () => {
     nav.search = "q=login&state=PLANNED";
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(3)}
         total={3}
         page={1}
@@ -132,7 +132,7 @@ describe("ExecutionList", () => {
 
   it("names the last thing that happened, and which cases the run's result came from", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[
           {
             id: "execution-9",
@@ -161,14 +161,68 @@ describe("ExecutionList", () => {
     expect(screen.getByText(/\+2 more \(2 passed, 1 failed\)/)).toBeTruthy();
     // The newest of the three stamps, and the verb that says which one it is.
     expect(screen.getByText(/· Finalized$/)).toBeTruthy();
-    expect(screen.getByText("2026-01-07 14:45 UTC")).toBeTruthy();
+    // No zone label on the stamp itself — it is constant for a viewer and is stated once in
+    // the shell instead of on every row (ADR-0007).
+    expect(screen.getByText("2026-01-07 14:45")).toBeTruthy();
+  });
+
+  /**
+   * The viewer's zone moves the TEXT and nothing else.
+   *
+   * The `dateTime` attribute keeps carrying the instant, which is the whole reason `<time>`
+   * is used here: a screen reader, a copy-paste or a script gets the unambiguous UTC value
+   * whatever clock the reader happens to be on (ADR-0007). Losing that would be the one way
+   * localising a stamp could destroy information rather than just present it.
+   */
+  it("renders the stamp on the viewer's clock while the machine-readable instant stays UTC", () => {
+    const { container } = render(
+      <ExecutionList
+        stampFormat={{ timeZone: "Asia/Manila", clock: "h23" }}
+        rows={makeExecutionRows(1, { state: "PLANNED" })}
+        total={1}
+        page={1}
+        pathname="/executions"
+        params={{}}
+      />
+    );
+
+    // 09:00 UTC is 17:00 in Manila. Same instant, different clock.
+    expect(screen.getByText("2026-01-05 17:00")).toBeTruthy();
+    expect(container.querySelector("time")?.getAttribute("dateTime")).toBe(
+      "2026-01-05T09:00:00.000Z"
+    );
+  });
+
+  /**
+   * The 12-hour choice reaches a rendered row, and the instant still does not move.
+   *
+   * Both halves of `StampFormat` travel together to every stamp, so this asserts the pair
+   * rather than the clock alone: 17:00 in Manila is `05:00 PM`, and the `dateTime` attribute
+   * is the same UTC instant it was on the 24-hour clock (ADR-0007).
+   */
+  it("renders the stamp on a 12-hour clock when the viewer chose one", () => {
+    const { container } = render(
+      <ExecutionList
+        stampFormat={{ timeZone: "Asia/Manila", clock: "h12" }}
+        rows={makeExecutionRows(1, { state: "PLANNED" })}
+        total={1}
+        page={1}
+        pathname="/executions"
+        params={{}}
+      />
+    );
+
+    expect(screen.getByText("2026-01-05 05:00 PM")).toBeTruthy();
+    expect(container.querySelector("time")?.getAttribute("dateTime")).toBe(
+      "2026-01-05T09:00:00.000Z"
+    );
   });
 
   it("heads the row with the run's purpose, and that is the link into the run", () => {
     // The headline used to be the FIRST covered case's title, which named 1 of N cases as
     // if it were the whole run. The covered IDs stay on the row; the title does not.
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(1)}
         total={1}
         page={1}
@@ -184,7 +238,7 @@ describe("ExecutionList", () => {
 
   it("falls back to the stage a run has actually reached", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(1, { state: "PLANNED" })}
         total={1}
         page={1}
@@ -196,7 +250,7 @@ describe("ExecutionList", () => {
     // Never started, so there is no start to report — the row says when it was planned
     // rather than leaving a blank where a timestamp would go.
     expect(screen.getByText(/· Planned$/)).toBeTruthy();
-    expect(screen.getByText("2026-01-05 09:00 UTC")).toBeTruthy();
+    expect(screen.getByText("2026-01-05 09:00")).toBeTruthy();
   });
 
   /**
@@ -210,7 +264,7 @@ describe("ExecutionList", () => {
    */
   it("names the Jira issue a run is testing, as text rather than a link", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(1, { jiraIssueKey: "PROJ-123" })}
         total={1}
         page={1}
@@ -226,7 +280,7 @@ describe("ExecutionList", () => {
 
   it("says so when a run carries no issue key", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(1)}
         total={1}
         page={1}
@@ -245,7 +299,7 @@ describe("ExecutionList", () => {
    */
   it("stays silent about an absent key where the deployment has no Jira", () => {
     render(
-      <ExecutionList rows={makeExecutionRows(1)} total={1} page={1} pathname="/executions" params={{}} />
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={makeExecutionRows(1)} total={1} page={1} pathname="/executions" params={{}} />
     );
     expect(metaLine()).not.toMatch(/No Jira issue/);
   });
@@ -253,7 +307,7 @@ describe("ExecutionList", () => {
   /** A key recorded before (or without) any Jira configuration is still a fact of the run. */
   it("still shows a recorded key where the deployment has no Jira", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(1, { jiraIssueKey: "PROJ-123" })}
         total={1}
         page={1}
@@ -267,7 +321,7 @@ describe("ExecutionList", () => {
   it("offers products as a dropdown and keeps the choice when the state chip changes", () => {
     nav.search = "product=prod-1";
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(3)}
         total={3}
         page={1}
@@ -290,7 +344,7 @@ describe("ExecutionList", () => {
   /** One product is still a product: see the note in `case-table.tsx`. */
   it("offers the product filter when the catalogue holds a single product", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(3)}
         total={3}
         page={1}
@@ -306,7 +360,7 @@ describe("ExecutionList", () => {
 
   it("leaves the product filter off entirely when no products are passed", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(3)}
         total={3}
         page={1}
@@ -320,7 +374,7 @@ describe("ExecutionList", () => {
   it("offers a feature filter alongside the product filter, and composes with the state chip", () => {
     nav.search = "product=prod-1&feature=feat-1";
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(3)}
         total={3}
         page={1}
@@ -340,7 +394,7 @@ describe("ExecutionList", () => {
 
   it("leaves the feature filter off entirely when no features are passed", () => {
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(3)}
         total={3}
         page={1}
@@ -353,7 +407,7 @@ describe("ExecutionList", () => {
 
   it("separates an empty list from an empty filter result", () => {
     const { unmount } = render(
-      <ExecutionList rows={[]} total={0} page={1} pathname="/executions" params={{}} />
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={[]} total={0} page={1} pathname="/executions" params={{}} />
     );
     expect(
       screen.getByText("No executions yet. Plan one against an approved test case.")
@@ -362,7 +416,7 @@ describe("ExecutionList", () => {
 
     nav.search = "state=FINALIZED";
     render(
-      <ExecutionList
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[]}
         total={0}
         page={1}
@@ -394,6 +448,95 @@ describe("DefectList", () => {
   it("falls back to the empty state when there are no defects at all", () => {
     render(<DefectList rows={[]} total={0} page={1} pathname="/defects" params={{}} />);
     expect(screen.getByText("No defects recorded.")).toBeTruthy();
+  });
+
+  /** The defect meta line, which carries the case ID, priority, severity and Jira key. */
+  const defectMeta = () => screen.getByText(/High priority/).textContent;
+
+  /**
+   * Text, never a link, on the same reasoning as the executions list above: the row's one
+   * click target is its summary, and the detail page one click away links the key.
+   */
+  it("names the Jira bug raised for a defect, as text rather than a link", () => {
+    render(
+      <DefectList
+        rows={makeDefectRows(1, { jiraIssueKeys: true })}
+        total={1}
+        page={1}
+        pathname="/defects"
+        params={{}}
+        jiraConfigured
+      />
+    );
+
+    expect(defectMeta()).toMatch(/· JIRA-0001$/);
+    expect(screen.queryByRole("link", { name: /JIRA-0001/ })).toBeNull();
+  });
+
+  /**
+   * "Not raised in Jira", never "No Jira issue" — the wording a run uses. A run legitimately
+   * has no issue because nobody typed one; a defect whose product raises bugs has none only
+   * because QAMS did not manage to. The two absences mean opposite things.
+   */
+  it("says a defect was not raised when its product raises bugs and it has none", () => {
+    render(
+      <DefectList
+        rows={makeDefectRows(1, { jiraExpected: true })}
+        total={1}
+        page={1}
+        pathname="/defects"
+        params={{}}
+        jiraConfigured
+      />
+    );
+    expect(defectMeta()).toMatch(/· Not raised in Jira$/);
+  });
+
+  /**
+   * The per-product switch. A product with no Jira project key was never meant to raise
+   * anything, so reporting "not raised" would name a fault where there is none — on every one
+   * of that product's defects, forever. This is the row-level half of the question;
+   * `jiraConfigured` is the deployment-level half.
+   */
+  it("stays silent when the defect's product raises no bugs", () => {
+    render(
+      <DefectList
+        rows={makeDefectRows(1, { jiraExpected: false })}
+        total={1}
+        page={1}
+        pathname="/defects"
+        params={{}}
+        jiraConfigured
+      />
+    );
+    expect(defectMeta()).not.toMatch(/Jira/);
+  });
+
+  it("stays silent about an absent key where the deployment has no Jira", () => {
+    render(
+      <DefectList
+        rows={makeDefectRows(1, { jiraExpected: true })}
+        total={1}
+        page={1}
+        pathname="/defects"
+        params={{}}
+      />
+    );
+    expect(defectMeta()).not.toMatch(/Jira/);
+  });
+
+  /** A bug raised before the product's project key was cleared is still a fact of the defect. */
+  it("still shows a raised key after its product stopped raising bugs", () => {
+    render(
+      <DefectList
+        rows={makeDefectRows(1, { jiraIssueKeys: true, jiraExpected: false })}
+        total={1}
+        page={1}
+        pathname="/defects"
+        params={{}}
+      />
+    );
+    expect(defectMeta()).toMatch(/· JIRA-0001$/);
   });
 
   it("offers the product filter, and commits a choice back to page 1", () => {
@@ -463,7 +606,7 @@ describe("a page past the end of the list", () => {
   it("says so on the executions list rather than blaming a filter", () => {
     nav.search = "";
     render(
-      <ExecutionList rows={[]} total={60} page={9} pathname="/executions" params={{ page: "9" }} />
+      <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={[]} total={60} page={9} pathname="/executions" params={{ page: "9" }} />
     );
 
     expect(screen.getByText("This page is past the end of the list.")).toBeTruthy();

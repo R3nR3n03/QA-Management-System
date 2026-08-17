@@ -1,4 +1,4 @@
-import { DefectLifecycleState, QamsRole, type Prisma } from "@prisma/client";
+import { DefectLifecycleState, JiraSyncOutcome, QamsRole, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { ensureRole, RoleSets } from "@/lib/rbac";
@@ -10,11 +10,16 @@ import { ensureActiveControlledValue } from "@/lib/controlled-values";
 import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-catalogues";
 import { appendAudit } from "@/lib/audit";
 import { runPaged, type PageRequest } from "@/lib/pagination";
+import { settleDefectIssueCreate, settleDefectTransition } from "@/domain/jira-defect-sync";
+import type { DefectTransitionNote } from "@/domain/jira-defect";
 
 type Actor = { userId: string; role: QamsRole; requestId: string };
 
 export type DefectListOptions = PageRequest & {
-  /** Needle matched against defect ID, summary, priority, severity, status and case ID. */
+  /**
+   * Needle matched against defect ID, summary, priority, severity, status, case ID and Jira
+   * issue key.
+   */
   query?: string;
   statuses?: DefectLifecycleState[];
   /**
@@ -46,6 +51,10 @@ function defectWhere(options: DefectListOptions): Prisma.DefectWhereInput {
         { priority: { contains: needle, mode: "insensitive" } },
         { severity: { contains: needle, mode: "insensitive" } },
         { testCase: { businessId: { contains: needle, mode: "insensitive" } } },
+        /* A person arriving with a Jira ticket in hand types its key here, and searching for
+           the identifier printed on the bug they are holding must find the defect it came
+           from. The same reason the executions list matches on its own key. */
+        { jiraIssueKey: { contains: needle, mode: "insensitive" } },
         ...(matchingStatuses.length > 0 ? [{ status: { in: matchingStatuses } }] : [])
       ]
     });
@@ -72,7 +81,20 @@ export async function getDefect(id: string) {
 // Reads for the web interface, so screens never reach for Prisma directly
 // (`docs/architecture.md:33`). Explicit selects on the joined test case; nothing here
 // can widen what a defect row already shows.
-const DEFECT_CASE_SELECT = { id: true, businessId: true, title: true } as const;
+const DEFECT_CASE_SELECT = {
+  id: true,
+  businessId: true,
+  title: true,
+  /**
+   * Only whether the owning product raises bugs at all, never the project key itself.
+   *
+   * The screens need this to tell "no bug was ever meant to exist here" from "one was meant
+   * to and is missing", and nothing more — a defect screen has no use for the key, and the
+   * narrower projection is the one that cannot grow into rendering catalogue configuration
+   * on a defect.
+   */
+  product: { select: { jiraProjectKey: true } }
+} as const;
 
 export async function listDefectsWithCase(options: DefectListOptions = {}) {
   const where = defectWhere(options);
@@ -89,10 +111,38 @@ export async function listDefectsWithCase(options: DefectListOptions = {}) {
   );
 }
 
+/**
+ * What the defect screen shows about one Jira attempt. Deliberately excludes `actorId`: the
+ * screen reports whether QAMS reached Jira, not whose token it borrowed to do it.
+ */
+const DEFECT_JIRA_ATTEMPT_SELECT = {
+  action: true,
+  outcome: true,
+  jiraIssueKey: true,
+  failureReason: true,
+  attemptedAt: true
+} as const;
+
 export async function defectDetail(id: string) {
   return prisma.defect.findUnique({
     where: { id },
-    include: { testCase: { select: DEFECT_CASE_SELECT } }
+    include: {
+      testCase: { select: DEFECT_CASE_SELECT },
+      /**
+       * The latest attempt per action, and nothing older.
+       *
+       * `distinct` on the action with a newest-first sort is what makes this one query instead
+       * of three: it keeps the first row it sees for each of CREATE, COMMENT and TRANSITION.
+       * Taking a fixed number of recent rows instead would look equivalent and quietly lose
+       * the CREATE on any defect with a long lifecycle, which is the one attempt a reader most
+       * needs when no issue key exists.
+       */
+      jiraAttempts: {
+        select: DEFECT_JIRA_ATTEMPT_SELECT,
+        orderBy: { attemptedAt: "desc" },
+        distinct: ["action"]
+      }
+    }
   });
 }
 
@@ -153,9 +203,9 @@ export async function createDefect(
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const businessId = suppliedId ?? (await allocateBusinessId(tx, "defect", defectIdFormat(tx)));
-    const created = await tx.defect.create({
+    const row = await tx.defect.create({
       data: {
         businessId,
         testCaseId: input.testCaseId,
@@ -170,12 +220,34 @@ export async function createDefect(
       actorId: actor.userId,
       action: "DEFECT_CREATED",
       entityType: "Defect",
-      entityId: created.id,
+      entityId: row.id,
       requestId: actor.requestId,
-      beforeAfterJson: { after: created }
+      beforeAfterJson: { after: row }
     });
-    return created;
+    return row;
   });
+
+  // Deliberately AFTER the transaction has committed, and awaited rather than left dangling —
+  // the same contract as `finalizeExecution`. QAMS is the system of record for defects and
+  // Jira is a projection of them: no external call runs while a transaction is open, and an
+  // unreachable Jira must never cost someone the defect they raised. What keeps the request
+  // short is the transport's deadline, not the absence of an await, and this never throws
+  // (`docs/architecture.md#Jira defect sync`, ADR-0006).
+  //
+  const jiraOutcome = await settleDefectIssueCreate(created.id, actor);
+
+  // Re-read only when an issue was actually raised, because the row committed above predates
+  // it and would report `jiraIssueKey: null` for a defect that HAS one. Returning that would
+  // be a plain falsehood to an API caller, who has no attempt history to check it against.
+  //
+  // Conditional rather than unconditional: every other path — Jira off, no project key, a
+  // failed create — leaves the row exactly as committed, and paying a query to re-read an
+  // unchanged row on every defect raised is the kind of cost that is invisible until it isn't.
+  if (jiraOutcome === JiraSyncOutcome.SUCCEEDED) {
+    return (await prisma.defect.findUnique({ where: { id: created.id } })) ?? created;
+  }
+
+  return created;
 }
 
 export async function updateDefectDetails(
@@ -293,8 +365,8 @@ export async function transitionDefect(
     requireNonBlank(input.reopenReason, "reopenReason", "Reopen reason is required.");
   }
 
-  return withVersionCheck(() => prisma.$transaction(async (tx) => {
-    const updated = await tx.defect.update({
+  const updated = await withVersionCheck(() => prisma.$transaction(async (tx) => {
+    const row = await tx.defect.update({
       where: { id: defectId, version: expectedVersion },
       data: {
         status: input.targetStatus,
@@ -320,7 +392,7 @@ export async function transitionDefect(
       beforeAfterJson: {
         before: { status: defect.status },
         after: {
-          status: updated.status,
+          status: row.status,
           ...(input.investigationOwnerId?.trim() && { investigationOwnerId: input.investigationOwnerId.trim() }),
           ...(input.resolutionSummary?.trim() && { resolutionSummary: input.resolutionSummary.trim() }),
           ...(input.retestEvidenceRef?.trim() && { retestEvidenceRef: input.retestEvidenceRef.trim() }),
@@ -329,6 +401,43 @@ export async function transitionDefect(
         }
       }
     });
-    return updated;
+    return row;
   }));
+
+  // After the commit, and never throwing — the same contract as `createDefect` above.
+  //
+  // The notes carry the transition's "why" into Jira. They are the rationales this transition
+  // actually required, in the order a reader wants them: a bare "moved to Resolved" tells a
+  // developer nothing, and the resolution summary is the entire reason the transition demanded
+  // one. Only what was supplied on THIS transition is sent, not what the record already held,
+  // so a comment never repeats a rationale from an earlier step.
+  //
+  // The owner is resolved to a display name because the stored value is a UUID, and a UUID in
+  // someone else's ticket names nobody. Falls back to the raw id only if the user vanished,
+  // which cannot happen — no user row is ever deleted.
+  const investigationOwnerName = input.investigationOwnerId?.trim()
+    ? (
+        await prisma.user.findUnique({
+          where: { id: input.investigationOwnerId.trim() },
+          select: { displayName: true }
+        })
+      )?.displayName ?? null
+    : null;
+
+  const notes: DefectTransitionNote[] = [
+    ...(input.investigationOwnerId?.trim() && input.targetStatus === DefectLifecycleState.IN_PROGRESS
+      ? [{ label: "Investigation owner", value: investigationOwnerName ?? input.investigationOwnerId.trim() }]
+      : []),
+    ...(input.resolutionSummary?.trim() ? [{ label: "Resolution", value: input.resolutionSummary.trim() }] : []),
+    ...(input.retestEvidenceRef?.trim() ? [{ label: "Retest evidence", value: input.retestEvidenceRef.trim() }] : []),
+    ...(input.closureRationale?.trim() ? [{ label: "Closure rationale", value: input.closureRationale.trim() }] : []),
+    ...(input.reopenReason?.trim() ? [{ label: "Reopen reason", value: input.reopenReason.trim() }] : [])
+  ];
+
+  await settleDefectTransition(
+    { defectId, from: defect.status, to: input.targetStatus, notes },
+    actor
+  );
+
+  return updated;
 }

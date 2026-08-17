@@ -6,6 +6,8 @@ import { decryptSecret, encryptSecret, parseEncryptionKey } from "@/lib/secret-b
 import type {
   JiraCommentRequest,
   JiraCommentResult,
+  JiraCreateIssueRequest,
+  JiraCreateIssueResult,
   JiraTransitionRequest,
   JiraTransitionResult,
   JiraTransport
@@ -57,6 +59,10 @@ function failed(reason: string, actorId: string | null = null): JiraTransitionRe
 
 function commentFailed(reason: string, actorId: string | null = null): JiraCommentResult {
   return { outcome: JiraCommentOutcome.FAILED, failureReason: reason, actorId };
+}
+
+function createFailed(reason: string, actorId: string | null = null): JiraCreateIssueResult {
+  return { outcome: JiraSyncOutcome.FAILED, failureReason: reason, actorId };
 }
 
 /**
@@ -328,6 +334,145 @@ export function createJiraTransport(doFetch: FetchLike = fetch): JiraTransport {
       }
 
       return { outcome: JiraCommentOutcome.SUCCEEDED, commentId, actorId: request.actorId };
+    },
+
+    /**
+     * Raise the bug for a defect, or adopt the one an earlier attempt already raised.
+     *
+     * ## Why this looks before it creates
+     *
+     * Creating an issue is the only write in this file that is not idempotent. A create can
+     * succeed in Jira and still fail to be recorded in QAMS — the response can be lost, the
+     * process can be killed between Jira's answer and the write that stores the key — and the
+     * retry worker would then raise a SECOND bug for the same defect. Duplicate bugs in a
+     * shared project are tedious to clean up and impossible to clean up invisibly, so the
+     * search is paid on every create rather than on the retries alone, which are exactly the
+     * calls that cannot tell they are retries (ADR-0006).
+     *
+     * A failed search does NOT fall through to creating. That is the whole point: searching is
+     * how this call knows whether it is about to duplicate something, so proceeding without an
+     * answer would defeat it. It fails, and the retry tries the pair again.
+     *
+     * Uses the **v2** API, like `postComment` and for the same reason: v2 takes a plain
+     * wiki-markup description string where v3 requires an ADF document tree.
+     */
+    async createIssue(request: JiraCreateIssueRequest): Promise<JiraCreateIssueResult> {
+      const context = await resolveApiContext(request.actorId, request.timeoutMs, doFetch);
+      if ("error" in context) return createFailed(context.error, context.actorId);
+
+      const base = `https://api.atlassian.com/ex/jira/${context.cloudId}/rest/api/2`;
+      const auth = {
+        Authorization: `Bearer ${context.accessToken}`,
+        Accept: "application/json"
+      };
+
+      // The label is the handle on our own work. `qamsDefectLabel` derives it from a business
+      // ID that `BUSINESS_ID_PATTERNS` restricts to letters, digits and hyphens, so there is
+      // nothing in one that could escape these quotes and alter the JQL.
+      const label = request.labels[0];
+      if (label !== undefined) {
+        // `/search/jql`, not the bare `/search` this would have used a couple of years ago:
+        // Jira Cloud removed the old GET endpoint in favour of this one, which takes the same
+        // query and answers with the same `issues` array.
+        const jql = `project = "${request.projectKey}" AND labels = "${label}"`;
+        const search = await doFetch(
+          `${base}/search/jql?jql=${encodeURIComponent(jql)}&maxResults=1&fields=key`,
+          { headers: auth, signal: AbortSignal.timeout(request.timeoutMs) }
+        );
+
+        if (!search.ok) {
+          return createFailed(
+            `Jira refused the duplicate check before creating the issue (HTTP ${search.status}).`,
+            request.actorId
+          );
+        }
+
+        let existingKey: string | null = null;
+        try {
+          const found = (await search.json()) as { issues?: Array<{ key?: unknown }> };
+          const first = found.issues?.[0]?.key;
+          if (typeof first === "string") existingKey = first;
+        } catch {
+          // An unreadable search response is not "nothing found": treating it as such is
+          // precisely how a duplicate gets raised. Refused, and retried later.
+          return createFailed(
+            "Jira returned an unreadable response to the duplicate check before creating the issue.",
+            request.actorId
+          );
+        }
+
+        if (existingKey !== null) {
+          return {
+            outcome: JiraSyncOutcome.SUCCEEDED,
+            issueKey: existingKey,
+            adopted: true,
+            actorId: request.actorId
+          };
+        }
+      }
+
+      const created = await doFetch(`${base}/issue`, {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(request.timeoutMs),
+        body: JSON.stringify({
+          fields: {
+            project: { key: request.projectKey },
+            issuetype: { name: request.issueType },
+            summary: request.summary,
+            description: request.description,
+            labels: request.labels
+          }
+        })
+      });
+
+      if (!created.ok) {
+        // Jira answers a rejected create with a body naming the offending field — an issue
+        // type that does not exist in this project, a project key nobody can see, a required
+        // custom field the deployment added. That text is the difference between a QA Lead
+        // fixing one variable and guessing, so it is quoted rather than discarded. It is
+        // third-party text and `sanitizeFailureReason` runs over it before it is stored.
+        let detail = "";
+        try {
+          const body = (await created.json()) as {
+            errorMessages?: unknown;
+            errors?: Record<string, unknown>;
+          };
+          const messages = Array.isArray(body.errorMessages) ? body.errorMessages.map(String) : [];
+          const fields = body.errors
+            ? Object.entries(body.errors).map(([field, message]) => `${field}: ${String(message)}`)
+            : [];
+          detail = [...messages, ...fields].join("; ");
+        } catch {
+          detail = "";
+        }
+
+        return createFailed(
+          `Jira refused to create the issue (HTTP ${created.status})${detail === "" ? "." : `: ${detail}`}`,
+          request.actorId
+        );
+      }
+
+      // The issue now EXISTS. An unreadable response past this point is the dangerous case,
+      // not a harmless one: without the key, QAMS cannot record what it just made, and the
+      // retry would raise a duplicate — which is exactly what the label search above is there
+      // to catch. Reported as a failure with a reason that says the issue may exist.
+      let issueKey: string | null = null;
+      try {
+        const body = (await created.json()) as { key?: unknown };
+        if (typeof body.key === "string") issueKey = body.key;
+      } catch {
+        issueKey = null;
+      }
+
+      if (issueKey === null) {
+        return createFailed(
+          "Jira accepted the issue but returned no key. The bug may exist; the next attempt will adopt it rather than raise another.",
+          request.actorId
+        );
+      }
+
+      return { outcome: JiraSyncOutcome.SUCCEEDED, issueKey, adopted: false, actorId: request.actorId };
     }
   };
 }

@@ -29,7 +29,16 @@ export type ImportRowData = {
   proposedValues: Record<string, string> | null;
   resolutionDecision: string | null;
   resolutionRationale: string | null;
-  resolvedAt: string | null;
+  /**
+   * When the row was reconciled, already rendered.
+   *
+   * Both halves travel because they answer different readers: `iso` is the unambiguous
+   * instant a `<time>` element exposes to machines, `text` is the same moment on the
+   * viewer's wall clock. Formatted on the server — this is a client component, and shipping
+   * the zone resolution here would put a fourth decision point between a viewer and their
+   * own zone (ADR-0007).
+   */
+  resolvedAt: { iso: string; text: string } | null;
   resolvedBy: string | null;
 };
 
@@ -122,7 +131,9 @@ export function RowsTable({ rows, runId }: { rows: ImportRowData[]; runId: strin
                     <div className="stack" style={{ gap: 4 }}>
                       <span className="bid">{row.resolutionDecision}</span>
                       <span className="muted">{row.resolutionRationale}</span>
-                      <span className="muted">Resolved {row.resolvedAt}</span>
+                      <span className="muted">
+                        Resolved <time dateTime={row.resolvedAt.iso}>{row.resolvedAt.text}</time>
+                      </span>
                     </div>
                   ) : row.outcome === "RECONCILIATION_REQUIRED" ? (
                     <ResolveRowForm runId={runId} rowReportId={row.id} />

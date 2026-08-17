@@ -1,4 +1,4 @@
-import { QamsRole } from "@prisma/client";
+import { QamsRole, type HourFormat } from "@prisma/client";
 import { cookies } from "next/headers";
 import { prisma } from "./db";
 import { AppError } from "./errors";
@@ -7,6 +7,19 @@ import { isSessionRevoked, SESSION_COOKIE_NAME, verifySessionCookieValue } from 
 export type AuthContext = {
   userId: string;
   role: QamsRole;
+  /**
+   * The viewer's stored zone, or null when they have never chosen one.
+   *
+   * Resolve it through `viewerStampFormat()` (`src/ui/format.ts`) rather than reading it
+   * directly — null has to fall back through the organization zone to UTC, and doing that at
+   * each call site is how the two zones drift apart (ADR-0007).
+   */
+  timeZone: string | null;
+  /**
+   * Whether the viewer chose a 12- or 24-hour clock, or null when they have never chosen.
+   * Resolved by the same call as the zone, for the same reason.
+   */
+  hourFormat: HourFormat | null;
 };
 
 /**
@@ -37,9 +50,21 @@ export async function requireAuth(): Promise<AuthContext> {
   // Selected explicitly: this previously loaded the whole row, `passwordHash` included, on
   // every single authenticated request. `docs/data-model.md:35` bars the hash from responses
   // and logs, and the surest way to honour that is never to read it.
+  // The display preferences ride along for the same reason `sessionsValidFrom` does: the row
+  // is already being read on every request, so these are two more columns and no extra query.
+  // Every screen needs them — a stamp renders on nearly all of them — and fetching them
+  // separately would be a second round trip per page for values the session lookup already
+  // had in hand.
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, role: true, active: true, sessionsValidFrom: true }
+    select: {
+      id: true,
+      role: true,
+      active: true,
+      sessionsValidFrom: true,
+      timeZone: true,
+      hourFormat: true
+    }
   });
 
   if (!user || !user.active) {
@@ -50,5 +75,10 @@ export async function requireAuth(): Promise<AuthContext> {
     throw new AppError(403, "UNAUTHORIZED", "Authentication required.");
   }
 
-  return { userId: user.id, role: user.role };
+  return {
+    userId: user.id,
+    role: user.role,
+    timeZone: user.timeZone,
+    hourFormat: user.hourFormat
+  };
 }

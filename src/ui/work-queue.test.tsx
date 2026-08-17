@@ -118,7 +118,7 @@ beforeEach(() => {
 describe("WorkQueue", () => {
   it("names the next move per row: Start for a planned run, Continue for one in progress", () => {
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[...makeWorkRows(1, "PLANNED"), ...makeWorkRows(1, "IN_PROGRESS")]}
         total={2}
         counts={COUNTS}
@@ -138,7 +138,7 @@ describe("WorkQueue", () => {
 
   it("tabs carry their tally, mark the current one, and reset the page", () => {
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(2)}
         total={2}
         counts={COUNTS}
@@ -160,7 +160,7 @@ describe("WorkQueue", () => {
 
   it("marks the tab the URL asks for", () => {
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(1, "IN_PROGRESS")}
         total={1}
         counts={COUNTS}
@@ -175,7 +175,7 @@ describe("WorkQueue", () => {
 
   it("pages from the server's total with the rows it was handed", () => {
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(25)}
         total={72}
         counts={{ open: 72, planned: 72, inProgress: 0 }}
@@ -193,7 +193,7 @@ describe("WorkQueue", () => {
 
   it("names the filter that emptied the queue", () => {
     const { rerender } = render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[]}
         total={0}
         counts={{ open: 0, planned: 0, inProgress: 0 }}
@@ -205,7 +205,7 @@ describe("WorkQueue", () => {
     expect(screen.getByText("No run of yours matches “login”.")).toBeTruthy();
 
     rerender(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[]}
         total={0}
         counts={{ open: 0, planned: 0, inProgress: 0 }}
@@ -217,7 +217,7 @@ describe("WorkQueue", () => {
     expect(screen.getByText("Nothing planned is waiting on you.")).toBeTruthy();
 
     rerender(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[]}
         total={0}
         counts={{ open: 0, planned: 0, inProgress: 0 }}
@@ -233,7 +233,7 @@ describe("WorkQueue", () => {
   it("offers the catalogue scopes, and picking one returns to page 1", () => {
     nav.search = "page=3";
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(2)}
         total={2}
         counts={COUNTS}
@@ -254,7 +254,7 @@ describe("WorkQueue", () => {
 
   it("leaves a scope filter off the bar when the catalogue holds none", () => {
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(1)}
         total={1}
         counts={COUNTS}
@@ -272,7 +272,7 @@ describe("WorkQueue", () => {
 
   it("names the scope that emptied the queue, needle or not", () => {
     const { rerender } = render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[]}
         total={0}
         counts={{ open: 0, planned: 0, inProgress: 0 }}
@@ -285,7 +285,7 @@ describe("WorkQueue", () => {
     expect(screen.getByText("No run of yours covers this product.")).toBeTruthy();
 
     rerender(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[]}
         total={0}
         counts={{ open: 0, planned: 0, inProgress: 0 }}
@@ -301,7 +301,7 @@ describe("WorkQueue", () => {
     // Both kinds of filter at once: the sentence has to admit to both, or clearing the
     // needle alone looks like it should have brought rows back.
     rerender(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[]}
         total={0}
         counts={{ open: 0, planned: 0, inProgress: 0 }}
@@ -316,7 +316,7 @@ describe("WorkQueue", () => {
 
   it("refreshes the server data in place", () => {
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(1)}
         total={1}
         counts={COUNTS}
@@ -332,7 +332,7 @@ describe("WorkQueue", () => {
 
   it("shows the Jira issue a run is testing, as text rather than a link", () => {
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(1, "PLANNED", "PROJ-412")}
         total={1}
         counts={COUNTS}
@@ -352,7 +352,7 @@ describe("WorkQueue", () => {
 
   it("says a run has no Jira issue only where the deployment has Jira", () => {
     const { rerender } = render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(1)}
         total={1}
         counts={COUNTS}
@@ -367,7 +367,7 @@ describe("WorkQueue", () => {
     // With no JIRA_* configuration no run could ever carry a key, so the words would be
     // reporting the deployment rather than the run — on every row, forever.
     rerender(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeWorkRows(1)}
         total={1}
         counts={COUNTS}
@@ -381,7 +381,7 @@ describe("WorkQueue", () => {
 
   it("says the page overshot rather than blaming a filter", () => {
     render(
-      <WorkQueue
+      <WorkQueue stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[]}
         total={9}
         counts={COUNTS}
@@ -413,22 +413,22 @@ describe("readWorkTab", () => {
 
 describe("FinalizedRecap", () => {
   it("renders nothing when the viewer has finalized nothing", () => {
-    const { container } = render(<FinalizedRecap rows={[]} total={0} />);
+    const { container } = render(<FinalizedRecap stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={[]} total={0} />);
     expect(container.innerHTML).toBe("");
   });
 
   it("marks each row with the outcome its chip names", () => {
-    const { container } = render(<FinalizedRecap rows={makeFinalizedRows(1)} total={1} />);
+    const { container } = render(<FinalizedRecap stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={makeFinalizedRows(1)} total={1} />);
     // The marker replaced the edge stripe; the chip still carries the word beside it, so
     // the outcome survives greyscale and colour-blindness either way.
     expect(container.querySelector('.work-mark[data-tone="fail"]')).toBeTruthy();
     expect(screen.getByText("Fail")).toBeTruthy();
-    expect(screen.getByText("2026-01-07 14:45 UTC")).toBeTruthy();
+    expect(screen.getByText("2026-01-07 14:45")).toBeTruthy();
   });
 
   it("names the run's cases and its Jira issue, like the queue above it", () => {
     render(
-      <FinalizedRecap
+      <FinalizedRecap stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeFinalizedRows(1, { jiraIssueKey: "PROJ-77" })}
         total={1}
         jiraConfigured
@@ -443,7 +443,7 @@ describe("FinalizedRecap", () => {
 
   it("breaks a multi-case run down, because one chip cannot say how many failed", () => {
     const { rerender } = render(
-      <FinalizedRecap
+      <FinalizedRecap stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeFinalizedRows(1, {
           caseBusinessIds: ["TC-FIX-0001", "TC-FIX-0002", "TC-FIX-0003"],
           caseResults: ["PASS", "FAIL", "PASS"]
@@ -454,15 +454,15 @@ describe("FinalizedRecap", () => {
     expect(screen.getByText(/\+2 more \(2 passed, 1 failed\)/)).toBeTruthy();
 
     // A single-case run needs none: its chip already IS the one case's result.
-    rerender(<FinalizedRecap rows={makeFinalizedRows(1)} total={1} />);
+    rerender(<FinalizedRecap stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={makeFinalizedRows(1)} total={1} />);
     expect(screen.queryByText(/failed\)/)).toBe(null);
   });
 
   it("states the cap only when it hides something", () => {
-    const { rerender } = render(<FinalizedRecap rows={makeFinalizedRows(8)} total={31} />);
+    const { rerender } = render(<FinalizedRecap stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={makeFinalizedRows(8)} total={31} />);
     expect(screen.getByText(/Showing the 8 most recent of 31\./)).toBeTruthy();
 
-    rerender(<FinalizedRecap rows={makeFinalizedRows(3)} total={3} />);
+    rerender(<FinalizedRecap stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={makeFinalizedRows(3)} total={3} />);
     expect(screen.queryByText(/most recent of/)).toBe(null);
   });
 });

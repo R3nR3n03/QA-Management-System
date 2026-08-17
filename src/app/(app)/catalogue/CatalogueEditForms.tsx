@@ -29,7 +29,22 @@ import {
  * pair and the toast are untouched; only the wrapper went.
  */
 
-type FieldSpec = { name: string; label: string; defaultValue: string; options?: string[] };
+type FieldSpec = {
+  name: string;
+  label: string;
+  defaultValue: string;
+  options?: string[];
+  /**
+   * Renders without `required`, so the field can be submitted empty.
+   *
+   * Every catalogue field was mandatory until the Jira project key, which must be clearable:
+   * emptying it is how a QA Lead stops a product raising bugs, and that has to be an ordinary
+   * save rather than something the browser refuses.
+   */
+  optional?: boolean;
+  /** A line under the input, for a field whose effect is not obvious from its label. */
+  hint?: string;
+};
 
 const FORM_ID = "edit-catalogue";
 
@@ -104,8 +119,15 @@ function EditControl({
                   ))}
                 </select>
               ) : (
-                <input name={field.name} defaultValue={field.defaultValue} required disabled={pending} {...fieldProps(state, field.name, FORM_ID)} />
+                <input
+                  name={field.name}
+                  defaultValue={field.defaultValue}
+                  required={!field.optional}
+                  disabled={pending}
+                  {...fieldProps(state, field.name, FORM_ID)}
+                />
               )}
+              {field.hint ? <span className="hint">{field.hint}</span> : null}
             </label>
           ))}
           <button className="btn" type="submit" disabled={pending}>
@@ -124,6 +146,7 @@ export function EditProductButton({
   name,
   versionTag,
   status,
+  jiraProjectKey,
   compact
 }: {
   id: string;
@@ -132,6 +155,8 @@ export function EditProductButton({
   name: string;
   versionTag: string;
   status: string;
+  /** Null when this product raises no Jira bugs, which is the default. */
+  jiraProjectKey: string | null;
   compact?: boolean;
 }) {
   return (
@@ -145,7 +170,18 @@ export function EditProductButton({
       fields={[
         { name: "name", label: "Name", defaultValue: name },
         { name: "versionTag", label: "Version", defaultValue: versionTag },
-        { name: "status", label: "Status", defaultValue: status, options: ["Active", "Inactive"] }
+        { name: "status", label: "Status", defaultValue: status, options: ["Active", "Inactive"] },
+        {
+          name: "jiraProjectKey",
+          label: "Jira project key",
+          // Empty renders an empty input, which is exactly what "raises nothing" should look
+          // like — and submitting it unchanged keeps it that way.
+          defaultValue: jiraProjectKey ?? "",
+          optional: true,
+          // States both directions, because the consequence of each is invisible from the
+          // field itself and one of them writes into another team's Jira.
+          hint: "Defects against this product are raised as bugs in this Jira project, for example SP. Leave empty to raise none."
+        }
       ]}
     />
   );

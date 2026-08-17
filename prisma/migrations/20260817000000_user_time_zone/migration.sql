@@ -1,0 +1,17 @@
+-- Each person's VIEWER ZONE: the IANA zone their own screens render stamps in (ADR-0007).
+--
+-- Nullable, with no default and no backfill. NULL means "has never expressed a preference",
+-- which is deliberately NOT the same as having chosen the organization's zone: only a null
+-- follows a deployment that later changes ORGANIZATION_TIME_ZONE. Backfilling every existing
+-- row with today's organization zone would erase that difference permanently, and erase it
+-- for everyone at once.
+--
+-- No CHECK constraint on the value. The set of legal zone names belongs to the runtime's own
+-- IANA data (`Intl.supportedValuesOf`), which is revised whenever a country changes its
+-- rules; a constraint pinned here would be a second copy of that list, stale the first time
+-- it moved, and it would reject rows the application considers valid. The domain service
+-- validates on write instead.
+--
+-- Stored timestamps are untouched. Every one of them remains a UTC instant -- this column
+-- decides how they are RENDERED, never what is recorded.
+ALTER TABLE "User" ADD COLUMN "timeZone" TEXT;

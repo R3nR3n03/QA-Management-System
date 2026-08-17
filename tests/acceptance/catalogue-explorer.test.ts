@@ -294,7 +294,9 @@ describe("getProductDetail", () => {
       businessId: "PROD001",
       name: "Retail Banking",
       versionTag: "2.1",
-      status: "Active"
+      status: "Active",
+      // Unset, which is the default for every product and means it raises no Jira bugs.
+      jiraProjectKey: null
     });
     // Rollups reach all the way down, not just one level.
     expect(detail.stats).toEqual({ modules: 2, features: 2, requirements: 3 });

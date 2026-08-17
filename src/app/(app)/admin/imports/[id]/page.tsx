@@ -2,6 +2,7 @@ import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { getImportRun } from "@/domain/imports";
 import { AppError } from "@/lib/errors";
+import { formatMinute, viewerStampFormat } from "@/ui/format";
 import { requireSession } from "@/ui/session";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
 import { OUTCOME_TONE } from "./outcome-tone";
@@ -40,14 +41,27 @@ export default async function ImportRunPage({ params }: { params: Promise<{ id: 
 
   const report = (run.reportJson ?? {}) as RunReport;
   const outcomeCounts = report.outcomeCounts ?? {};
+  const stampFormat = viewerStampFormat(auth);
 
   return (
     <>
       <Breadcrumbs trail={[{ href: "/admin/imports", label: "Workbook imports" }]} here={run.sourceFileName} />
       <h1>{run.sourceFileName}</h1>
+      {/* Through the shared formatter like every other screen. This printed a raw
+          `2026-08-04T09:12:33.123Z` — harmless while everything was UTC, and a silent
+          eight-hour disagreement with the run list beside it once stamps localised
+          (ADR-0007). */}
       <p className="muted">
-        {run.status} · started {run.startedAt.toISOString()}
-        {run.completedAt ? ` · completed ${run.completedAt.toISOString()}` : ""}
+        {run.status} · started{" "}
+        <time dateTime={run.startedAt.toISOString()}>{formatMinute(run.startedAt, stampFormat)}</time>
+        {run.completedAt ? (
+          <>
+            {" · completed "}
+            <time dateTime={run.completedAt.toISOString()}>
+              {formatMinute(run.completedAt, stampFormat)}
+            </time>
+          </>
+        ) : null}
         {run.sourceFileHash ? (
           <>
             {" · sha256 "}
@@ -114,7 +128,9 @@ export default async function ImportRunPage({ params }: { params: Promise<{ id: 
               proposedValues: (row.proposedValuesJson as Record<string, string> | null) ?? null,
               resolutionDecision: row.resolutionDecision,
               resolutionRationale: row.resolutionRationale,
-              resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
+              resolvedAt: row.resolvedAt
+                ? { iso: row.resolvedAt.toISOString(), text: formatMinute(row.resolvedAt, stampFormat) }
+                : null,
               resolvedBy: row.resolvedBy
             }))}
             runId={run.id}

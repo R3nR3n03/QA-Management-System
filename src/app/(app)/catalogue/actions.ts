@@ -76,7 +76,11 @@ export async function createProductAction(_prev: FormState, formData: FormData):
         businessId: optionalField(formData, "businessId"),
         name: field("name"),
         versionTag: field("versionTag"),
-        status: field("status")
+        status: field("status"),
+        // Blank is meaningful here rather than absent: it says this product raises no bugs,
+        // and `normalizeJiraProjectKey` resolves it to null. So the raw field is passed
+        // rather than `optionalField`, which would drop it.
+        jiraProjectKey: field("jiraProjectKey")
       },
       actor
     )
@@ -150,6 +154,9 @@ export async function updateProductAction(_prev: FormState, formData: FormData):
         name: field("name"),
         versionTag: field("versionTag"),
         status: field("status"),
+        // The edit form always submits this field, so a blank one is a deliberate clear
+        // rather than an omission — which is the difference `updateProduct` acts on.
+        jiraProjectKey: field("jiraProjectKey"),
         version: Number(formData.get("version"))
       },
       actor

@@ -8,6 +8,7 @@ import { BUSINESS_ID_PATTERNS, ensureBusinessIdFormat } from "@/lib/business-ids
 import { allocateBusinessId, highestSuffix, type AllocatorFormat } from "@/lib/id-allocator";
 import { appendAudit } from "@/lib/audit";
 import { containsAny, runPaged, type PageRequest } from "@/lib/pagination";
+import { normalizeJiraProjectKey } from "@/domain/jira-defect";
 import {
   DEFAULT_SEARCH_LIMIT,
   rankHits,
@@ -612,7 +613,20 @@ export type CatalogueDetail = {
    * the tree cannot derive that from a business ID without a second lookup.
    */
   path: { productId: string; moduleId: string | null; featureId: string | null };
-  product: { businessId: string; name: string; versionTag: string; status: string };
+  /**
+   * The ancestor product, carried at every level so the header can name it.
+   *
+   * `jiraProjectKey` is null when this product raises no Jira bugs. It is catalogue data
+   * rather than a secret, so unlike the Jira connection values it is safe to project here —
+   * the QA Lead who sets it is the one reading it back.
+   */
+  product: {
+    businessId: string;
+    name: string;
+    versionTag: string;
+    status: string;
+    jiraProjectKey: string | null;
+  };
   /** Rollups for the header. `null` where the level has no such number. */
   stats: { modules: number | null; features: number | null; requirements: number | null };
   /** `null` for a requirement, which is a leaf and has no child list. */
@@ -693,7 +707,8 @@ export async function getProductDetail(
       businessId: product.businessId,
       name: product.name,
       versionTag: product.versionTag,
-      status: product.status
+      status: product.status,
+      jiraProjectKey: product.jiraProjectKey
     },
     // The TOTAL, not the page: a header that says "12 modules" while the list beneath it
     // shows 50 of 300 is a header describing the pager rather than the product.
@@ -765,7 +780,8 @@ export async function getModuleDetail(
       businessId: moduleRow.product.businessId,
       name: moduleRow.product.name,
       versionTag: moduleRow.product.versionTag,
-      status: moduleRow.product.status
+      status: moduleRow.product.status,
+      jiraProjectKey: moduleRow.product.jiraProjectKey
     },
     stats: { modules: null, features: features.total, requirements: requirementTotal },
     childKind: "feature",
@@ -832,7 +848,8 @@ export async function getFeatureDetail(
       businessId: product.businessId,
       name: product.name,
       versionTag: product.versionTag,
-      status: product.status
+      status: product.status,
+      jiraProjectKey: product.jiraProjectKey
     },
     stats: { modules: null, features: null, requirements: requirements.total },
     childKind: "requirement",
@@ -887,7 +904,8 @@ export async function getRequirementDetail(businessId: string): Promise<Catalogu
       businessId: product.businessId,
       name: product.name,
       versionTag: product.versionTag,
-      status: product.status
+      status: product.status,
+      jiraProjectKey: product.jiraProjectKey
     },
     stats: { modules: null, features: null, requirements: null },
     childKind: null,
@@ -906,7 +924,14 @@ export async function getProduct(id: string) {
 }
 
 export async function createProduct(
-  input: { businessId?: string; name: string; versionTag: string; status: string },
+  input: {
+    businessId?: string;
+    name: string;
+    versionTag: string;
+    status: string;
+    /** The Jira project defects against this product are raised in. Absent raises nothing. */
+    jiraProjectKey?: string | null;
+  },
   actor: Actor,
   txClient?: TxClient
 ) {
@@ -914,6 +939,10 @@ export async function createProduct(
   requireNonBlank(input.name, "name", "Product name is required.");
   requireNonBlank(input.versionTag, "versionTag", "Version is required.");
   requireNonBlank(input.status, "status", "Status is required.");
+  // Shape only, and absence is legal — a product need not raise bugs in Jira at all.
+  // Verifying the project exists would let a Jira outage block catalogue editing
+  // (`src/domain/jira-defect.ts`).
+  const jiraProjectKey = normalizeJiraProjectKey(input.jiraProjectKey);
   const suppliedId = suppliedBusinessId(
     input.businessId,
     BUSINESS_ID_PATTERNS.product,
@@ -938,6 +967,7 @@ export async function createProduct(
         name: input.name.trim(),
         versionTag: input.versionTag.trim(),
         status: input.status.trim(),
+        jiraProjectKey,
         createdBy: actor.userId,
         updatedBy: actor.userId
       }
@@ -958,7 +988,19 @@ export async function createProduct(
 
 export async function updateProduct(
   id: string,
-  input: { name?: string; versionTag?: string; status?: string; version?: number },
+  input: {
+    name?: string;
+    versionTag?: string;
+    status?: string;
+    /**
+     * Omit to leave the Jira project alone; pass blank to clear it, which stops this product
+     * raising bugs. The two are deliberately different — an edit that says nothing about
+     * Jira must not silently disconnect a product, the same distinction `updateExecution`
+     * draws for its issue key.
+     */
+    jiraProjectKey?: string | null;
+    version?: number;
+  },
   actor: Actor
 ) {
   ensureRole([...RoleSets.canAdmin], actor.role);
@@ -969,6 +1011,9 @@ export async function updateProduct(
   if (!current) throw new AppError(404, "REFERENCE_NOT_FOUND", "Product not found.", "id");
   const expectedVersion = ensureVersion(current.version, input.version);
 
+  const changingProjectKey = input.jiraProjectKey !== undefined;
+  const jiraProjectKey = changingProjectKey ? normalizeJiraProjectKey(input.jiraProjectKey) : undefined;
+
   return withVersionCheck(() => prisma.$transaction(async (tx) => {
     const updated = await tx.product.update({
       where: { id, version: expectedVersion },
@@ -976,6 +1021,7 @@ export async function updateProduct(
         name: input.name?.trim() ?? current.name,
         versionTag: input.versionTag?.trim() ?? current.versionTag,
         status: input.status?.trim() ?? current.status,
+        ...(changingProjectKey ? { jiraProjectKey } : {}),
         version: { increment: 1 },
         updatedBy: actor.userId
       }

@@ -32,6 +32,12 @@ Every mutation routes through its domain service; direct ORM calls from route ha
 
 Do not expose stack traces, SQL details, authorization rules, or internal identifiers beyond the requested record.
 
+## Timestamps in responses
+
+Every timestamp in an API response is **ISO-8601 UTC**, for every caller, regardless of the authenticated user's stored time zone, their chosen clock, or the deployment's zone. This is a contract and not an implementation detail: a caller holding an instant can convert it to any zone, but a caller handed a localized string cannot recover the instant without being told which zone produced it, so localizing a response would strictly destroy information.
+
+Display preferences are a presentation concern and apply only to what a person is shown on a screen, or to a stamp QAMS writes for a reader outside it. See `data-model.md` § "Common record convention" and [ADR-0007](adr/0007-a-zone-for-readers-and-a-zone-for-outsiders.md).
+
 ## Authorization and security
 
 - Authenticate on the server and resolve the active role from the database for each request. v1 authenticates with an email/password check against a server-stored password hash, then issues a signed, httpOnly, server-verified session cookie; the server never trusts a client-supplied identity header.
@@ -64,6 +70,26 @@ Whether result comments are posted at all is deployment configuration, and they 
 A failed result comment is not retried and exposes no retry endpoint. Its outcome, including the failure reason, is readable on the execution it belongs to by any role that may view that execution — the reason is sanitized of credential material, and the person who mistyped an issue key is the one best placed to correct it.
 
 The Jira site's base URL is shown to every authenticated role, because an execution renders its issue key as a link into Jira. This is the one Jira connection value that is not restricted: it is the public address of the team's Jira site, which anyone holding an issue key can already reach. The client ID, the client secret, the encryption key, and every stored token remain unreadable at every role, masked or otherwise.
+
+## Jira defect sync interface
+
+**Status: implemented, off unless enabled, and awaiting QA Lead approval of the policy** — see the status note in `architecture.md#Jira defect sync`.
+
+Outbound only, on the same connection, the same per-user OAuth identity, the same service-account fallback and the same audit obligation as the execution sync. Nothing here introduces a second credential, a second authorization model, or an inbound path.
+
+The Jira **project** that raised bugs are created in is **not** deployment configuration: it is an attribute of the product, set in the Catalogue and readable and writable by the roles that may administer the catalogue. That is a deliberate widening over the other Jira values, and it is safe because a project key is not a secret and carries no access — it names a project, and anyone who can reach the Jira site can already list them. The client id, the client secret, the encryption key and every stored token remain in deployment-managed environment variables and unreadable at every role.
+
+One value is added to deployment configuration: an optional issue type name, defaulting to `Bug`, which describes how a Jira site names its types rather than anything about one product. It is not a secret and is not exposed by the API.
+
+A product's project key is validated for shape when it is saved, and never against Jira. Verifying it would let a Jira outage block catalogue editing, which is the same coupling the execution sync refuses when an issue key is recorded. A key naming a project that does not exist surfaces as a failed create attempt on a defect, where it costs nobody their work.
+
+Every attempt to create, comment on, or transition a defect's issue is audited with actor, defect, issue key and outcome, and never carries token material. The actor recorded on the attempt is whose credential performed the write; the audit event names the person whose action caused the sync to exist, which for a retry is the person who raised the defect and is never a claim that they acted in Jira.
+
+Creating an issue is the one Jira write that is not idempotent, so it is guarded rather than trusted: QAMS labels every issue it raises with the defect's business ID and searches for that label before creating, adopting an existing match instead of raising a duplicate. A create whose duplicate check cannot complete fails rather than proceeding.
+
+Failed creates and failed transitions are retried on the same bounded budget and through the same QA-Lead-only retry endpoint as the execution sync; that endpoint reports the two queues' tallies separately. A failed lifecycle comment is not retried and exposes no retry endpoint.
+
+Every attempt outcome, including the failure reason, is readable on the defect it belongs to by any role that may view that defect. Reasons are sanitized of credential material, and a defect whose issue was never raised says so on its own screen — that failure is invisible everywhere else, because a bug that never reached Jira does not exist for anyone working from the board.
 
 ## Workbook import interface
 

@@ -2719,6 +2719,17 @@ dialog.modal::backdrop {
   color: var(--ink-3);
   white-space: nowrap;
 }
+/* The one statement of which clock every stamp on every screen is drawn on (ADR-0007).
+   Quieter than the role and truncated rather than wrapped: `America/Argentina/Ushuaia` must
+   not push the sign-out control off a narrow rail, and the full name is in the title. */
+.rail-zone {
+  font-size: 11px;
+  color: var(--ink-3);
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Collapsed: icon rail. Labels, headings, badges and identity fade out; icons stay
    centered; the item's title attribute carries the label as a tooltip. */

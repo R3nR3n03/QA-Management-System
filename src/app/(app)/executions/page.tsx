@@ -6,6 +6,7 @@ import { jiraConnectionStatus } from "@/lib/jira-config";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { ExecutionList } from "@/ui/record-list";
+import { viewerStampFormat } from "@/ui/format";
 import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function ExecutionsPage({
   searchParams: Promise<ListSearchParams>;
 }) {
   const params = await searchParams;
-  await requireSession();
+  const auth = await requireSession();
   const page = readPage(params);
   const pageSize = readPageSize(params, PAGE_SIZE_OPTIONS, PAGE_SIZE);
   const query = readParam(params, "q");
@@ -94,6 +95,7 @@ export default async function ExecutionsPage({
            configuration is the page's to supply — the list is presentation, and which rows
            exist and what the deployment is are both answered before it renders. */
         jiraConfigured={jiraConnectionStatus().connected}
+        stampFormat={viewerStampFormat(auth)}
       />
     </>
   );

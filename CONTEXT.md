@@ -113,9 +113,10 @@ where nothing else is grouped.
 ## Jira
 
 **Jira issue key**:
-The identifier of the Jira task an execution is run against — `PROJ-123`. The only thing a
-person ever tells QAMS about Jira; everything else QAMS holds is a record of what it did
-with the key.
+The identifier of a Jira issue — `PROJ-123`. It reaches QAMS two ways, and they are
+opposites. On an **execution** a person types it in, naming the task the run is against; it
+is the only thing anyone ever tells QAMS about Jira. On a **defect** QAMS writes it, having
+raised that issue itself. Everything else QAMS holds is a record of what it did with the key.
 _Avoid_: backlog ID, ticket number, issue ID, Jira reference. A *backlog* is a Jira view,
 not an identifier, so "backlog ID" names nothing that exists.
 
@@ -134,3 +135,63 @@ separate acts rather than two halves of one, and why they answer to different ru
 _Avoid_: note, update, summary. Also **report** as a bare noun — a QAMS *report* is
 something a reader opens, like the traceability matrix, and this is something a reader is
 sent.
+
+**Raise** (a Jira issue):
+What QAMS does to Jira when someone records a defect: it *creates* a bug there. The word is
+reserved for creation, and creation is the one thing QAMS does in Jira that it cannot take
+back — a transition can be transitioned again and a comment is noise, but a duplicate issue
+is somebody else's cleanup. Say "raise the issue for a defect", never "sync the defect".
+_Avoid_: sync, push, file, log, open. *Sync* is the worst of them: it suggests two systems
+converging, and Jira never writes back to QAMS.
+
+**Adopt** (a Jira issue):
+What a retried create does when it finds an issue an earlier attempt already raised, instead
+of raising a second one. The issue existed and was unrecorded; adopting it binds it to the
+defect it always belonged to. A success, not a failure, and worth distinguishing from a
+plain creation whenever a reader asks what happened.
+_Avoid_: reuse, link, attach, claim.
+
+**Lifecycle comment**:
+The comment QAMS posts on a defect's issue when that defect changes state, carrying the
+rationale that transition required. A **report**, on exactly the footing a result comment
+has: it narrates, and only the transition at closure claims the work is finished.
+_Avoid_: status update, sync comment.
+
+## Time
+
+**Stamp**:
+One instant as a reader sees it — `2026-08-17 14:30`, or `2026-08-17 02:30 PM`, to the minute.
+A *rendering* of an instant and never the instant itself, which is why a stamp has a zone and
+a clock and the record behind it has neither: the record holds UTC. Two screens showing one
+record must show the same stamp, and that requirement is why there is a single formatter
+rather than one per screen.
+_Avoid_: timestamp, date, time. A **timestamp** is what is stored — say "the record's
+timestamp" for the UTC instant and "the stamp" for what is drawn from it; using one word for
+both is what makes a conversation about zones impossible to follow.
+
+**Display preferences**:
+The pair a person sets about how stamps are drawn for them: their [viewer
+zone](#time) and whether their clock reads 12- or 24-hour. Named as a pair because they are
+decided together, saved together and audited together — one intention, not two. Nobody sets
+another person's, and neither one is ever consulted by a query.
+_Avoid_: settings, options, profile. **Settings** in this codebase means deployment
+configuration, which is the opposite of this: nobody's, rather than one person's.
+
+**Organization zone**:
+The single zone this deployment speaks in when there is nobody to speak to — the stamp on a
+Jira comment, read by people who are not QAMS users and may not be in this organization.
+Deployment configuration, like the public address, and never any person's property. It
+governs **no query**: nothing in QAMS buckets by calendar day, so this is presentation to
+outsiders and not a business day. See
+[ADR-0007](docs/adr/0007-a-zone-for-readers-and-a-zone-for-outsiders.md).
+_Avoid_: server zone, default zone, system zone. And **the timezone**, unqualified — the
+bare phrase is what collapses this back into the viewer zone, which is the one mistake this
+pair of terms exists to prevent.
+
+**Viewer zone**:
+The zone one signed-in reader's stamps are rendered in, held on their own record and set by
+nobody else — half of their [display preferences](#time). Purely presentation: changing it
+moves what a person sees and never which records they get back. Unset means they have never
+expressed a preference, which is not the same as having chosen the organization's.
+_Avoid_: user timezone, local time, preferred timezone. And **the timezone**, for the reason
+above.

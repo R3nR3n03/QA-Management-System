@@ -61,12 +61,44 @@ enum JiraCommentOutcome {
   FAILED
 }
 
+/// Which of the three things QAMS does to a defect's Jira issue one attempt was
+/// (`docs/architecture.md#Jira defect sync`).
+///
+/// CREATE raises the bug and is the only one that yields an issue key -- every later action
+/// on that defect is addressed to the key CREATE returned, so a defect with no key has
+/// nothing the other two could act on.
+///
+/// COMMENT narrates one lifecycle transition. TRANSITION moves the issue to a done status
+/// when the defect closes.
+///
+/// A discriminator column here, where the execution sync uses two separate tables, and the
+/// difference is not an inconsistency: an execution's transition speaks for an issue key
+/// shared by many runs while its comment speaks for one run, so the two are read by
+/// different queries at different grains. All three of these speak for exactly one defect
+/// and are read together, as one timeline on the defect screen (ADR-0006).
+enum JiraDefectAction {
+  CREATE
+  COMMENT
+  TRANSITION
+}
+
 enum DefectLifecycleState {
   NEW
   TRIAGED
   IN_PROGRESS
   RESOLVED
   CLOSED
+}
+
+/// Which clock a person's screens draw a stamp on -- `14:30` or `02:30 PM`.
+///
+/// An enum rather than a nullable boolean deliberately: a `Boolean?` would have three states
+/// with nothing in the name saying which of the two non-null ones is the default, while
+/// H24 / H12 / null reads correctly on its own. Purely presentation, like the zone beside it:
+/// it changes what a reader sees and never what is stored or what a query returns (ADR-0007).
+enum HourFormat {
+  H12
+  H24
 }
 
 model User {
@@ -88,10 +120,30 @@ model User {
   /// entity, which docs/data-model.md does not establish.
   sessionsValidFrom DateTime?
 
+  /// This person's VIEWER ZONE: the IANA zone their own screens render stamps in. A
+  /// documented attribute (docs/data-model.md), unlike sessionsValidFrom above -- a zone is
+  /// a fact about where somebody sits, which they set themselves on /account.
+  ///
+  /// NULL means "has never expressed a preference", which is NOT the same as having chosen
+  /// the organization's zone: only null follows a deployment that later changes
+  /// ORGANIZATION_TIME_ZONE. That difference is why this was never backfilled (ADR-0007).
+  timeZone String?
+
+  /// Whether this person's screens draw a stamp on a 12- or 24-hour clock. The second half
+  /// of their display preferences, alongside timeZone above.
+  ///
+  /// NULL carries the same meaning it does there -- "has never chosen" -- and resolves to
+  /// H24, which is what every screen rendered before this column existed. Unlike the zone
+  /// there is no deployment-level counterpart to fall through to: the only other audience
+  /// for a stamp is a reader in Jira, and that surface is fixed at 24-hour rather than
+  /// configurable (ADR-0007).
+  hourFormat HourFormat?
+
   executions TestExecution[] @relation("ExecutionTester")
   jiraCredential JiraCredential?
   jiraSyncAttempts JiraSyncAttempt[] @relation("JiraSyncActor")
   jiraCommentAttempts JiraCommentAttempt[] @relation("JiraCommentActor")
+  jiraDefectAttempts JiraDefectAttempt[] @relation("JiraDefectActor")
 }
 
 model ControlledValue {
@@ -114,6 +166,26 @@ model Product {
   name       String
   versionTag String
   status     String
+  /// The Jira project that defects against this product are raised in
+  /// (`docs/architecture.md#Jira defect sync`, ADR-0006).
+  ///
+  /// Catalogue data rather than deployment configuration, and deliberately so: which Jira
+  /// project a product's bugs belong in is a fact ABOUT that product, and one QA Lead
+  /// maintaining four products should not need a deployment to edit an environment file and
+  /// restart to say so. It sits here beside the product's name and version for the same
+  /// reason those do.
+  ///
+  /// This is not a secret, which is what makes it safe to move out of the environment. The
+  /// client id, the client secret and the encryption key remain there and are never exposed
+  /// at any role (`src/lib/jira-config.ts`).
+  ///
+  /// Null means defects against this product raise nothing. That is the default for every
+  /// product, so the sync stays off until someone names a project — the property the
+  /// retired `JIRA_DEFECT_PROJECT_KEY` used to carry.
+  ///
+  /// Deliberately NOT unique: two products may legitimately share one Jira project, which is
+  /// exactly what a team consolidating its bugs would do.
+  jiraProjectKey String?
   version    Int      @default(1)
   createdAt  DateTime @default(now())
   createdBy  String
@@ -403,6 +475,48 @@ model JiraCommentAttempt {
   @@index([executionId])
 }
 
+/// One attempt to create, comment on, or transition a defect's Jira issue
+/// (`docs/data-model.md`, `docs/architecture.md#Jira defect sync`).
+///
+/// One table for all three actions, discriminated by `action` -- see JiraDefectAction for why
+/// this does not follow the two-table split on the execution side (ADR-0006).
+///
+/// `jiraIssueKey` is nullable here and nowhere else in this schema, because a failed CREATE is
+/// the one attempt that can exist before any issue key does. That row is the entire record
+/// that QAMS tried to raise a bug and could not, so refusing to store it -- or inventing a key
+/// for it -- would lose the failure the retry worker exists to pick up.
+///
+/// Append-only, on the same rule as ExecutionHistory, JiraSyncAttempt and JiraCommentAttempt.
+model JiraDefectAttempt {
+  id            String           @id @default(uuid())
+  defectId      String
+  action        JiraDefectAction
+  /// Null only on a CREATE that never got far enough to have one. See the note above.
+  jiraIssueKey  String?
+  attemptedAt   DateTime         @default(now())
+  outcome       JiraSyncOutcome
+  /// Jira's id for the comment a COMMENT row created, on success. Null for every other
+  /// action. Stored for the same reason as JiraCommentAttempt.jiraCommentId: it is the only
+  /// handle QAMS will ever have on something it wrote into another system.
+  jiraCommentId String?
+  /// Why it failed, for the defect screen and a QA Lead. Never carries token material --
+  /// `sanitizeFailureReason` runs over every value written here.
+  failureReason String?
+  /// The user whose credential performed the write, or null when the service-account
+  /// fallback did, or when no credential could be used at all. Same contract and the same
+  /// real foreign key as JiraSyncAttempt.actorId.
+  actorId       String?
+
+  defect Defect @relation(fields: [defectId], references: [id], onDelete: Cascade)
+  actor  User?  @relation("JiraDefectActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  /// The defect screen reads this defect's attempts, newest first.
+  @@index([defectId, attemptedAt])
+  /// The retry worker queues on (action, outcome): failed CREATEs and TRANSITIONs, never
+  /// COMMENTs. A QA Lead failure view filters the same pair.
+  @@index([action, outcome])
+}
+
 /// One user's stored Jira connection (`docs/data-model.md`).
 ///
 /// The refresh token is encrypted at rest and is the first third-party secret QAMS holds --
@@ -473,6 +587,19 @@ model Defect {
   resolutionSummary String?
   closureRationale  String?
   retestEvidenceRef String?
+  /// The Jira bug QAMS raised for this defect, written back once creation succeeds
+  /// (`docs/data-model.md`, `docs/architecture.md#Jira defect sync`).
+  ///
+  /// Null means no issue exists yet: Jira is not configured, no project key is set, the
+  /// create has not run, or every attempt at it failed. It is never null because a person
+  /// declined to link one -- QAMS raises the bug or nothing does, and unlike an execution's
+  /// key this is never typed in by hand.
+  ///
+  /// Unique, unlike TestExecution.jiraIssueKey which many runs deliberately share. One
+  /// defect is one bug: a second defect pointing at the same issue would make the lifecycle
+  /// comments below it contradict each other, and it is the database constraint rather than
+  /// a rule in a service that makes a retry unable to adopt an issue already claimed.
+  jiraIssueKey      String?              @unique
   version           Int                  @default(1)
   createdAt         DateTime             @default(now())
   createdBy         String
@@ -482,6 +609,7 @@ model Defect {
   testCase  TestCase                 @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
   executions DefectExecutionLink[]
   rtmLinks  RequirementTraceLink[]
+  jiraAttempts JiraDefectAttempt[]
 
   /// `listOpenDefectsForCases` — the finalize form's defect picker — filters exactly
   /// this pair (`testCaseId IN (…) AND status <> CLOSED`).

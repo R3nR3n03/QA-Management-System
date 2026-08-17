@@ -1,5 +1,12 @@
+import { JiraDefectAction } from "@prisma/client";
 import { describe, expect, it } from "vitest";
-import { MAX_SYNC_ATTEMPTS, planRetries, type AttemptSummary } from "./jira-retry";
+import {
+  MAX_SYNC_ATTEMPTS,
+  planDefectRetries,
+  planRetries,
+  type AttemptSummary,
+  type DefectAttemptSummary
+} from "./jira-retry";
 
 const a = (jiraIssueKey: string, failures: number): AttemptSummary => ({
   jiraIssueKey,
@@ -53,5 +60,75 @@ describe("planRetries", () => {
 
   it("does nothing with an empty queue", () => {
     expect(planRetries([])).toEqual({ retry: [], abandon: [] });
+  });
+});
+
+const d = (
+  defectId: string,
+  action: JiraDefectAction,
+  failures: number
+): DefectAttemptSummary => ({
+  defectId,
+  action,
+  failureCount: failures,
+  jiraIssueKey: action === JiraDefectAction.CREATE ? null : "BUG-1",
+  actorId: "user-1"
+});
+
+describe("planDefectRetries", () => {
+  it("retries a create that has failed once", () => {
+    const plan = planDefectRetries([d("defect-1", JiraDefectAction.CREATE, 1)]);
+    expect(plan.retry.map((r) => r.defectId)).toEqual(["defect-1"]);
+    expect(plan.abandon).toEqual([]);
+  });
+
+  it("keeps retrying up to the budget", () => {
+    const plan = planDefectRetries([d("defect-1", JiraDefectAction.CREATE, MAX_SYNC_ATTEMPTS - 1)]);
+    expect(plan.retry).toHaveLength(1);
+    expect(plan.abandon).toEqual([]);
+  });
+
+  it("abandons once the budget is spent", () => {
+    const plan = planDefectRetries([d("defect-1", JiraDefectAction.CREATE, MAX_SYNC_ATTEMPTS)]);
+    expect(plan.retry).toEqual([]);
+    expect(plan.abandon).toHaveLength(1);
+  });
+
+  // The two failures need different responses from a Lead: an unraised bug is invisible to
+  // everyone outside QAMS, while an unclosed one is merely stale.
+  it("words an abandoned create differently from an abandoned transition", () => {
+    const create = planDefectRetries([d("defect-1", JiraDefectAction.CREATE, MAX_SYNC_ATTEMPTS)])
+      .abandon[0];
+    const transition = planDefectRetries([
+      d("defect-2", JiraDefectAction.TRANSITION, MAX_SYNC_ATTEMPTS)
+    ]).abandon[0];
+
+    expect(create.failureReason).toMatch(/raise it by hand/i);
+    expect(transition.failureReason).toMatch(/close this in Jira/i);
+  });
+
+  // A defect can fail both halves independently, and one spent budget must not consume the
+  // other's.
+  it("budgets a defect's create and transition separately", () => {
+    const plan = planDefectRetries([
+      d("defect-1", JiraDefectAction.CREATE, MAX_SYNC_ATTEMPTS),
+      d("defect-1", JiraDefectAction.TRANSITION, 1)
+    ]);
+    expect(plan.abandon.map((r) => r.action)).toEqual([JiraDefectAction.CREATE]);
+    expect(plan.retry.map((r) => r.action)).toEqual([JiraDefectAction.TRANSITION]);
+  });
+
+  it("sorts each item into exactly one bucket", () => {
+    const plan = planDefectRetries([
+      d("defect-1", JiraDefectAction.CREATE, 1),
+      d("defect-2", JiraDefectAction.TRANSITION, MAX_SYNC_ATTEMPTS),
+      d("defect-3", JiraDefectAction.CREATE, 2)
+    ]);
+    expect(plan.retry.map((r) => r.defectId).sort()).toEqual(["defect-1", "defect-3"]);
+    expect(plan.abandon.map((r) => r.defectId)).toEqual(["defect-2"]);
+  });
+
+  it("does nothing with an empty queue", () => {
+    expect(planDefectRetries([])).toEqual({ retry: [], abandon: [] });
   });
 });

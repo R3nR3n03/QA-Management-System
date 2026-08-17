@@ -17,6 +17,7 @@ import type { SearchResults as Results } from "@/domain/catalogue-search";
 import { AppError } from "@/lib/errors";
 import { RoleSets } from "@/lib/rbac";
 import { readPage, readParam, type ListSearchParams } from "@/ui/list-params";
+import { viewerStampFormat } from "@/ui/format";
 import { requireSession } from "@/ui/session";
 import { CatalogueSearch } from "./CatalogueSearch";
 import { CatalogueTree } from "./CatalogueTree";
@@ -288,6 +289,7 @@ export default async function CataloguePage({
             totals={totals}
             hasAnyProduct={totals.products > 0}
             mayAdminCatalogue={mayAdminCatalogue}
+            stampFormat={viewerStampFormat(auth)}
           />
         </section>
       </div>

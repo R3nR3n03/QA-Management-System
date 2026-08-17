@@ -1,8 +1,10 @@
+import { HourFormat } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { appendAudit } from "@/lib/audit";
 import { AppError } from "@/lib/errors";
 import { hashPassword, MIN_PASSWORD_LENGTH, verifyPassword } from "@/lib/password";
 import { assertWithinRateLimit, authLimiter } from "@/lib/rate-limit";
+import { isSupportedTimeZone } from "@/lib/time-zone";
 import { requireNonBlank } from "@/lib/validation";
 
 /**
@@ -21,6 +23,26 @@ export type AuthenticatedUser = {
   displayName: string;
   role: import("@prisma/client").QamsRole;
 };
+
+/** `AuthenticatedUser` plus the display preferences the shell and `/account` both need. */
+export type ProfileUser = AuthenticatedUser & {
+  /** Their chosen zone, or null when they have never chosen one. */
+  timeZone: string | null;
+  /** Their chosen clock, or null when they have never chosen one. */
+  hourFormat: HourFormat | null;
+};
+
+/**
+ * How a person wants stamps drawn for them. Both fields are nullable and `null` means the
+ * same thing in each: never chosen. See `viewerStampFormat` for how they resolve.
+ */
+export type DisplayPreferences = {
+  timeZone: string | null;
+  hourFormat: HourFormat | null;
+};
+
+/** Every legal clock, for validating one that arrived from a form field. */
+const HOUR_FORMATS: readonly HourFormat[] = [HourFormat.H12, HourFormat.H24];
 
 /**
  * Revoke every session this user currently holds (A6).
@@ -48,10 +70,17 @@ export async function revokeSessions(userId: string): Promise<void> {
 }
 
 /** The signed-in user's own details, for the application shell. */
-export async function profile(userId: string): Promise<AuthenticatedUser | null> {
+export async function profile(userId: string): Promise<ProfileUser | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, displayName: true, role: true }
+    select: {
+      id: true,
+      email: true,
+      displayName: true,
+      role: true,
+      timeZone: true,
+      hourFormat: true
+    }
   });
   return user;
 }
@@ -122,6 +151,95 @@ export async function changeOwnPassword(
   });
 
   return { issuedAtMs: now.getTime() };
+}
+
+/**
+ * Self-service change of the caller's own **display preferences** — the zone their screens
+ * render stamps in, and whether those stamps use a 12- or 24-hour clock (`CONTEXT.md`,
+ * ADR-0007).
+ *
+ * No role gate, and the target is always the authenticated caller rather than a parameter,
+ * exactly as `changeOwnPassword` is built: these are facts about where a person sits and how
+ * they read a clock, and they are the only authority on both — so this must not be able to
+ * become an admin path by accident. `docs/roles-workflows.md` has no row for setting somebody
+ * else's, and none is invented here.
+ *
+ * Both fields take `null` as a real choice rather than an absence of one. Clearing the zone
+ * puts the viewer back on the organization's and — unlike storing that zone's name — keeps
+ * them there if the deployment later moves; clearing the clock returns them to the 24-hour
+ * default. That is the whole reason both columns are nullable.
+ *
+ * ONE service and ONE audit event for both, because they answer one question. A viewer who
+ * changes their zone and their clock in the same sitting had a single intention, and splitting
+ * it would put two rows in an append-only log for it.
+ *
+ * ## Why this changes NOTHING except what is rendered
+ *
+ * No timestamp is rewritten and no query is re-scoped. Every stored instant is untouched UTC
+ * (`docs/data-model.md`), and nothing in QAMS filters by calendar day, so neither preference
+ * can move a record in or out of any result. They decide how an instant is drawn and stop
+ * there.
+ *
+ * ## Why `version` is deliberately NOT bumped
+ *
+ * `User.version` is the optimistic-concurrency token for `PATCH /users/{id}/role`, and
+ * bumping it here would make a person changing their own preferences invalidate a QA Lead's
+ * in-flight role change with a spurious `VERSION_CONFLICT`. That is the identical reasoning
+ * `revokeSessions` and `changeOwnPassword` already record for the identical situation — a
+ * self-service write to columns the role endpoint does not read.
+ *
+ * The audit event IS written, and that half is not optional: it is the only thing that can
+ * later answer why somebody's screens started reading differently.
+ */
+export async function changeOwnDisplayPreferences(
+  userId: string,
+  input: DisplayPreferences,
+  requestId: string
+): Promise<DisplayPreferences> {
+  // Validated against the runtime's own IANA data rather than a list this project keeps.
+  // A stored zone the platform cannot format would throw at render, on every screen, for
+  // one person — a failure they could not undo from a screen that no longer draws.
+  if (input.timeZone !== null && !isSupportedTimeZone(input.timeZone)) {
+    throw new AppError(
+      422,
+      "ID_INVALID",
+      "That is not a time zone this system recognises. Choose one from the list.",
+      "timeZone"
+    );
+  }
+
+  // The enum is checked rather than trusted: this arrives from a form field, and Prisma would
+  // otherwise reject an unknown member with a database error rather than a field-scoped 422.
+  if (input.hourFormat !== null && !HOUR_FORMATS.includes(input.hourFormat)) {
+    throw new AppError(422, "ID_INVALID", "Choose a 12-hour or 24-hour clock.", "hourFormat");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { timeZone: true, hourFormat: true }
+  });
+  if (!user) {
+    throw new AppError(403, "UNAUTHORIZED", "Authentication required.");
+  }
+
+  const after: DisplayPreferences = { timeZone: input.timeZone, hourFormat: input.hourFormat };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: after });
+    await appendAudit(tx, {
+      actorId: userId,
+      action: "USER_DISPLAY_PREFERENCES_CHANGED",
+      entityType: "User",
+      entityId: userId,
+      requestId,
+      beforeAfterJson: {
+        before: { timeZone: user.timeZone, hourFormat: user.hourFormat },
+        after
+      }
+    });
+  });
+
+  return after;
 }
 
 export async function authenticate(email: string, password: string): Promise<AuthenticatedUser> {

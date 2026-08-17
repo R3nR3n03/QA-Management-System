@@ -20,3 +20,5 @@ recording.
 | [0003](0003-jira-sync-is-decoupled-from-finalize.md) | Jira sync is decoupled from finalize, and triggers on the last passing execution |
 | [0004](0004-result-comments-are-posted-on-every-finalize.md) | Result comments are posted on every finalize, in their own table and without retries |
 | [0005](0005-a-later-run-transitions-its-issue-again.md) | A later run transitions its issue again, and a declined transition is recorded |
+| [0006](0006-a-defect-raises-its-own-jira-bug.md) | A defect raises its own Jira bug in its product's project, and a label makes that retryable |
+| [0007](0007-a-zone-for-readers-and-a-zone-for-outsiders.md) | A zone for readers and a zone for outsiders; each reader's own clock; storage and every machine-readable surface stay UTC |

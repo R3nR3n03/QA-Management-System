@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listProductOptions } from "@/domain/catalogue";
 import { listDefectsWithCase } from "@/domain/defects";
+import { jiraConnectionStatus } from "@/lib/jira-config";
 import { readPage, readPageSize, readParam, type ListSearchParams } from "@/ui/list-params";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/ui/paging";
 import { DefectList } from "@/ui/record-list";
@@ -50,7 +51,12 @@ export default async function DefectsPage({
           summary: defect.summary,
           priority: defect.priority,
           severity: defect.severity,
-          caseBusinessId: defect.testCase.businessId
+          caseBusinessId: defect.testCase.businessId,
+          jiraIssueKey: defect.jiraIssueKey,
+          // Per row, from the product the defect reaches through its test case — not one
+          // flag for the screen. Two defects in one list can legitimately disagree: a
+          // product with a Jira project owes a bug, one without owes nothing.
+          jiraExpected: defect.testCase.product.jiraProjectKey !== null
         }))}
         total={total}
         page={page}
@@ -58,6 +64,7 @@ export default async function DefectsPage({
         pathname="/defects"
         params={params}
         products={products}
+        jiraConfigured={jiraConnectionStatus().connected}
       />
     </>
   );

@@ -20,12 +20,23 @@ import { z } from "zod";
  * `""` must not be collapsed into one case.
  */
 
+/**
+ * The Jira project a product's defects are raised in.
+ *
+ * Nullable and blank-tolerant, unlike every other string here, and both matter. Absence is
+ * the default for a product and means "raise nothing"; blank is a form field someone cleared,
+ * which means the same thing and must not be an error. `normalizeJiraProjectKey` resolves
+ * both to null and validates the shape of anything else.
+ */
+const jiraProjectKeyField = z.string().nullable().optional();
+
 /** POST /api/v1/products -> `createProduct`. */
 export const createProductSchema = z.strictObject({
   businessId: z.string().min(1).optional(), // omitted → allocated; blank → rejected
   name: z.string().min(1), // requireNonBlank — catalogue.ts:21
   versionTag: z.string().min(1), // requireNonBlank — catalogue.ts:22
-  status: z.string().min(1) // requireNonBlank — catalogue.ts:23
+  status: z.string().min(1), // requireNonBlank — catalogue.ts:23
+  jiraProjectKey: jiraProjectKeyField // normalizeJiraProjectKey — jira-defect.ts
 });
 
 /** PATCH /api/v1/products/{id} -> `updateProduct`. */
@@ -33,7 +44,9 @@ export const updateProductSchema = z.strictObject({
   version: z.number().optional(), // ensureVersion tolerates undefined (409) — catalogue.ts:67
   name: z.string().min(1).optional(), // requireNonBlankIfProvided — catalogue.ts:62
   versionTag: z.string().min(1).optional(), // requireNonBlankIfProvided — catalogue.ts:63
-  status: z.string().min(1).optional() // requireNonBlankIfProvided — catalogue.ts:64
+  status: z.string().min(1).optional(), // requireNonBlankIfProvided — catalogue.ts:64
+  // Omitted leaves the project alone; blank or null clears it. The domain distinguishes them.
+  jiraProjectKey: jiraProjectKeyField
 });
 
 /** POST /api/v1/modules -> `createModule`. */
