@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { Unplug } from "lucide-react";
 import { disconnectJiraAction } from "@/app/(app)/account/jira-actions";
 import { FormNotice } from "./notice";
 import type { FormState } from "./action";
@@ -24,7 +25,8 @@ export function DisconnectJiraForm() {
   return (
     <form action={formAction}>
       <FormNotice state={state} id="jira-disconnect-notice" />
-      <button className="btn btn-secondary" type="submit" disabled={pending}>
+      <button className="btn btn-secondary btn-icon" type="submit" disabled={pending}>
+        <Unplug size={15} strokeWidth={1.9} aria-hidden />
         {pending ? "Disconnecting…" : "Disconnect Jira"}
       </button>
     </form>

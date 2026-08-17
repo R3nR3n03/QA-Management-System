@@ -75,6 +75,93 @@ export function supportedTimeZones(): string[] {
   return [...supportedZones()].sort((a, b) => a.localeCompare(b));
 }
 
+/** One option in the zone picker. */
+export type TimeZoneChoice = {
+  /** The canonical IANA name. The only part that is ever submitted, stored or validated. */
+  value: string;
+  /** `Asia/Manila (GMT+08:00)` — what a reader chooses by. */
+  label: string;
+};
+
+/** The options under one `<optgroup>`. */
+export type TimeZoneGroup = {
+  /** `Asia`, `Europe`, … — the text before the first slash, or `Universal` for UTC. */
+  region: string;
+  zones: TimeZoneChoice[];
+};
+
+/** What UTC is filed under: it names no place, so it belongs in none of the regions. */
+const UNIVERSAL = "Universal";
+
+let choiceCache: { hour: number; groups: TimeZoneGroup[] } | null = null;
+
+/**
+ * Every supported zone, grouped by region and labelled with the offset it is on at `at` —
+ * the same list `supportedTimeZones` returns, in the shape a picker can actually be read in.
+ *
+ * ## Why the offset is computed and not stored
+ *
+ * An offset is not a property of a zone; it is a property of a zone AT AN INSTANT.
+ * `Europe/London` is GMT+00:00 in January and GMT+01:00 in July, so a table of offsets would
+ * be wrong for half of every year. The instant is an argument for the same reason
+ * `formatInZone` takes one: nothing in this module reads the clock for itself.
+ *
+ * ## Why the label leads with the IANA name
+ *
+ * A native `<select>` of four hundred options is navigated by typing, and typing matches the
+ * START of a label. `(GMT+08:00) Manila` reads better on the closed control and cannot be
+ * typed to at all — every option would begin with the same bracket. So the name leads, and
+ * the offset follows it as the thing that separates two names a reader cannot choose between.
+ *
+ * ## The cache
+ *
+ * Building this constructs one `Intl.DateTimeFormat` per zone, around 80ms for the ~420 the
+ * runtime knows. Cached for the UTC hour `at` falls in, so the account screen pays it once an
+ * hour rather than once a render. An hour-stale entry can only ever be wrong about a LABEL
+ * across a DST boundary; the value a viewer picks is the zone name, which no offset affects.
+ */
+export function timeZoneChoices(at: Date): TimeZoneGroup[] {
+  const hour = Math.floor(at.getTime() / 3_600_000);
+  if (choiceCache !== null && choiceCache.hour === hour) return choiceCache.groups;
+
+  const universal: TimeZoneChoice[] = [];
+  const byRegion = new Map<string, TimeZoneChoice[]>();
+
+  for (const value of supportedTimeZones()) {
+    const choice: TimeZoneChoice = { value, label: `${value} (${gmtOffset(value, at)})` };
+    const slash = value.indexOf("/");
+    if (slash === -1) {
+      universal.push(choice);
+      continue;
+    }
+    const region = value.slice(0, slash);
+    const existing = byRegion.get(region);
+    if (existing === undefined) byRegion.set(region, [choice]);
+    else existing.push(choice);
+  }
+
+  // UTC leads. It sorts last of four hundred names, and it is the one zone somebody picks
+  // deliberately rather than by hunting for their own city — so it is the one that must not
+  // be at the bottom. Everything after it keeps the source list's alphabetical order, both
+  // between regions (Map preserves insertion) and within one.
+  const groups: TimeZoneGroup[] = [];
+  if (universal.length > 0) groups.push({ region: UNIVERSAL, zones: universal });
+  for (const [region, zones] of byRegion) groups.push({ region, zones });
+
+  choiceCache = { hour, groups };
+  return groups;
+}
+
+/** `GMT+08:00` — the offset `timeZone` is on at `at`, in the spelling `Intl` gives it. */
+function gmtOffset(timeZone: string, at: Date): string {
+  const name = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" })
+    .formatToParts(at)
+    .find((part) => part.type === "timeZoneName")?.value;
+  // `longOffset` renders zero as a bare `GMT`. Spelled out so a column of offsets stays
+  // aligned, and so the zero case never reads as "no offset known".
+  return name === undefined || name === "GMT" ? "GMT+00:00" : name;
+}
+
 /**
  * `2026-08-17 14:30`, or `2026-08-17 02:30 PM` on a 12-hour clock — one instant, on the wall
  * clock of one zone, to the minute.

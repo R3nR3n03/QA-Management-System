@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatInZone, formatInZoneWithName, isSupportedTimeZone, supportedTimeZones, UTC } from "./time-zone";
+import {
+  formatInZone,
+  formatInZoneWithName,
+  isSupportedTimeZone,
+  supportedTimeZones,
+  timeZoneChoices,
+  UTC
+} from "./time-zone";
 
 describe("formatInZone", () => {
   const at = new Date("2026-08-17T06:30:00.000Z");
@@ -141,5 +148,54 @@ describe("supportedTimeZones", () => {
   // choose a zone that is then rejected on save.
   it("offers only names the validator accepts", () => {
     expect(supportedTimeZones().every(isSupportedTimeZone)).toBe(true);
+  });
+});
+
+describe("timeZoneChoices", () => {
+  // Northern-hemisphere summer, so the two zones below are on opposite sides of a DST rule.
+  const summer = new Date("2026-08-17T06:30:00.000Z");
+  const winter = new Date("2026-01-17T06:30:00.000Z");
+
+  const find = (at: Date, value: string) =>
+    timeZoneChoices(at)
+      .flatMap((group) => group.zones)
+      .find((zone) => zone.value === value);
+
+  it("labels a zone with the offset it is on, name first", () => {
+    expect(find(summer, "Asia/Manila")?.label).toBe("Asia/Manila (GMT+08:00)");
+  });
+
+  // The reason the instant is an argument. A stored offset would be wrong for half the year.
+  it("moves an offset across a daylight-saving boundary", () => {
+    expect(find(summer, "Europe/London")?.label).toBe("Europe/London (GMT+01:00)");
+    expect(find(winter, "Europe/London")?.label).toBe("Europe/London (GMT+00:00)");
+  });
+
+  // `longOffset` spells zero as a bare `GMT`, which reads as "no offset known" in a column of
+  // real ones.
+  it("writes zero out in full", () => {
+    expect(find(summer, UTC)?.label).toBe("UTC (GMT+00:00)");
+  });
+
+  it("groups by region, with UTC first because it belongs to none of them", () => {
+    const groups = timeZoneChoices(summer);
+    expect(groups[0]).toEqual({ region: "Universal", zones: [{ value: UTC, label: "UTC (GMT+00:00)" }] });
+    expect(groups.map((group) => group.region)).toContain("Asia");
+    expect(groups.find((group) => group.region === "Asia")?.zones.every((zone) => zone.value.startsWith("Asia/"))).toBe(
+      true
+    );
+  });
+
+  // The same guarantee `supportedTimeZones` carries: a picker must not offer a value the
+  // domain will reject, and grouping is the one thing between the two.
+  it("offers every supported zone, exactly once, and nothing else", () => {
+    const offered = timeZoneChoices(summer).flatMap((group) => group.zones.map((zone) => zone.value));
+    expect([...offered].sort((a, b) => a.localeCompare(b))).toEqual(supportedTimeZones());
+    expect(offered.every(isSupportedTimeZone)).toBe(true);
+  });
+
+  it("caches within the hour and rebuilds across one", () => {
+    expect(timeZoneChoices(summer)).toBe(timeZoneChoices(new Date("2026-08-17T06:59:59.999Z")));
+    expect(timeZoneChoices(summer)).not.toBe(timeZoneChoices(new Date("2026-08-17T07:00:00.000Z")));
   });
 });
