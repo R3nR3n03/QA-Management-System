@@ -13,7 +13,7 @@
   },
   "git": {
     "defaultBranch": "main",
-    "coAuthor": true
+    "coAuthor": false
   },
   "ship": { "stopAfter": "commit" }
 }
