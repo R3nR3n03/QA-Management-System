@@ -3752,21 +3752,21 @@ span.cat-node-more {
   border-color: transparent;
 }
 
-/* ---------- feature picker ---------- */
+/* ---------- picker (the combobox shape) ---------- */
 
 /* Search for the parent instead of navigating two levels of tree to it. The box is the shared
    `.list-toolbar` so it wears the same border and focus ring as every other needle. */
-.feature-picker-box {
+.combo-box {
   max-width: none;
   margin-bottom: var(--sp-2);
 }
-.feature-picker[data-bad] .feature-picker-box {
+.combo[data-bad] .combo-box {
   border-color: var(--fail);
 }
 
 /* Bounded and scrolled: the query is capped, but the cap is larger than a dialog can show
    without pushing its submit button off the bottom. */
-.feature-picker-list {
+.combo-list {
   list-style: none;
   margin: 0 0 var(--sp-4);
   padding: 0;
@@ -3775,7 +3775,14 @@ span.cat-node-more {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
 }
-.feature-picker-list > li > button {
+/* Grouped options nest a second list, so these are descendant selectors rather than the
+   child selectors they were while only one flat shape existed. */
+.combo-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.combo-list button {
   font: inherit;
   display: block;
   width: 100%;
@@ -3788,22 +3795,37 @@ span.cat-node-more {
 }
 /* `data-active` follows the arrow keys, `:hover` follows the pointer. Both exist because the
    keyboard's idea of "current" and the mouse's are different things on the same list. */
-.feature-picker-list > li[data-active] > button,
-.feature-picker-list > li > button:hover {
+.combo-list li[data-active] > button,
+.combo-list button:hover {
   background: var(--accent-wash);
 }
-.feature-picker-empty {
+/* A group heading is a signpost, not a row: it must not look clickable, and it must not take
+   the row padding that would make it look like one. */
+.combo-group-label {
+  margin: 0;
+  padding: 7px 10px 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.combo-group + .combo-group > .combo-group-label {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 2px;
+}
+.combo-empty {
   padding: 10px;
   font-size: 13px;
 }
 /* The ancestry, on its own line under the name — `FEAT007 Upload` does not identify a feature
    once two products both have one. */
-.feature-picker-path {
+.combo-hint {
   display: block;
   font-size: 12px;
   margin-top: 1px;
 }
-.feature-picker-chosen {
+.combo-chosen {
   display: block;
   margin: 0 0 var(--sp-4);
   padding: 8px 10px;
@@ -3812,10 +3834,28 @@ span.cat-node-more {
   background: var(--pass-wash);
   font-size: 13.5px;
 }
-.feature-picker-chosen svg {
+.combo-chosen svg {
   color: var(--pass);
   vertical-align: -2px;
   margin-right: 5px;
+}
+/* A disabled picker states its answer as a fact instead of dimming a box nobody may type in.
+   Same treatment as `.locked-parent` below, for the same reason: it is not a choice being
+   withheld, it is a question already answered — or one this field cannot answer yet. */
+.combo-disabled {
+  margin: 0;
+  padding: 7px 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+/* As a list filter the control sits in a toolbar row beside a needle, so it takes the same
+   260px ceiling `.select-filter` uses rather than the full width a form field wants. */
+.combo-filter {
+  max-width: 260px;
+  margin-bottom: 0;
+}
+.combo-filter > .combo-list {
+  margin-bottom: 0;
 }
 
 /* A parent the selection already decided, shown instead of a dropdown of every candidate.

@@ -7,15 +7,32 @@ import { Modal } from "@/ui/modal";
 import { useToast } from "@/ui/toast";
 import type { FormState } from "@/ui/action";
 import { fieldClass, fieldProps, noticeId } from "@/ui/form";
+import { Picker, type PickerOption } from "@/ui/picker";
 import {
   createFeatureAction,
   createModuleAction,
   createProductAction,
-  createRequirementAction
+  createRequirementAction,
+  searchFeaturesAction
 } from "./actions";
-import { FeaturePicker } from "./FeaturePicker";
 
 type Parent = { id: string; businessId: string; label: string };
+
+/**
+ * A feature search in the picker's row shape. The domain keeps returning `FeatureChoice`,
+ * because the ancestry it assembles is a catalogue concern rather than a control's: the path
+ * is what tells two identically named features apart, and dropping it here would file the
+ * requirement under the wrong one.
+ */
+async function searchFeatureOptions(needle: string): Promise<PickerOption[]> {
+  const choices = await searchFeaturesAction(needle);
+  return choices.map((choice) => ({
+    value: choice.id,
+    code: choice.businessId,
+    label: choice.name,
+    hint: choice.path
+  }));
+}
 
 /**
  * Catalogue creation, QA-Lead-gated in the domain. Each entity's "Add" opens a
@@ -139,13 +156,15 @@ function ChildForm({
     <form action={formAction}>
       <FormNotice state={state} id={noticeId(CHILD_FORM_ID)} />
       {parentPicker && !lockedParent ? (
-        <FeaturePicker
+        <Picker
           name={parentField}
           label={parentLabel}
-          formId={CHILD_FORM_ID}
+          search={searchFeatureOptions}
+          placeholder="Search features by ID or name…"
           disabled={pending}
-          invalid={bad(parentField).includes("field-bad")}
-          describedBy={noticeId(CHILD_FORM_ID)}
+          autoFocus
+          aria-required
+          {...fieldProps(state, parentField, CHILD_FORM_ID)}
         />
       ) : lockedParent ? (
         <>
