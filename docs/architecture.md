@@ -60,11 +60,29 @@ The web interface is server-rendered by the same Next.js application, not a sepa
 
 ## V1 exclusions
 
-No CI ingestion, automation-framework integration, email notification workflow, or direct AI mutations are included. New integrations require an approved policy and interface update.
+No CI ingestion, email notification workflow, or direct AI mutations are included. New integrations require an approved policy and interface update.
+
+Automation-framework integration is excluded **except** for one-way ingestion of automation results, approved by the QA Lead on 2026-08-18 and defined below. A person uploads a results file; QAMS reads it. QAMS never invokes a test runner, never reaches into another repository, and never accepts a push from one. **CI ingestion remains excluded** — an unattended pipeline posting results into QAMS is a different integration carrying a different risk, and needs its own approval.
+
+That approval is for the **format, not the tool**: any runner emitting JUnit XML is covered, and a second runner needs no further approval here. This is deliberate rather than an oversight. What the exclusion governs is machine-produced observations entering QAMS, and that risk is identical whichever binary wrote the file — while the specs themselves live in the repository of the software under test, where a change of tool is not something QAMS would reliably learn of. See [ADR-0010](adr/0010-ingest-a-format-not-a-tool.md).
 
 External issue-tracker synchronization is excluded **except** for the one-way Jira syncs defined below: the execution sync, approved by the QA Lead on 2026-08-10, and the defect sync, **built but awaiting QA Lead approval** as of 2026-08-12. Jira never writes back to QAMS.
 
 The defect sync is the first thing QAMS *creates* in another team's system rather than annotating something a person already made, which is why its approval is recorded separately from the execution sync's rather than read as covered by it. It ships switched off: a deployment that does not name a defect project key behaves exactly as it did before the feature existed.
+
+## Automation check ingestion
+
+QAMS records what an automation suite observed about its test cases. It does not run one.
+
+The specs live with the software under test, in that software's own repository — never here, and never in a repository whose location QAMS knows. A spec names the test case business ID it covers. When a run finishes, a person exports the runner's JUnit XML and uploads it; QAMS parses it, resolves each declared business ID to a test case, and writes one **check** per test, grouped under one **check batch** carrying a per-row report in the shape a workbook import already uses.
+
+A check is a report and never a claim. It does not create, alter, or finalize an execution; it raises no defect; it appears in no trace link, no release-readiness figure, and no dashboard count. What it does is answer, on a test case's screen, "what did automation last see here?" — a question QAMS previously could not answer at all, and a different question from "did a tester verify this?"
+
+Ingestion never overwrites. Re-uploading the same file writes new checks, because two runs of one spec are two observations and neither supersedes the other. Nothing is reconciled and nothing is skipped as unchanged, which is the substantive difference from workbook import and the reason a check batch is not an import run.
+
+Because no binding is stored, a revised test case inherits nothing: the spec that checked the previous revision goes on naming the previous revision's business ID until a person changes it. That is intended behaviour, not a gap. See [ADR-0009](adr/0009-a-spec-declares-its-own-coverage.md).
+
+Storage is unbounded and append-only, on the same footing as execution history. A test case's screen shows its most recent checks and **states how many it left out**, so a reader never mistakes a truncated list for a whole history; the full history is reachable through the check batches. Retention duration is a deployment matter escalated to the QA Lead, like every other retention question here.
 
 ## Jira execution sync
 

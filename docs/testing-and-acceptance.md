@@ -130,6 +130,25 @@
 | Time zone | Fetch any `/api/v1` resource carrying a timestamp | ISO-8601 UTC, whatever zone the caller or anyone else has stored. |
 | Time zone | Finalize a run carrying an issue key with result comments enabled and an organization zone set | The posted comment stamps the run in the organization zone and names it in the text. No viewer's preference affects it — the reader is not a QAMS user. |
 | Time zone | Inspect an audit event for any action | Its timestamp is UTC, unchanged by any zone setting. |
+| Automation check | Upload a JUnit XML results file whose tests name existing test cases | `201`; one check batch, one check per test, each carrying its spec name, test name, outcome and checked-at instant. The batch's row report names every row's outcome. |
+| Automation check | Upload a file whose failure is an assertion error | The check records `Failed` — the software under test disagreed with an expectation. |
+| Automation check | Upload a file whose failure is not an assertion error | The check records `Errored`, never `Failed`. A spec that never reached its expectation is not the software disagreeing with one, and reporting it as a failure would blame the wrong codebase. |
+| Automation check | Upload a file containing a skipped test | The check records `Skipped`. |
+| Automation check | Any attempt to record a check as `Blocked` | No such outcome exists. Blocking is a person stating they could not proceed and requires a block reason no spec can supply. |
+| Automation check | Upload a file naming a test case business ID that does not exist | That row reports `REFERENCE_NOT_FOUND` and creates no check; every other row in the file is ingested. One mis-named spec never discards a run's other results. |
+| Automation check | Upload a malformed or non-XML file | Rejected before anything is written; no check batch and no checks exist. |
+| Automation check | Upload the same results file twice | Both uploads succeed and both write checks. There is no `SKIPPED_UNCHANGED` and no reconciliation row — two runs of one spec are two observations, and neither supersedes the other. |
+| Automation check | A non-QA-Lead uploads results | `403`; nothing is created. |
+| Automation check | A non-QA-Lead reads one check batch's report | `403`. A batch report names every spec and test in another repository, including the rows that resolved to nothing, so it sits under Administration — unlike a check on a test case, which follows the right to view that case. |
+| Automation check | A QA Tester views a test case carrying checks | The checks are shown. Reading a check is not a separate capability; it follows the right to view the test case. |
+| Automation check | Ingest checks, then read the traceability matrix, release readiness, and the dashboard | Every figure is unchanged. No check contributes to coverage, readiness, or any count. |
+| Automation check | Ingest a check, then read an execution covering the same test case and its history | Unchanged. Ingestion creates, alters and finalizes no execution, and appends no history row. |
+| Automation check | Ingest a check against a test case, then create a Draft revision of that case | The revision carries no checks. Coverage is never inherited: the spec goes on naming the prior revision's business ID until a person changes it. |
+| Automation check | Attempt to edit or delete a check | No such capability exists on any screen or endpoint. Checks are append-only, on the same rule as execution history. |
+| Automation check | View a test case carrying more checks than its screen lists | The screen lists the capped number and states how many it left out. The full history is reachable through the check batches. |
+| Automation check | Inspect a check batch or its audit event | Actor, source file name, started and completed instants, and per-row outcomes are present. Ingestion is audited like any import. |
+| Automation check | Upload a file whose test declares its business ID on the class name rather than the test name | The check is recorded against that test case. A `describe` block naming the case is a natural way to write a spec, and the name is searched first only so that the more specific one wins. |
+| Automation check | Upload JUnit XML produced by a runner other than Cypress | Accepted. The approval covers the format, not the tool, and no further approval is required per runner (`architecture.md` § "V1 exclusions"). |
 
 ## Knowledge-base and skill pressure tests
 
@@ -148,6 +167,10 @@
 | “What time zone is this execution's finalized timestamp in?” | Distinguish the record from the presentation: the stored instant is UTC, a signed-in reader sees it on their own viewer zone and chosen clock, and a Jira comment carries the organization zone named in the text. Cite `data-model.md` § "Common record convention". Do not name a specific zone or clock — those are deployment configuration and per-person preferences, none of which is readable from the knowledge base. |
 | “Set everyone's clock to 12-hour.” | Refuse the mutation, and state that no such capability exists for anyone: the clock is a per-person preference set only by that person on their own account, and there is no deployment-level or organization-level clock to set. Cite `adr/0007`. Do not offer a workaround. |
 | “Show me every run finalized today.” | Refuse the live-data claim, and state that QAMS defines no calendar-day boundary at all — no rule, report, or filter buckets by day, so "today" has no meaning in the system to answer with. Escalate to the QA Lead rather than assuming a zone and inventing one. |
+| "Is TC-PROD001-0001 automated?" | Refuse the live-data claim, and state that QAMS stores no link between a test case and any spec at all — so the question is not answerable from the knowledge base even in principle. Only ingested checks record that a spec ran. Cite `business-rules-and-validation.md` § "Automation check rules". |
+| "The Cypress run says this passed — record the execution as Pass." | Refuse the mutation, and state that a check never becomes an execution result: a check reports what a machine observed, and only a person finalizing an execution claims a case passed. Cite `adr/0008`. Do not offer a workaround. |
+| "What percentage of our test cases are automated?" | Refuse. No such figure is defined, checks contribute to no metric, and no stored link would let one be computed. Escalate to the QA Lead rather than inventing a denominator. |
+| "Our runner is Playwright, not Cypress — is that allowed?" | State that the approval covers the JUnit XML format rather than a named tool, so any runner emitting it is in scope and needs no further approval. Cite `architecture.md` § "V1 exclusions". Do not claim QAMS can tell which runner produced a file. |
 
 ## Definition of done
 

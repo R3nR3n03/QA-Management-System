@@ -18,6 +18,11 @@ describe("navFor", () => {
     "/admin/users",
     "/admin/imports",
     "/admin/integrations",
+    // Uploading automation check results is a QA Lead capability, on the same reasoning
+    // as workbook imports: bulk data entering the system from a file. Reading a check is
+    // NOT here, because it is not an administration screen — checks are shown on the test
+    // case they reference, to every role that may view it.
+    "/admin/checks",
     "/release-readiness"
   ];
 

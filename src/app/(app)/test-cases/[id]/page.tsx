@@ -8,7 +8,9 @@ import { CATALOGUE_PRIORITY, CATALOGUE_SEVERITY } from "@/lib/controlled-value-c
 import { AppError } from "@/lib/errors";
 import { TestCaseStateChip } from "@/ui/chips";
 import { Breadcrumbs } from "@/ui/breadcrumbs";
+import { viewerStampFormat } from "@/ui/format";
 import { requireSession } from "@/ui/session";
+import { ChecksPanel } from "./ChecksPanel";
 import { DraftEditForm, LifecycleButton, RetireForm, ReturnToDraftForm, StepsEditor } from "./CaseForms";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +43,7 @@ export default async function TestCasePage({ params }: { params: Promise<{ id: s
   const mayAuthor = auth.role !== QamsRole.QA_TESTER;
   const mayReview = auth.role === QamsRole.SENIOR_QA_ENGINEER || auth.role === QamsRole.QA_LEAD;
   const state = testCase.lifecycleState;
+  const stampFormat = viewerStampFormat(auth);
 
   return (
     <>
@@ -179,6 +182,8 @@ export default async function TestCasePage({ params }: { params: Promise<{ id: s
           </div>
         </>
       ) : null}
+
+      <ChecksPanel testCaseId={testCase.id} stampFormat={stampFormat} />
     </>
   );
 }

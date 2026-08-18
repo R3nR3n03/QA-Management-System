@@ -1,4 +1,10 @@
-import { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome, TestCaseLifecycleState } from "@prisma/client";
+import {
+  CheckOutcome,
+  DefectLifecycleState,
+  ExecutionLifecycleState,
+  ExecutionOutcome,
+  TestCaseLifecycleState
+} from "@prisma/client";
 
 /**
  * State reads before text does. Each chip carries a colour AND a stripe AND a word,
@@ -71,4 +77,32 @@ export function OutcomeChip({ outcome }: { outcome: ExecutionOutcome }) {
         ? " state-fail"
         : " state-blocked";
   return <span className={`state${tone}`}>{OUTCOME_LABEL[outcome]}</span>;
+}
+
+const CHECK_OUTCOME_LABEL: Record<CheckOutcome, string> = {
+  PASSED: "Passed",
+  FAILED: "Failed",
+  ERRORED: "Errored",
+  SKIPPED: "Skipped"
+};
+
+/**
+ * What one automation spec observed. Deliberately NOT `OutcomeChip`: that one reports what
+ * a person claimed on finalizing a run, and these two must never be mistaken for each other
+ * on a screen (ADR-0008) -- which is why the words differ too, "Failed" against "Fail".
+ *
+ * ERRORED does not get the failure tone. Keeping it apart from FAILED is the whole point:
+ * a broken spec is not broken software, and rendering them alike would undo that at the one
+ * place a person actually reads it.
+ */
+export function CheckOutcomeChip({ outcome }: { outcome: CheckOutcome }) {
+  const tone =
+    outcome === CheckOutcome.PASSED
+      ? " state-pass"
+      : outcome === CheckOutcome.FAILED
+        ? " state-fail"
+        : outcome === CheckOutcome.ERRORED
+          ? " state-blocked"
+          : "";
+  return <span className={`state${tone}`}>{CHECK_OUTCOME_LABEL[outcome]}</span>;
 }

@@ -70,12 +70,12 @@ export function formatBytes(bytes: number): string {
  * pairing the missing-file case already uses: an oversized body is a malformed
  * request, not a missing referenced record.
  */
-export function assertWithinUploadLimit(bytes: number | null, max: number): void {
+export function assertWithinUploadLimit(bytes: number | null, max: number, noun = "file"): void {
   if (exceedsUploadLimit(bytes, max)) {
     throw new AppError(
       422,
       "ID_INVALID",
-      `The workbook is larger than the ${formatBytes(max)} limit for this endpoint.`,
+      `The ${noun} is larger than the ${formatBytes(max)} limit for this endpoint.`,
       "file"
     );
   }

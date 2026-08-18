@@ -32,6 +32,26 @@ enum ExecutionOutcome {
   BLOCKED
 }
 
+/// The outcome of one automation check (`docs/business-rules-and-validation.md`
+/// § "Automation check rules").
+///
+/// Deliberately NOT `ExecutionOutcome`. That enum carries BLOCKED, which a spec can never
+/// reach -- blocking is a person reporting they could not proceed, and the rules demand a
+/// reason from them. This one carries ERRORED and SKIPPED, which an execution has never
+/// been. A shared enum would hold one impossible state and lack two necessary ones
+/// (ADR-0008, applying ADR-0004's test one level up).
+///
+/// ERRORED is kept apart from FAILED because the difference is WHOSE BUG IT IS: a failure
+/// is the software under test disagreeing with an expectation, an error is the spec never
+/// reaching one. Collapsing them reports a broken spec as broken software, which sends
+/// somebody to debug an application that is fine.
+enum CheckOutcome {
+  PASSED
+  FAILED
+  ERRORED
+  SKIPPED
+}
+
 /// The outcome of one attempt to transition a Jira issue
 /// (`docs/architecture.md#Jira execution sync`). ABANDONED is terminal: the retry budget is
 /// spent and only a person can move it forward.
@@ -144,6 +164,7 @@ model User {
   jiraSyncAttempts JiraSyncAttempt[] @relation("JiraSyncActor")
   jiraCommentAttempts JiraCommentAttempt[] @relation("JiraCommentActor")
   jiraDefectAttempts JiraDefectAttempt[] @relation("JiraDefectActor")
+  checkBatches CheckBatch[] @relation("CheckBatchActor")
 }
 
 model ControlledValue {
@@ -322,6 +343,7 @@ model TestCase {
   executionHistory ExecutionHistory[]
   defects          Defect[]
   rtmLinks         RequirementTraceLink[]
+  checks           Check[]
 
   /// The review queue counts by state (`countTestCasesInReview`) and the dashboard
   /// excludes Retired cases — both scan the whole table without this.
@@ -706,6 +728,68 @@ model ImportRowReport {
 
   /// One import writes a row per source row; the run's report reads them all back.
   @@index([importRunId])
+}
+
+/// One uploaded JUnit XML results file and the checks it produced.
+///
+/// Modelled on ImportRun and deliberately NOT reusing it. An import reconciles a source
+/// against records that already exist -- SKIPPED_UNCHANGED, RECONCILIATION_REQUIRED, a
+/// source hash meaning "have we seen this file" -- and none of that applies to
+/// observations, which are never unchanged and never reconciled (ADR-0008).
+model CheckBatch {
+  id             String    @id @default(uuid())
+  sourceFileName String
+  /// Who uploaded the file, and NOT who verified anything. A check is a report; the only
+  /// person in this record is the one who carried the results in.
+  actorId        String
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  /// The per-row report, including rows whose declared business ID resolved to nothing.
+  /// Those rows produce no Check, so this is the only record that they were in the file.
+  reportJson     Json
+  createdAt      DateTime  @default(now())
+  createdBy      String
+
+  actor  User    @relation("CheckBatchActor", fields: [actorId], references: [id], onDelete: Restrict)
+  checks Check[]
+
+  /// The batch list is newest-first.
+  @@index([startedAt])
+}
+
+/// One spec's observation of one test case at one instant.
+///
+/// A REPORT, never a claim: only a person finalizing an execution claims that a case
+/// passed (ADR-0008). Nothing derives an execution result, a trace link, a readiness
+/// figure or a dashboard count from these rows, and no service writes one outside
+/// ingestion.
+///
+/// No businessId, no version, no updatedBy -- a check is never edited, so all three would
+/// be lies. Append-only on the same rule as ExecutionHistory.
+model Check {
+  id            String       @id @default(uuid())
+  checkBatchId  String
+  testCaseId    String
+  /// The spec file that produced this, as the results file named it. This is the ONLY
+  /// thread from a failed check back to the code behind it: QAMS stores no binding between
+  /// a test case and a spec (ADR-0009), so without it a failure is uninvestigable.
+  specName      String
+  testName      String
+  checkedAt     DateTime
+  outcome       CheckOutcome
+  /// The runner's own message, as plain text. Never credential material, never evidence.
+  failureReason String?
+  createdAt     DateTime     @default(now())
+  createdBy     String
+
+  batch    CheckBatch @relation(fields: [checkBatchId], references: [id], onDelete: Cascade)
+  /// Restrict, like every other reference to a test case here: a check is evidence that
+  /// something ran, and deleting the case out from under it would erase the record.
+  testCase TestCase   @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+
+  /// The test case screen reads its most recent checks, newest first.
+  @@index([testCaseId, checkedAt])
+  @@index([checkBatchId])
 }
 
 /// Counter row per business-ID sequence (`docs/data-model.md:5`): `execution`,

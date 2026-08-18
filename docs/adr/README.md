@@ -22,3 +22,6 @@ recording.
 | [0005](0005-a-later-run-transitions-its-issue-again.md) | A later run transitions its issue again, and a declined transition is recorded |
 | [0006](0006-a-defect-raises-its-own-jira-bug.md) | A defect raises its own Jira bug in its product's project, and a label makes that retryable |
 | [0007](0007-a-zone-for-readers-and-a-zone-for-outsiders.md) | A zone for readers and a zone for outsiders; each reader's own clock; storage and every machine-readable surface stay UTC |
+| [0008](0008-a-check-reports-an-execution-claims.md) | A check reports and an execution claims, so automation results get their own record rather than becoming executions |
+| [0009](0009-a-spec-declares-its-own-coverage.md) | A spec declares its own coverage; no binding is stored, and a revision inherits none |
+| [0010](0010-ingest-a-format-not-a-tool.md) | Automation results are ingested as a format, not a tool: any runner emitting JUnit XML is covered |

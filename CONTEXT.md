@@ -195,3 +195,33 @@ moves what a person sees and never which records they get back. Unset means they
 expressed a preference, which is not the same as having chosen the organization's.
 _Avoid_: user timezone, local time, preferred timezone. And **the timezone**, for the reason
 above.
+
+## Automation
+
+**Spec**:
+One Cypress file. The word is Cypress's own and is free to take here: this glossary already
+_avoids_ "spec" as a name for a [requirement](#the-catalogue-hierarchy), so nothing else
+claims it.
+
+**Never** call a spec a **test case**. A test case is a record in the catalogue, carrying a
+`TC-` business ID, authored by a person and approved by another; a spec is a file in a
+repository. The same bar applies to **run**, **execution** and **result**: those three name
+what QAMS records about the software under test, and reusing them for what Cypress does makes
+it impossible to tell which of the two any given sentence is about — the failure this section
+exists to prevent.
+_Avoid_: test, test case, scenario, e2e test
+
+**Check**:
+One spec's observation of one test case at one instant. A **report**, where an
+[execution](#the-execution) is a **claim** — the same distinction a [result comment](#jira)
+draws against a transition, and the reason the two are separate records rather than one. A
+machine reports what it saw; only a person signs their name to what a test case did. Say "the
+check failed", never "the test case failed": the case did not do anything.
+_Avoid_: automated test, automated result, test result, automated execution
+
+**Check batch**:
+One uploaded results file and the checks it produced — the unit a QA Lead opens to read what an
+upload did, and the only thing that groups checks. Deliberately not an **import**: a workbook
+import reconciles a source against records that already exist, and a batch reconciles nothing,
+because every check in it is new. Borrowing the word would import the expectation.
+_Avoid_: import, upload, check run, run
