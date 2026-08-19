@@ -58,7 +58,9 @@ export async function ChecksPanel({
   return (
     <>
       <h2>Automation checks</h2>
-      <div className="card card-flush" style={{ marginBottom: "var(--sp-6)" }}>
+      {/* No bottom margin of its own: the panel is the last section of the record's column, and
+          the rhythm between sections belongs to `.case-body`. */}
+      <div className="card card-flush">
         {checks.length === 0 ? (
           <div className="empty">
             <p>

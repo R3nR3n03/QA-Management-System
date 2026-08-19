@@ -65,6 +65,11 @@ function railActions(role: QamsRole): RailAction[] {
  *
  * Needle, product and feature are all `where` clauses on a read already scoped to the
  * viewer's own runs: narrowing this screen never widens what it can see.
+ *
+ * The screen takes the whole viewport (`.shell-main:has(.work-screen)`), where it began at the
+ * 1440px opt-in. It is a front door and what fills it is a queue, so a cap only put empty page
+ * beside the work; the rail grows with the screen and stops at 400px, and every measure on the
+ * screen is capped in its own right rather than by capping the page.
  */
 export default async function MyWorkPage({
   searchParams
@@ -125,7 +130,10 @@ export default async function MyWorkPage({
       <div className="page-head work-screen-head">
         <div className="page-head-text">
           <h1>My work</h1>
-          <p className="muted">
+          {/* `.page-banner-lede` and not `.muted`: this is the screen's own description, and it
+              stops at a reading measure. As a `.muted` line it ran the full width of the column,
+              which the screen no longer caps. */}
+          <p className="page-banner-lede">
             {counts.open === 0
               ? "You have no unfinished runs assigned to you."
               : `${counts.open} run${counts.open === 1 ? "" : "s"} assigned to you and not yet finalized.`}
@@ -152,7 +160,11 @@ export default async function MyWorkPage({
       {/* The queue and its recap in one column, the overview and shortcuts in a narrower
           one beside it. Source order is the work first: on a phone the two columns become
           one, and a rail placed first would put four tallies and four links above the rows
-          the screen exists for. */}
+          the screen exists for.
+
+          `.work-screen-main` owns the distance between the queue and the recap, which is why
+          neither carries a bottom margin of its own — the last one's used to be 32px of empty
+          page under the screen. */}
       <div className="work-screen-main">
         <WorkQueue
           rows={open.rows.map((execution) => ({

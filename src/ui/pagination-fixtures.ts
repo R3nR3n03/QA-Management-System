@@ -26,7 +26,10 @@ export function makeCaseRows(count: number): CaseRow[] {
       title: `Case title ${n}`,
       lifecycleState: "APPROVED" as const,
       priority: "High",
-      severity: "Major"
+      severity: "Major",
+      // A stable author per row, so a test can pass `viewerUserId` and know exactly which
+      // rows should come back marked. Never the same id twice.
+      authorUserId: `author-${n}`
     };
   });
 }

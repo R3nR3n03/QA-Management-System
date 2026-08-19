@@ -131,7 +131,7 @@ describe("ExecutionList", () => {
   });
 
   it("names the last thing that happened, and which cases the run's result came from", () => {
-    render(
+    const { container } = render(
       <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={[
           {
@@ -159,10 +159,19 @@ describe("ExecutionList", () => {
     // The run's chip is only the derived worst outcome, so a 2-pass/1-fail run and a
     // 3-fail run wear the same red Fail. The row has to say which of the two it is.
     expect(screen.getByText(/\+2 more \(2 passed, 1 failed\)/)).toBeTruthy();
-    // The newest of the three stamps, and the verb that says which one it is.
-    expect(screen.getByText(/· Finalized$/)).toBeTruthy();
+    /*
+     * The newest of the three stamps, and the verb that says which one it is.
+     *
+     * Asserted on `.row-when` rather than as the tail of the row's facts sentence, which is where
+     * this used to read (`/· Finalized$/`). The stamp has a slot of its own now — the same slot My
+     * work's rows use — because five facts in one line could not be scanned down a page of fifty.
+     * The verb still travels WITH the date: the slot means a different event per row.
+     */
+    const when = container.querySelector(".row-when");
+    expect(when?.textContent).toContain("Finalized");
     // No zone label on the stamp itself — it is constant for a viewer and is stated once in
     // the shell instead of on every row (ADR-0007).
+    expect(when?.textContent).toContain("2026-01-07 14:45");
     expect(screen.getByText("2026-01-07 14:45")).toBeTruthy();
   });
 
@@ -237,7 +246,7 @@ describe("ExecutionList", () => {
   });
 
   it("falls back to the stage a run has actually reached", () => {
-    render(
+    const { container } = render(
       <ExecutionList stampFormat={{ timeZone: "UTC", clock: "h23" }}
         rows={makeExecutionRows(1, { state: "PLANNED" })}
         total={1}
@@ -248,8 +257,9 @@ describe("ExecutionList", () => {
     );
 
     // Never started, so there is no start to report — the row says when it was planned
-    // rather than leaving a blank where a timestamp would go.
-    expect(screen.getByText(/· Planned$/)).toBeTruthy();
+    // rather than leaving a blank where a timestamp would go. In `.row-when`, the slot the
+    // verb and its date share; see the note in the test above.
+    expect(container.querySelector(".row-when")?.textContent).toContain("Planned");
     expect(screen.getByText("2026-01-05 09:00")).toBeTruthy();
   });
 

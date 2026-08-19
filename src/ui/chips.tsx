@@ -22,7 +22,12 @@ const EXECUTION_STATE_LABEL: Record<ExecutionLifecycleState, string> = {
   FINALIZED: "Finalized"
 };
 
-const TEST_CASE_STATE_LABEL: Record<TestCaseLifecycleState, string> = {
+/**
+ * Exported because the test case's lifecycle rail names the same four states
+ * (`test-cases/[id]/page.tsx`). Four strings restated there would be four chances for a rail
+ * and the chip beside it to disagree about what `IN_REVIEW` is called.
+ */
+export const TEST_CASE_STATE_LABEL: Record<TestCaseLifecycleState, string> = {
   DRAFT: "Draft",
   IN_REVIEW: "In Review",
   APPROVED: "Approved",

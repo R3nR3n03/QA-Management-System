@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { TestCaseLifecycleState } from "@prisma/client";
 import { listProductOptions } from "@/domain/catalogue";
 import { listTestCases } from "@/domain/test-cases";
@@ -43,14 +44,17 @@ export default async function MyDraftsPage({
   const productName = products.find((row) => row.id === productId)?.name;
 
   return (
-    <>
+    /* `.cases-screen`, the same class `/test-cases` wears: it names the CONTENT — a screen whose
+       body is a `CaseTable` — and not one route, so the two screens showing the same five-column
+       table get the same width rather than one of them being narrower by accident. */
+    <div className="cases-screen">
       <div className="page-head">
         <h1>My drafts</h1>
-        <Link className="btn" href="/test-cases/new">
-          New draft
+        <Link className="btn btn-icon" href="/test-cases/new">
+          <Plus size={15} aria-hidden /> New draft
         </Link>
       </div>
-      <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
+      <p className="page-banner-lede">
         Your cases still in Draft or In Review{productName ? `, in ${productName}` : ""}. A case
         needs at least one step before it can be submitted.
       </p>
@@ -62,11 +66,13 @@ export default async function MyDraftsPage({
         pathname="/my-work/drafts"
         params={params}
         emptyText="You have no drafts in flight."
+        // Named for this list, not for every test case: see `caption` in `CaseTable`.
+        caption="My draft test cases"
         products={products}
         // Scoped to this author's unfinished work, so the default sentence would be
         // false: the product may hold hundreds of cases, none of them theirs and in flight.
         productEmptyText="You have no drafts in flight in this product."
       />
-    </>
+    </div>
   );
 }

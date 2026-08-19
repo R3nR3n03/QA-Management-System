@@ -409,6 +409,89 @@ describe("CaseTable", () => {
     expect(screen.getByText("Nothing matches “zzz” in this product and this feature.")).toBeTruthy();
   });
 
+  /**
+   * The two things the review queue asks of this component, and the reason each is a prop rather
+   * than something derived here.
+   *
+   * A list scoped to one state must not print that state on every row — the column would repeat
+   * one word down the page. And a reviewer has to see which rows are their own BEFORE opening
+   * one, because the rule that stops them approving it (`roles-workflows.md:26`) is otherwise
+   * invisible until the detail screen. Neither can be inferred from the rows: a page of rows that
+   * happen to share a state is not the same as a list scoped to it, and the component has no
+   * session.
+   */
+  it("drops the state column for a list already scoped to one state", () => {
+    const { container, unmount } = render(
+      <CaseTable
+        rows={makeCaseRows(3)}
+        total={3}
+        page={1}
+        pathname="/review"
+        params={{}}
+        emptyText="Nothing is waiting for review."
+        showState={false}
+      />
+    );
+
+    const columns = [...container.querySelectorAll("thead th")].map((th) => th.textContent);
+    expect(columns).toEqual(["ID", "Title", "Priority", "Severity"]);
+    // And the cells go with the heading — a four-column head over five-column rows would put
+    // every value under the wrong label.
+    expect(container.querySelectorAll("tbody tr:first-child td")).toHaveLength(4);
+    expect(screen.queryByText("Approved")).toBeNull();
+    unmount();
+
+    // Left on, the column and its chips are both there. `/test-cases` shows every state and
+    // `/my-work/drafts` shows two, so for them the column says which one each row is in.
+    render(
+      <CaseTable
+        rows={makeCaseRows(3)}
+        total={3}
+        page={1}
+        pathname="/test-cases"
+        params={{}}
+        emptyText="No cases."
+      />
+    );
+    expect(screen.getAllByText("Approved")).toHaveLength(3);
+  });
+
+  it("marks the rows the viewer wrote, and only when asked to", () => {
+    // `makeCaseRows` gives row n the author `author-n`, so exactly one row is this viewer's.
+    const { container, unmount } = render(
+      <CaseTable
+        rows={makeCaseRows(3)}
+        total={3}
+        page={1}
+        pathname="/review"
+        params={{}}
+        emptyText="Nothing is waiting for review."
+        viewerUserId="author-2"
+      />
+    );
+
+    const marks = container.querySelectorAll(".case-mine");
+    expect(marks).toHaveLength(1);
+    expect(marks[0].textContent).toBe("Yours");
+    // On the row it belongs to, not merely somewhere in the table.
+    expect(container.querySelectorAll("tbody tr")[1].textContent).toContain("Yours");
+    unmount();
+
+    // Absent everywhere else: the other two lists pass no viewer, and a stray mark on
+    // `/test-cases` would claim a rule that screen does not apply.
+    render(
+      <CaseTable
+        rows={makeCaseRows(3)}
+        total={3}
+        page={1}
+        pathname="/test-cases"
+        params={{}}
+        emptyText="No cases."
+      />
+    );
+    expect(screen.queryByText("Yours")).toBeNull();
+  });
+
   it("seeds the filter box from the URL, so a shared link shows its own needle", () => {
     nav.search = "q=login";
     render(

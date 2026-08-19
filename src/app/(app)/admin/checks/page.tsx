@@ -1,5 +1,17 @@
 import Link from "next/link";
-import { ChevronRight, CircleSmall, Download, FileText, FileUp, Inbox, Info, Zap } from "lucide-react";
+import {
+  ChevronRight,
+  Download,
+  FileText,
+  FileUp,
+  Inbox,
+  Info,
+  Layers,
+  Rows3,
+  Split,
+  Tag,
+  Zap
+} from "lucide-react";
 import { QamsRole } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { SAMPLE_TEST_CASE_ID } from "@/domain/check-sample";
@@ -55,6 +67,11 @@ function Count({ n }: { n: number }) {
  * what it does — it records observations and moves nothing else — and that has to be read
  * before anybody uploads anything. The upload takes the wide column, the facts that qualify
  * it sit beside it in the aside, and the batch table spans the full width underneath.
+ *
+ * The screen takes the whole viewport (`.shell-main:has(.checks-screen)`), which the catalogue
+ * is otherwise alone in doing. Both of its largest elements want the room — a nine-column table
+ * and a drop target — and it is the measures that are capped rather than the page, so no line
+ * of prose here grows with the monitor.
  */
 export default async function CheckBatchesPage({
   searchParams
@@ -96,7 +113,9 @@ export default async function CheckBatchesPage({
         </div>
       </div>
 
-      <div className="detail-cols">
+      {/* `.checks-top` and not `.detail-cols`: that grid's aside is a fixed 340px, which is a
+          metadata rail's width and reads as a sliver once this screen has no width cap. */}
+      <div className="checks-top">
         <section className="card" id={INGEST_ANCHOR}>
           <div className="panel-head">
             <span className="medallion" aria-hidden>
@@ -143,6 +162,11 @@ export default async function CheckBatchesPage({
          * are still reported, that Errored is held apart from Failed, and that batches
          * accumulate. No thresholds, targets or advice: `business-rules-and-validation.md`
          * defines none for automation checks, and a tip with no basis is advice.
+         *
+         * Each fact carries a mark that means it — a name tag, a full set of rows, a split, a
+         * stack — so a reader coming back for one of the four finds it by shape. All four are the
+         * same untinted medallion: see `.fact-list` for why a tick or a hue per fact is the one
+         * thing this particular aside may not do.
          */}
         <aside className="card">
           <div className="panel-head">
@@ -156,14 +180,18 @@ export default async function CheckBatchesPage({
           </div>
           <ul className="fact-list">
             <li>
-              <CircleSmall size={14} aria-hidden />
+              <span className="medallion medallion-sq" aria-hidden>
+                <Tag size={18} strokeWidth={1.9} aria-hidden />
+              </span>
               <span>
                 <strong>A test finds its case by name.</strong> The business ID has to appear in the
                 test name or its class name. Nothing else joins the two, in either direction.
               </span>
             </li>
             <li>
-              <CircleSmall size={14} aria-hidden />
+              <span className="medallion medallion-sq" aria-hidden>
+                <Rows3 size={18} strokeWidth={1.9} aria-hidden />
+              </span>
               <span>
                 <strong>Nothing in the file is dropped.</strong> A test naming no case, or one that
                 is not here, still appears in the batch report — which is how a gap becomes visible
@@ -171,14 +199,18 @@ export default async function CheckBatchesPage({
               </span>
             </li>
             <li>
-              <CircleSmall size={14} aria-hidden />
+              <span className="medallion medallion-sq" aria-hidden>
+                <Split size={18} strokeWidth={1.9} aria-hidden />
+              </span>
               <span>
                 <strong>Errored is not failed.</strong> A spec that fell over is reported apart from
                 one that observed a failure: a broken spec is not broken software.
               </span>
             </li>
             <li>
-              <CircleSmall size={14} aria-hidden />
+              <span className="medallion medallion-sq" aria-hidden>
+                <Layers size={18} strokeWidth={1.9} aria-hidden />
+              </span>
               <span>
                 <strong>Every upload is its own batch.</strong> Ingesting the same suite again
                 records a new observation beside the last one. Nothing is overwritten, and no

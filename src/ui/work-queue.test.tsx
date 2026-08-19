@@ -421,7 +421,7 @@ describe("FinalizedRecap", () => {
     const { container } = render(<FinalizedRecap stampFormat={{ timeZone: "UTC", clock: "h23" }} rows={makeFinalizedRows(1)} total={1} />);
     // The marker replaced the edge stripe; the chip still carries the word beside it, so
     // the outcome survives greyscale and colour-blindness either way.
-    expect(container.querySelector('.work-mark[data-tone="fail"]')).toBeTruthy();
+    expect(container.querySelector('.row-mark[data-tone="fail"]')).toBeTruthy();
     expect(screen.getByText("Fail")).toBeTruthy();
     expect(screen.getByText("2026-01-07 14:45")).toBeTruthy();
   });

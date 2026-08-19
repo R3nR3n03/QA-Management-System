@@ -1320,6 +1320,10 @@ a.jira-key {
   font-size: 13px;
   color: var(--ink-3);
   flex: none;
+  /* A fixed, right-aligned slot, so the Action field does not shift sideways between step 9 and
+     step 10 — the same reason `.seg-count` pins a width. It was an inline style on the span. */
+  min-width: 20px;
+  text-align: right;
 }
 
 /* Empty state: one calm sentence and, when useful, the action that fills it. */
@@ -1944,11 +1948,11 @@ a.jira-key {
 
 /* ---------- dashboard ---------- */
 
+/* No bottom margin: `.dash-screen` owns the rhythm between the bands on the screen. */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
   gap: var(--sp-4);
-  margin-bottom: var(--sp-6);
 }
 .kpi {
   background: var(--surface);
@@ -1978,11 +1982,13 @@ a.jira-key {
 
 /* Labeled horizontal bars. Identity is the row's label and chip — the fill color is
    reinforcement, never the only channel. Thin marks, rounded data end, spaced rows. */
+/* No horizontal padding of its own any more: every chart sits in a padded `.dash-panel` now, where
+   the `--sp-5` this carried for a `card-flush` host would be doubled. */
 .bar-row {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-5);
+  padding: var(--sp-2) 0;
 }
 .bar-head {
   flex: 0 0 110px;
@@ -2053,35 +2059,68 @@ a.jira-key {
   color: var(--ink-2);
   text-align: right;
 }
+/* A bar's label where the value carries no chip — a QA-Lead-configurable severity, or a word the
+   domain returns. It was `style={{ fontWeight: 620, fontSize: 13.5 }}` at two call sites, which is
+   how a shared treatment ends up defined twice and drifting once. */
+.bar-label {
+  font-size: 13.5px;
+  font-weight: 620;
+}
 
+/* Also unmargined — see `.kpi-grid`. */
 .quick-actions {
   display: flex;
   gap: var(--sp-3);
   flex-wrap: wrap;
-  margin-bottom: var(--sp-6);
 }
 
 /* ---------- my work queue ---------- */
 
-/* The screen is two columns — the work, and a rail of tallies and shortcuts — so it needs
-   more than the 1040px `.shell-main` gives a single column of prose. Same escape hatch the
-   catalogue explorer uses, and scoped the same way so no other screen widens with it. */
+/*
+ * The screen is two columns — the work, and a rail of tallies and shortcuts — so it needs more
+ * than the 1040px `.shell-main` gives a single column of prose.
+ *
+ * `max-width: none`, where this began at the 1440px opt-in. It is a QA Tester's front door and
+ * the thing filling it is a queue of runs, so the cap bought a column of empty page beside the
+ * work rather than protecting anything: every measure on the screen is capped in its own right
+ * — the lede at `.page-banner-lede`'s 68ch, the rail at 400px, the rows' own facts lines short
+ * by construction — so nothing here grows with the monitor except the queue.
+ *
+ * A row list has diminishing returns past a point in a way a table does not: the record is on
+ * the left, the action on the right, and the space between them is not information. It is still
+ * the right trade — a wrapped timestamp or a two-word title column costs a reader more than a
+ * gap does — but that is the reason the RAIL takes a share of the width and the row does not.
+ */
 .shell-main:has(.work-screen) {
-  max-width: 1440px;
+  max-width: none;
 }
 
-/* Header spans both columns; below it the work column takes the room and the rail is a
-   fixed 300px. `minmax(0, 1fr)` and not `1fr`: a grid track's default `min-width: auto`
-   refuses to shrink below its content, and one long unbroken test-case title in the queue
-   would otherwise push the rail off the screen instead of wrapping. */
+/* Header spans both columns; below it the work column takes the room and the rail grows with the
+   screen and then stops. `clamp` and not the fixed 300px this was: with no cap on the page, 300px
+   against a 1300px queue is the same sliver `.detail-cols`' fixed aside became on `/admin/checks`
+   — and the rail holds four tiles two-up, four shortcuts and a tip, all of which read better with
+   another 100px. It resolves to 300px at every width where the two columns still fit, so nothing
+   below 1364px moves.
+
+   `minmax(0, 1fr)` and not `1fr`: a grid track's default `min-width: auto` refuses to shrink
+   below its content, and one long unbroken test-case title in the queue would otherwise push the
+   rail off the screen instead of wrapping. */
 .work-screen {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 22vw, 400px);
   gap: var(--sp-5);
   align-items: start;
 }
 .work-screen-head {
   grid-column: 1 / -1;
+}
+/* The work column's own rhythm: the queue, then the recap of what was just finished. It owns the
+   gap so neither panel carries a margin — `.work-card` and `.work-done` each had
+   `margin-bottom: var(--sp-6)`, which also left 32px of dead page under the last one. */
+.work-screen-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
 }
 
 /* Below the two-column threshold the rail stacks under the work rather than beside it.
@@ -2287,9 +2326,16 @@ a.jira-key {
 .page-head-text > p:last-child {
   margin-bottom: 0;
 }
+/* The heading above already sets the 2px that makes a title and its lede read as one block, so
+   in here the lede drops its own top margin. It carries one for the other position it is used in
+   — as a sibling FOLLOWING a `.page-head`, where it is spacing itself off the whole header. */
+.page-head-text > .page-banner-lede {
+  margin-top: 0;
+}
 
+/* No margin: `.work-screen-main` owns the distance between this and the recap under it. */
 .work-card {
-  margin-bottom: var(--sp-6);
+  min-width: 0;
 }
 
 /* The queue's own header strip: which slice of the queue is on screen (tabs), how to
@@ -2343,30 +2389,45 @@ a.jira-key {
   flex: 1 1 300px;
 }
 
-/* A queue row: state mark, the record, when it last moved, and the one thing to do with
-   it. The mark and the button never shrink — the title column absorbs the width. */
-.work-row {
+/*
+ * A MARKED ROW: state mark, the record, when it last moved, and the one thing to do with it.
+ *
+ * The four parts are `.row-mark`, `.row-main`, `.row-when` and `.row-cta`, and they belong to the
+ * `.row-*` family (`.row-main`, `.row-title`, `.row-facts`) rather than to the screen they were
+ * built for. They were `.work-*`, which was accurate while My work was the only screen with them
+ * and became a lie the moment `/executions` — a list of the same records — wanted the same shape.
+ *
+ * The row needs no class of its own: having a mark IS what makes it this kind of row, so the
+ * tighter gap follows from `:has()`. One fewer class, and impossible to apply inconsistently.
+ *
+ * The mark and the button never shrink; `.row-main` absorbs the width, which is what right-aligns
+ * the timestamp and the action to the card's edge and lets the two lists of runs read as one
+ * column of rows.
+ */
+.list-row:has(> .row-mark) {
   gap: var(--sp-3);
 }
-.work-cta {
+.row-cta {
   flex: none;
 }
-/* A row's line of facts, under its title: what it covers, and the Jira issue it is testing.
-   Small, because it is the line a reader drops to only after the title did not settle it. */
+/* A row's line of facts, under its title: what it covers, who has it, and the Jira issue it is
+   testing. Small, because it is the line a reader drops to only after the title did not settle
+   it — and SHORT by construction: the moment the timestamp joined it, the executions list's line
+   was five facts read as a sentence, which is the run-on `.data-table` exists to end. Anything
+   with a slot of its own (the stamp) leaves this line. */
 .row-facts {
   font-size: 13px;
   margin-top: 1px;
 }
 
-/* The state marker on a row. Decorative on purpose — `aria-hidden`, because the chip
-   beside it already says the state in words; this only gives the eye something to land
-   on when scanning a column of otherwise identical rows.
+/* The marker on a row. Decorative on purpose — `aria-hidden`, because the chip beside it already
+   says the state in words; this only gives the eye something to land on when scanning a column of
+   otherwise identical rows, and it aligns every row's record at the same x.
 
-   The finalized rows carry one keyed to the OUTCOME rather than the state, which is what
-   replaced the 3px edge stripe they used to have: the stripe and the marker said the same
-   thing in the same colour 12px apart, and only the marker also aligns the recap's titles
-   with the queue's. */
-.work-mark {
+   A finished run carries one keyed to the OUTCOME rather than the state, which is what replaced
+   the 3px edge stripe those rows used to have: the stripe and the marker said the same thing in
+   the same colour 12px apart. See `src/ui/row-mark.tsx` for which axis a row marks and why. */
+.row-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2378,31 +2439,31 @@ a.jira-key {
   background: var(--surface-2);
   color: var(--ink-2);
 }
-.work-mark[data-tone="progress"] {
+.row-mark[data-tone="progress"] {
   background: var(--accent-wash);
   border-color: var(--accent-2);
   color: var(--accent);
 }
 /* `done` is the section heading's own marker; `pass` is a row's. Same treatment, kept as two
    names so the heading is not claiming to be a result. */
-.work-mark[data-tone="done"],
-.work-mark[data-tone="pass"] {
+.row-mark[data-tone="done"],
+.row-mark[data-tone="pass"] {
   background: var(--pass-wash);
   border-color: var(--pass);
   color: var(--pass);
 }
-.work-mark[data-tone="fail"] {
+.row-mark[data-tone="fail"] {
   background: var(--fail-wash);
   border-color: var(--fail);
   color: var(--fail);
 }
-.work-mark[data-tone="blocked"] {
+.row-mark[data-tone="blocked"] {
   background: var(--blocked-wash);
   border-color: var(--blocked);
   color: var(--blocked);
 }
 
-.work-when {
+.row-when {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2410,8 +2471,10 @@ a.jira-key {
   white-space: nowrap;
 }
 
+/* Also unmargined — see `.work-card`. It was the last thing in the column, so its bottom margin
+   was 32px of empty page under the screen. */
 .work-done {
-  margin-bottom: var(--sp-6);
+  min-width: 0;
 }
 .work-done-head {
   align-items: center;
@@ -2425,11 +2488,11 @@ a.jira-key {
 /* Narrow: the timestamp drops to its own line under the record rather than squeezing the
    title into a two-word column, and the action stays beside the row it acts on. */
 @media (max-width: 720px) {
-  .work-when {
+  .row-when {
     flex: 1 1 100%;
     order: 3;
   }
-  .work-cta {
+  .row-cta {
     order: 4;
   }
 }
@@ -3891,13 +3954,20 @@ span.cat-node-more {
 
 /* ---------- my account ---------- */
 
-/* The screen opts into the wider column, the same escape hatch `.work-screen` uses and at the
-   same 1440px: three panels that each hold two columns of their own had a third of a desktop
-   screen sitting empty to the right of them. The catalogue's `max-width: none` is not the
-   model here — that screen is two scroll panes pinned to the viewport, and a form stretched
-   to 1900px is a worse form, not a fuller one. */
+/*
+ * Uncapped, where this screen held the 1440px opt-in longest and argued hardest for it.
+ *
+ * The argument was "a form stretched to 1900px is a worse form, not a fuller one", and it was
+ * right about the CONTROLS and wrong as a reason to cap the page. `.settings-cols` caps its tracks
+ * at 380px now, so no amount of page width reaches a `<select>` — which leaves the width free to
+ * be spent on structure. It is: the identity and effective-preferences rail (`.acct-cols`), which
+ * appears beside the work only where a rail does not cost the setting cards their own second
+ * column.
+ *
+ * Cap the measures, not the page. This screen was the last holdout.
+ */
 .shell-main:has(.acct-screen) {
-  max-width: 1440px;
+  max-width: none;
 }
 
 /* One rhythm down the screen: header, band, settings. The gap is the same `--sp-5` the grid
@@ -4000,9 +4070,65 @@ span.cat-node-more {
 
 /* The two settings are peers and sit as peers. Stacked, "Change password" — the reason most
    people open this screen — began below the fold under a form about timestamps. */
+/*
+ * The work column beside the rail. One grid in two shapes: a single column with the rail as the
+ * last card in the stack, until there is room for the rail AND the two setting cards side by side.
+ *
+ * 1400px, and the number comes out of arithmetic rather than feel. The two cards need
+ * 2 × 320px + 24px = 664px of main column (`.acct-grid`'s own track minimum), the rail's floor is
+ * 320px, the gap is 24px, and the shell spends 248px on its sidebar and 48px on padding: 1324px.
+ * 1400 is the next round number clear of it, which puts the rail on for a 1440px monitor and
+ * stacks it on a 1366px laptop.
+ *
+ * It is deliberately NOT gated on each card keeping its own inner second column. That column holds
+ * the `.why` note, and stacking it under the controls is the documented fallback the forms are
+ * written for ("Stacked, this is the order it reads in") — not a failure state worth withholding a
+ * rail to avoid. Capping the control tracks is what made the rail this cheap.
+ *
+ * `min-width` and not `max-width` on the query, so the narrow shape is the default and the
+ * two-column layout is the addition — the direction every other grid here is written in.
+ * Auto-placement does the rest: main is declared first, so it lands in column 1.
+ */
+.acct-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-5);
+  align-items: start;
+}
+@media (min-width: 1400px) {
+  .acct-cols {
+    grid-template-columns: minmax(0, 1fr) clamp(320px, 18vw, 400px);
+  }
+  /* In the two-column shape the track decides the width, so the stacked cap must not fight it. */
+  .acct-rail {
+    max-width: none;
+  }
+}
+/* The band and the settings grid under it, one rhythm. */
+.acct-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+/* Stacked, the rail is one card in a column of full-width panels with two facts in it, so it stops
+   at about the width of a single setting card instead of spanning the screen. */
+.acct-rail {
+  min-width: 0;
+  max-width: 560px;
+}
+
+/*
+ * The two settings as peers. `auto-fit` and no breakpoint of its own, on the rule `.settings-cols`
+ * records: what decides whether there is room for a second card beside the first is the COLUMN
+ * they sit in, which a media query cannot see — and that column now depends on whether the rail is
+ * present, so a viewport query would have to know about both. This supersedes the 900px breakpoint
+ * this grid used to carry, and the 1180px one that briefly replaced it: the premise of both was
+ * that a card needs 544px to hold its inner second column, and capping the control tracks removed
+ * that premise. A single 380px control column in a 430px card is a perfectly good card.
+ */
 .acct-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: var(--sp-5);
   align-items: start;
 }
@@ -4019,9 +4145,22 @@ span.cat-node-more {
  * still read before the button that commits it (see "Interaction rules"). The submit sits
  * outside this grid for exactly that reason: inside it, it would need explicit placement, and
  * explicit placement is what `auto-fit` cannot have. */
+/*
+ * A settings form that fills its card: the controls in one column, the `.why` that qualifies them
+ * in the next.
+ *
+ * THE TRACKS ARE CAPPED, not `1fr`. With `1fr` the controls took whatever the card was given, so
+ * the only way to stop a 520px `<select>` was to cap the PAGE — which is what `/account` used to
+ * do at 1440px. Capping the control instead is the same rule stated the right way round: a card
+ * that grows past this spends the extra on nothing, and the screen is free to take the width.
+ *
+ * `min(260px, 100%)` rather than a bare `260px` in the lower bound: at a card narrower than the
+ * minimum a fixed track overflows its container instead of shrinking with it.
+ */
 .settings-cols {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 380px));
+  justify-content: start;
   gap: var(--sp-4) var(--sp-5);
   align-items: start;
 }
@@ -4033,9 +4172,55 @@ span.cat-node-more {
 
 /* The address the settings on this page belong to: lifted out of the muted line around it,
    because it is the one word that says whose account this is. */
-.acct-who {
-  color: var(--ink-2);
-  font-weight: 620;
+/*
+ * Who the system thinks you are, and how it is treating you as a result.
+ *
+ * The identity has had three homes and this is the argument for the third. It began as one muted
+ * sentence carrying every fact plus the rule about who manages them — "For priya@… · Priya Raman.
+ * Accounts and roles are managed by the QA Lead." — which is the run-on these screens keep turning
+ * up. Splitting the rule out to the lede and standing the facts in the header's corner fixed the
+ * sentence and nothing else: a header corner has room for three short values and nothing more.
+ *
+ * A panel has room for what this screen was never saying — which preferences are actually in force
+ * and where each one came from. So the facts move here, and the header keeps only its heading and
+ * its lede.
+ */
+.acct-me {
+  min-width: 0;
+}
+/* The address the account is keyed by. Monospaced because it is compared character by character,
+   and deliberately not `.bid`, which means a QAMS business ID. Two classes so it outranks
+   `.panel-head-text > p` (0,1,1), which sets the size and ink for a panel's subtitle. */
+.panel-head-text > .acct-who {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+/* The group label over the effective pair, in `.data-table th`'s voice — it labels a set of
+   values, which is what that voice is for (`.case-aside h3` makes the same call). */
+.acct-me > h3 {
+  margin: var(--sp-4) 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+/* One column in a rail this narrow: `.fact-grid`'s 120px tracks would put a zone name like
+   `America/Argentina/Buenos_Aires` in a 150px box beside a two-word clock. */
+.acct-effective {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* Where the value came from — a choice this person made, or a fallback they inherited. Sized and
+   toned as a caption: it qualifies the value above it, and a reader drops to it only once the
+   value itself has not settled the question. */
+.acct-source {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
 }
 
 /* The submit under a `.settings-cols`. The note inside it carries no bottom margin of its own —
@@ -4045,12 +4230,10 @@ span.cat-node-more {
   margin-top: var(--sp-4);
 }
 
-/* One column, and the artwork goes: below this the two forms are unusably narrow, and the
-   band's copy would be squeezed against a picture that says nothing the words do not. */
+/* The artwork goes at 900px: below that the band's copy would be squeezed against a picture that
+   says nothing the words do not. `.acct-grid` needs no companion query — it reflows off its own
+   container width now, which is the only thing that actually knows whether a second card fits. */
 @media (max-width: 900px) {
-  .acct-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .hero-art {
     display: none;
   }
@@ -4106,11 +4289,13 @@ span.cat-node-more {
   padding-top: 3px;
 }
 
-/* A rounded square instead of a disc, for a medallion that marks a PAGE or an ACTION rather
-   than a panel. Same sizes, same tones, same `aria-hidden` — the shape is the only thing that
-   separates the two ranks, so a screen's opening mark and the panel headings under it never
-   read as the same kind of thing. Radius comes off the scale (containers 10px) rather than
-   being tuned per size; nothing here needs a fourth step. */
+/* A rounded square instead of a disc. The disc is reserved for a PANEL's own heading; the square
+   is everything that is not a panel — a page (`.page-banner`), an action (`.action-row`), an
+   empty state's mark (`.empty-mark`), a drop target (`.dropzone`), a row in a list of facts
+   (`.fact-list`). Same sizes, same tones, same `aria-hidden`: the shape is the only thing that
+   separates the ranks, so a screen's opening mark, a panel's heading, and the marks on the rows
+   inside that panel never read as the same kind of thing. Radius comes off the scale (containers
+   10px) rather than being tuned per size; nothing here needs a fourth step. */
 .medallion-sq {
   border-radius: var(--radius);
 }
@@ -4191,11 +4376,22 @@ span.cat-node-more {
  * The handful of facts a reader needs before acting, in the aside beside the thing they are
  * about to do. Marks are `aria-hidden` and the sentence is the content.
  *
- * The mark is a bullet — a small ring in the quiet accent — and deliberately NOT a tick. A tick
- * says "good", `--pass` says it louder still, and that token is reserved for what policy grades
- * (principle 4); a column of green ticks beside this particular form would read as "these checks
- * passed" on the one screen whose whole subject is checks passing and failing. These are facts
- * about how a file is read, and a fact is not a pass.
+ * Each mark is a `.medallion medallion-sq` — the same 38px rounded square `.action-row` uses,
+ * so no new size enters the scale — carrying an icon that means the fact beside it. It replaced
+ * four identical rings, which marked where a line started and said nothing about which line it
+ * was; four facts a reader has to hold before uploading are worth being able to find again by
+ * shape.
+ *
+ * EVERY MARK IS THE SAME TONE, and deliberately not a tick. A tick says "good", `--pass` says
+ * it louder still, and that token is reserved for what policy grades (principle 4); a column of
+ * green ticks beside this particular form would read as "these checks passed" on the one screen
+ * whose whole subject is checks passing and failing. Nor does each fact get a hue of its own —
+ * that is the objection `.stat-tile` records, four colours saying nothing the words do not.
+ * These are facts about how a file is read, and a fact is not a pass.
+ *
+ * Separated by hairlines rather than by a gap, and the claim is its own line: the aside is a
+ * reference a reader returns to, and a list of four bold openers is scannable where four
+ * paragraphs with a bold first clause are not.
  */
 .fact-list {
   list-style: none;
@@ -4203,22 +4399,31 @@ span.cat-node-more {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
 }
 .fact-list > li {
   display: flex;
   align-items: flex-start;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
+  padding: var(--sp-4) 0;
+  border-top: 1px solid var(--line-soft);
   font-size: 13px;
   line-height: 1.55;
   color: var(--ink-2);
 }
-.fact-list > li > svg {
+/* The card's own padding already spaces the ends of the list; a rule above the first row would
+   also read as a divider under the panel header, which is not what it separates. */
+.fact-list > li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.fact-list > li:last-child {
+  padding-bottom: 0;
+}
+.fact-list > li > .medallion {
   flex: none;
-  margin-top: 3px;
-  color: var(--accent);
 }
 .fact-list strong {
+  display: block;
   color: var(--ink);
   font-weight: 600;
 }
@@ -4254,12 +4459,20 @@ span.cat-node-more {
  * across the full width, because a table of files, people and tallies is the one thing on this
  * screen that can spend every pixel it is given.
  *
- * The width opt-in is the escape hatch `.work-screen` and `.acct-screen` use, at the same
- * 1440px: `.detail-cols` inside the 1040px reading measure leaves the upload form about 650px
- * with a 340px aside pressed against it, and the form is the work.
+ * `max-width: none`, which the catalogue is otherwise the only screen to take. This started at
+ * the 1440px opt-in `.work-screen` and `.acct-screen` use, and 1440 turned out to be a cap on
+ * the one screen whose two largest elements both want every pixel: a nine-column table, and a
+ * drop target that gets easier to hit the bigger it is. Past 1440 the cap left a column of
+ * empty page beside both.
+ *
+ * The rule `/account` states — "a form stretched to 1900px is a worse form, not a fuller one" —
+ * still holds. This screen keeps it by capping the MEASURES rather than the page: the aside
+ * stops growing at 480px (`.checks-top`), the qualifier keeps `.why`'s 52ch, the hint under the
+ * drop target stops at 74ch, and the drop target's own copy is a centred 52ch block. Nothing
+ * here is a line of prose that runs the width of a monitor.
  */
 .shell-main:has(.checks-screen) {
-  max-width: 1440px;
+  max-width: none;
 }
 .checks-screen {
   display: flex;
@@ -4270,6 +4483,31 @@ span.cat-node-more {
    column that margin would be counted twice. */
 .checks-screen > .page-banner {
   margin-bottom: 0;
+}
+
+/*
+ * The upload and the facts that qualify it, side by side.
+ *
+ * Not `.detail-cols`, whose aside is a fixed 340px. That is right for a record's metadata rail
+ * and wrong here now the page has no cap: a 340px sliver beside a 1300px card reads as an
+ * afterthought rather than as the other half of the composition. `clamp` lets the aside grow
+ * with the screen and then stop, so the facts get a comfortable measure without turning into a
+ * second body column.
+ *
+ * Stacks at 1080px rather than `.detail-cols`'s 900px, because between those two widths the
+ * aside's rows and the drop target are squeezed at the same time — and the drop target is the
+ * work.
+ */
+.checks-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 26vw, 480px);
+  gap: var(--sp-6);
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .checks-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 /* The batch file name: a token people compare character by character, and the link into the
    row. Monospaced like `.bid` but not `.bid` itself — a file name someone's runner chose is not
@@ -4310,6 +4548,26 @@ span.cat-node-more {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* Hugging their content instead of taking a share of the slack.
+   `width: 1%` inside a `width: 100%` table is the shrink-to-content idiom: the excess goes to
+   the text columns — `File` above all — rather than being spread across all nine. On the
+   now-uncapped screen an even share would stand five tallies ~190px apart, and reading one row
+   would become an eye-journey; the whole argument for a column per outcome was that a Lead can
+   scan them. Same reasoning as the column ORDER, applied to the widths. */
+.data-table th.num {
+  width: 1%;
+}
+/* The same idiom for a column that is not a figure: an ID, a chip, a one-word grade. Applied to
+   every column but the one that gains from room, it hands that one all of the slack — the test
+   case list is `ID`, `State`, `Priority` and `Severity` hugging their content so `Title` takes
+   the rest. The cells nowrap as well, because these are single tokens and a two-line `Approved`
+   would set the row's height for nothing. */
+.data-table th.tight {
+  width: 1%;
+}
+.data-table td.tight {
+  white-space: nowrap;
+}
 /* The sortable variant hands its padding to the button (see `.data-table th:has(button)`),
    so the alignment has to be restated on the button or the label sits left of its figures. */
 .data-table th.num button {
@@ -4332,21 +4590,34 @@ span.cat-node-more {
 /*
  * Where a results file is handed over.
  *
- * `.checks-screen` takes the 1440px opt-in because "the form is the work", and the form was
- * then the browser's own ~200px file widget inside a card with 900px to spend. It also never
- * stated its limit: a reader learnt the cap by being rejected by it.
+ * `.checks-screen` takes the width because "the form is the work", and the form was then the
+ * browser's own ~200px file widget inside a card with 900px to spend. It also never stated its
+ * limit: a reader learnt the cap by being rejected by it.
  *
  * A `<label>` wrapping the real `<input type="file">`, which stays in the DOM and focusable
  * rather than being replaced — so the control is still the platform's, keyboard reaches it,
  * and `cy.hydrated('input[type="file"]').selectFile(…, { force: true })` still finds it.
  * Nothing inside is a `<button>`: a button within a label inherits the label's activation, so
  * every press would also reopen the picker (the trap `.field` already records).
+ *
+ * ## Why it is a panel and not a bar
+ *
+ * It was a 70px row — mark, sentence, done — which is a fine shape for a field and the wrong
+ * one for a target. Widened to the 1100px the uncapped screen now hands it, that row read as a
+ * rule across the card rather than as an area to drop something into, and the gesture it exists
+ * to invite was the one thing its proportions denied. Now it is a centred block with real
+ * height: the shape a person aims a dragged file at, at any width. Its copy stays a 52ch
+ * column in the middle (`.dropzone-text`) so growing the zone never grows the line length.
  */
 .dropzone {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--sp-4);
-  padding: var(--sp-4) var(--sp-5);
+  justify-content: center;
+  gap: var(--sp-3);
+  min-height: 172px;
+  padding: var(--sp-6) var(--sp-5);
+  text-align: center;
   /* `--line-strong` and not `--line`: this is where an interactive control begins (WCAG 2.2
      SC 1.4.11), and it is pinned by `globals.contrast.test.ts`. Dashed says "put something
      here" in the one place in the product where that is the whole instruction. */
@@ -4384,9 +4655,16 @@ span.cat-node-more {
   white-space: nowrap;
   border: 0;
 }
+/* The measure, not the zone. A 1700px drop target is a better target and a 1700px sentence is
+   a worse sentence, so the copy stays a column in the middle of whatever room the zone has. */
 .dropzone-text {
-  flex: 1 1 auto;
   min-width: 0;
+  max-width: 52ch;
+}
+/* Sized to the drop target rather than to the card: this is the caption under a control, and
+   at the widths this screen now reaches an uncapped hint is a 200-character line. */
+.dropzone + .hint {
+  max-width: 74ch;
 }
 .dropzone-title {
   display: block;
@@ -4402,11 +4680,26 @@ span.cat-node-more {
 }
 /* The same zone once it holds a file: a specimen, not a dashed invitation. Solid, because
    there is nothing left to drop, and the name is in `--mono` because a reader checks it
-   character by character against the run they meant to upload. */
+   character by character against the run they meant to upload.
+
+   It also stops being a panel and becomes a row again. The height and the centring are there to
+   invite a drop; once a file is in hand there is nothing left to aim at, and 172px of empty
+   space around a file name is a card pushed down the screen for no reason. */
 .dropzone[data-held] {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--sp-4);
+  min-height: 0;
+  padding: var(--sp-4) var(--sp-5);
+  text-align: left;
   border-style: solid;
   border-color: var(--accent-2);
   background: var(--surface);
+}
+.dropzone[data-held] .dropzone-text {
+  flex: 1 1 auto;
+  max-width: none;
 }
 .dropzone-name {
   display: block;
@@ -4420,6 +4713,35 @@ span.cat-node-more {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--accent);
+}
+
+/*
+ * What the upload will and will not do, beside the control that does it.
+ *
+ * The two were stacked, which is right in a 650px column and wasteful in a 1100px one: the band
+ * stops at `.why`'s 52ch, so a submit below it left half the card empty to its right and put
+ * 40px between the sentence a reader weighs and the button they weigh it against. On one line
+ * the qualifier is what the eye crosses on the way to the button — which is the order it should
+ * be read in. Wraps back to two rows when the card is narrow enough that they would fight.
+ *
+ * Packed left rather than `space-between`. The button hard against the card's right edge is the
+ * dialog-footer convention and it fails at the widths this screen now reaches: 400px of white
+ * between the sentence and the control undoes the one thing putting them on a line was for.
+ */
+.ingest-commit {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  margin-top: var(--sp-2);
+}
+/* Grows to `.why`'s own 52ch cap and no further, so the button lands in the same place on a
+   1100px card as on a 1700px one. */
+.ingest-commit > .why {
+  flex: 1 1 40ch;
+}
+.ingest-commit > .btn {
+  flex: none;
 }
 
 /* ---------- the batch report head ---------- */
@@ -4695,4 +5017,486 @@ span.cat-node-more {
   .cat-explorer {
     max-height: 60vh;
   }
+}
+
+/* ---------- test cases ---------- */
+
+/*
+ * A screen whose body is a table of test cases takes the whole viewport, on the reasoning
+ * `.checks-screen` records: what fills it is five columns over up to fifty rows, and homogeneous
+ * data people scan is the one shape that reads better the more room it is given.
+ *
+ * Worn by `/test-cases` and by `/my-work/drafts`, which render the same `CaseTable` and so want
+ * the same width — the class names the CONTENT, not one route.
+ *
+ * That table is what the width is FOR. The rows were `.list-row`s — an ID and a chip on one
+ * line, the title on the next, `high priority · major severity` on a third — so a Critical case
+ * read exactly like a Trivial one, fifty records ran a page and a half deep, and a wide screen
+ * bought nothing but more empty margin beside three short lines. That is the same failure that
+ * moved the check batch list off `.list-row`: a grade appended to a sentence cannot be scanned
+ * (`DESIGN-SYSTEM.md`, Data table).
+ */
+.shell-main:has(.cases-screen) {
+  max-width: none;
+}
+/* A screen's own description under a `.page-head`.
+ *
+ * `.page-banner-lede` and not `.muted`: this is the screen's description and stops at a reading
+ * measure, where `.muted` is a utility that qualifies rows, stamps and counts — and on an
+ * uncapped screen a `.muted` line runs the width of the monitor. Inside `.page-banner` the flex
+ * container owns the spacing, so the class carries no margin of its own; here it belongs to the
+ * heading above it and leaves the gap below, rather than floating evenly between the two.
+ * Supersedes `<p className="muted" style={{ marginBottom: "var(--sp-4)" }}>`. */
+.page-head + .page-banner-lede {
+  margin: var(--sp-1) 0 var(--sp-4);
+}
+
+/*
+ * The record screen stops at 1440px, and deliberately does NOT follow the list.
+ *
+ * Uncapped, `.detail-cols` would hand the body about 1500px — and an objective is a paragraph, so
+ * a wider one is not more information, only a longer distance for an eye to travel back along
+ * (`.hero-body`'s rule). 1440 is the escape hatch `/account` and My work take, and this screen
+ * spends it the way `/account` does: on a second column of its own rather than on wider controls
+ * — the record on the left, the attributes it was filed under in the rail on the right.
+ */
+.shell-main:has(.case-screen) {
+  max-width: 1440px;
+}
+
+/* One rhythm down the screen, so the head, the lifecycle rail, the bands and the two columns are
+   not each carrying a margin of their own. */
+.case-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+/* Both carry a bottom margin so they work in ordinary page flow; inside a gapped column that
+   margin is counted twice. `.why` needs no entry here — it is `margin: 0` by definition, which
+   is why the bands it styles were carrying an inline `marginBottom` before this column existed
+   to space them. */
+.case-screen > .crumbs,
+.case-screen > .stepper {
+  margin-bottom: 0;
+}
+/* The lede is the case's title and belongs to the ID above it, not to the rail below — so it
+   closes the gap upward instead of sitting evenly between the two. */
+.case-screen > .run-lede {
+  margin: calc(-1 * var(--sp-4)) 0 0;
+}
+/* The rail states three words, and `.stepper li` is `flex: 1 1 120px` — across a 1392px screen
+   that is three 460px segments each holding one word. Capped, the segments read as a progress
+   rail instead of as three empty bars. Not a fixed width: with four stages (a retired case) the
+   same cap divides four ways. */
+.case-screen > .stepper {
+  max-width: 560px;
+}
+
+/* The record's own column. Each section is a heading and the card under it, and the heading
+   carries its own 12px — so the gap here is the distance between SECTIONS, and no card needs a
+   margin of its own. It replaced `style={{ marginBottom: "var(--sp-5)" }}` on seven cards. */
+.case-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* The other half of a review decision, under a rule inside the same card. Deliberately not a
+   second card: returning a case is the same decision as approving it, taken the other way, and
+   two cards would present them as two unrelated things a reviewer might do. */
+.review-alt {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+/* A one-button lifecycle action: the consequence, then the control that accepts it. `.why`
+   carries no margin of its own, so the space between the two belongs to the form. */
+.lifecycle-form > .why {
+  margin-bottom: var(--sp-3);
+}
+
+/* The steps editor's own controls, under the rows they act on, and the note under those. Both
+   were inline `marginTop`s. */
+.steps-commit {
+  margin-top: var(--sp-2);
+}
+.steps-commit + .hint {
+  margin-top: var(--sp-2);
+}
+
+/*
+ * What the case sets out to prove, and what would prove it — side by side.
+ *
+ * A matched pair, and stacked they were two paragraphs each running the full width of the body
+ * column. `auto-fit` with no breakpoint, on the rule `.settings-cols` records: the thing that
+ * decides whether there is room is the CARD, which a media query cannot see. Each half then
+ * stops at a measure, so this is two readable columns at 1000px and one at 480px.
+ */
+.case-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--sp-4) var(--sp-5);
+}
+.case-pair h3 {
+  margin-top: 0;
+}
+.case-pair p {
+  max-width: 68ch;
+  margin-bottom: 0;
+}
+
+/*
+ * The metadata rail.
+ *
+ * It replaced one muted run-on line under the h1 — "Authored by Priya Raman · Q3 / S12 / 2026.4
+ * · staging · High priority · Major severity · version 3" — which is nine facts a reader has to
+ * parse as a sentence to answer a question as small as "which sprint?". Nine `<dt>`/`<dd>` pairs
+ * answer it by being looked at.
+ *
+ * Grouped under the same words the create form asks its questions under, so the record reads
+ * back in the order it was filled in. The group labels take `.data-table th`'s voice — mono,
+ * uppercase, 10.5px — because that is what they are: a label over a set of values, and not a
+ * section of the screen, which is what a 15px `<h3>` would announce.
+ */
+.case-aside h3 {
+  margin: var(--sp-4) 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.case-aside h3:first-of-type {
+  margin-top: 0;
+}
+
+/* The mark on a review-queue row the viewer wrote themselves. Sized down from a full `.state`
+   chip: it qualifies the ID beside it rather than standing as the row's own state, and at chip
+   size it would compete with the priority and severity columns for the eye. Neutral, because
+   authorship is an attribute and the graded tones belong to what policy grades. */
+.case-mine {
+  margin-left: var(--sp-2);
+  font-size: 11.5px;
+  padding: 1px 7px 1px 6px;
+  gap: 5px;
+}
+/* `.state`'s tone bar is 12px, which at this size is taller than the text it stands beside.
+   Scaled rather than removed: the bar is how a chip in this product carries its tone, and the
+   role chip on `/account` keeps it for an attribute too. */
+.case-mine::before {
+  height: 9px;
+}
+
+/* The title in a row of test cases: the readable name, and the link into the record. Ink is
+   stated because `.data-table td` mutes its cells and this is the cell the eye should land on
+   first; `.row-link:hover` still wins the hover colour at (0,2,0) — the same shape
+   `.checks-file` uses for a file name. */
+.case-title {
+  color: var(--ink);
+}
+
+/* ---------- executions ---------- */
+
+/*
+ * The list takes the whole viewport, and the record screen stops at 1440px — the same split the
+ * test cases module makes, for the same reason: a list of rows can spend the room, and a record
+ * that carries prose cannot.
+ *
+ * On the list side this follows My work rather than `/test-cases`: these are `.list-row`s and not
+ * a `.data-table`, so the return on width is a stamp that stops wrapping and a title that stops
+ * folding into a two-word column, not columns that line up. That is a smaller win than a table's
+ * and still the right trade — but it is why the row keeps its right-hand slots anchored to the
+ * card's edge, and why nothing here tries to fill the middle.
+ */
+.shell-main:has(.runs-screen) {
+  max-width: none;
+}
+
+/*
+ * The record screen: a stage rail beside a tally, then the covered cases beside the actions on
+ * the run. At 1040px `.run-head` was fitting four stage cards and a six-value tally into 992px,
+ * and `.detail-cols` below it was giving a filterable, paged list of cases 650px with a 340px
+ * aside pressed against it — the same squeeze `/admin/checks` had before it took the width.
+ *
+ * 1440 and not the viewport, because the body column is where a run's evidence is read: the
+ * actual result of each case (`.case-said`, capped at 68ch) and the steps it was graded against.
+ * The measures are already capped inside, so the cap here is about the composition rather than
+ * the prose — but a 1500px body column would put 340px of aside beside 1100px of half-empty row.
+ */
+.shell-main:has(.run-screen) {
+  max-width: 1440px;
+}
+
+/* One rhythm down the record screen, so the head, the facts line, the stage band and the two
+   columns are not each carrying a margin. The same shape `.case-screen` uses — a container owns
+   its rhythm and a panel carries no margin. */
+.run-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+.run-screen > .crumbs,
+.run-screen > .run-head {
+  margin-bottom: 0;
+}
+/* The lede is the run's purpose and belongs to the ID above it; the line of facts belongs to the
+   lede. Both close upward rather than sitting evenly in the column. */
+.run-screen > .run-lede {
+  margin: calc(-1 * var(--sp-4)) 0 0;
+}
+.run-screen > .run-facts {
+  margin: calc(-1 * var(--sp-4)) 0 0;
+  max-width: 96ch;
+}
+
+/* The covered-cases column: the heading and its search on one row, then the outcome views, then
+   the list. It carried three inline `marginBottom`s and a `style={{ margin: 0, flex: 1 }}` on the
+   heading; the flex row and the column's own gap do both jobs. */
+.run-cases {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.run-cases > .row > h2 {
+  flex: 1;
+  margin: 0;
+}
+/* The block reason under the evidence it qualifies. `.why` carries no margin of its own — this
+   was an inline `marginTop` on the one call site. */
+.case-item > .why {
+  margin-top: var(--sp-2);
+}
+
+/* ---------- integrations ---------- */
+
+/*
+ * Uncapped, and what earns it is the roster.
+ *
+ * This screen was three cards stacked down a 1040px column, and two of the three had almost
+ * nothing in them: a three-value settings grid, and a two-column table of names. Widening a stack
+ * like that only widens the empty part — so the width is spent on structure instead. The
+ * deployment's two panels take the main column, the Lead's own connection moves to the rail, and
+ * the roster TILES: `repeat(auto-fit, …)`, so a wider screen shows more of the list rather than a
+ * wider list. That is the same thing a `.data-table` does with the room, achieved by a list that
+ * has no business being a table.
+ *
+ * Every measure of prose is capped in its own right (`.integrations-said`, `.integrations-facts`),
+ * which is the rule these screens keep arriving at: cap the measures, not the page.
+ */
+.shell-main:has(.integrations-screen) {
+  max-width: none;
+}
+
+/* One rhythm down the screen; the banner carries its own bottom margin for ordinary page flow. */
+.integrations-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+.integrations-screen > .page-banner {
+  margin-bottom: 0;
+}
+
+/* The deployment's panels beside the viewer's own connection. The rail grows with the screen and
+   then stops, on `.work-screen`'s reasoning: `JiraConnectionPanel` holds a medallion, a heading, a
+   line of facts, a control and a note, and a fixed 340px sliver is not the other half of a
+   composition. Stacks at 1080px, where the rail's control and the roster's columns are squeezed at
+   the same time. */
+.integrations-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 26vw, 460px);
+  gap: var(--sp-5);
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .integrations-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* The main column's own rhythm — a container owns its rhythm and a panel carries no margin. This
+   replaced `style={{ marginTop: "var(--sp-4)" }}` on two of the three cards. */
+.integrations-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+.integrations-rail {
+  min-width: 0;
+}
+
+/* Three named settings, not a row of figures. `.fact-grid` carries no cap of its own — it is
+   normally inside a 340px rail — so on an uncapped screen it needs one here, or three values
+   stand 500px apart. */
+.integrations-facts {
+  max-width: 620px;
+}
+/* What the sync does, and what it will not do. A reading measure, because on this screen the card
+   holding it can be 1700px wide and the sentence is the most load-bearing thing on the page. */
+.integrations-said {
+  max-width: 74ch;
+}
+/* The configured site: the one value here a reader compares character by character against what
+   they set in the environment. Monospaced for that reason and not because it is an identifier —
+   it is a URL, so deliberately not `.bid`, which means a QAMS business ID. */
+.integrations-site {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+/*
+ * The connection roster: one person, one state, tiled.
+ *
+ * It was a `<table className="table">`, and `.table` has no rule anywhere in this stylesheet — so
+ * it rendered as a bare browser table with no borders, no header treatment and no padding. The
+ * replacement is a list rather than a styled table because two columns is not a table
+ * (`.data-table`'s own rule is homogeneous data of three or more), and one of those two columns
+ * was the same state word repeated down the page.
+ *
+ * `auto-fit` and no breakpoint, on `.settings-cols`' reasoning: what decides whether there is room
+ * for another column is the CARD, which a media query cannot see. 280px is the width at which a
+ * name, a stamp under it and a `Not connected` chip still sit on one row without the chip wrapping.
+ */
+.roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--sp-1) var(--sp-4);
+}
+.roster-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-top: 1px solid var(--line-soft);
+}
+.roster-who {
+  min-width: 0;
+}
+.roster-name {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+/* When the credential was stored. Sized and toned as a caption: it qualifies the name above it,
+   and a reader only drops to it once the chip has already answered the first question. */
+.roster-when {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+/* The closing note under the list. `.hint`'s own 4px is the gap under a control, not the distance
+   from the end of a list to the sentence that qualifies the whole of it. */
+.roster + .hint {
+  margin-top: var(--sp-3);
+}
+
+/* ---------- dashboard ---------- */
+
+/*
+ * Uncapped, because the thing filling it tiles.
+ *
+ * The screen was seven `<h2>` + statement + card blocks stacked down a 1040px column, six of them
+ * the same small bar chart. One chart filled a laptop viewport, so comparing any two meant
+ * scrolling between them — on the screen whose entire job is comparison. As a grid the width buys
+ * MORE CHARTS ON SCREEN rather than wider charts, which is the same thing a `.data-table` and the
+ * integrations roster buy, and the same reason those two are uncapped.
+ *
+ * Every measure is capped in its own right: the lede at `.page-banner-lede`'s 68ch, each panel by
+ * its grid track, and the correction band in the linkage panel by `.why`'s 52ch.
+ */
+.shell-main:has(.dash-screen) {
+  max-width: none;
+}
+
+/* One rhythm down the screen: banner, KPIs, actions, panels. It replaced a bottom margin on
+   `.kpi-grid`, one on `.quick-actions`, five inline `marginBottom`s on cards and an inline
+   `marginTop` on a heading — a container owns its rhythm and a panel carries no margin. */
+.dash-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+.dash-screen > .page-banner {
+  margin-bottom: 0;
+}
+
+/*
+ * The metric panels as peers.
+ *
+ * 440px per track, chosen from what a bar row needs rather than from a round number: `.bar-head`
+ * is a fixed 110px and `.bar-count` a fixed 64px, so a narrower track leaves the bar itself — the
+ * part carrying the comparison — under 200px. `min(440px, 100%)` so a phone shrinks the track
+ * instead of overflowing.
+ *
+ * No breakpoint: what decides how many panels fit is this grid's own width, which is the thing a
+ * media query cannot see once the shell's sidebar can be collapsed.
+ */
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr));
+  gap: var(--sp-5);
+  align-items: start;
+}
+/* The trend spans the row. It is a strip of twelve columns, and in a 440px track each week would
+   be 30px wide — a chart of change over time needs the horizontal room to show the change. */
+.dash-panel-wide {
+  grid-column: 1 / -1;
+}
+
+/* A panel: its name, its declaration, then its chart. `align-items: start` on the grid means a
+   panel is as tall as its own content, so a three-bar chart does not stretch to match a six-bar
+   one beside it. */
+.dash-panel {
+  min-width: 0;
+}
+.dash-panel-head {
+  margin-bottom: var(--sp-3);
+}
+.dash-panel-head > h2 {
+  margin: 0 0 var(--sp-1);
+  font-size: 16px;
+}
+/* The correction the linkage panel has to make, under its own heading and above its bars. `.why`
+   carries no margin of its own, which is why this was an inline `margin` at the call site. */
+.dash-panel > .why {
+  margin-bottom: var(--sp-3);
+}
+/* An empty chart inside a padded panel. `.empty`'s own `--sp-5` sides were sized for a
+   `card-flush` host and would double this card's. */
+.dash-panel > .empty {
+  padding: var(--sp-5) 0;
+}
+
+/*
+ * The four things a metric must declare before it may be shown
+ * (`business-rules-and-validation.md:56`).
+ *
+ * Four labelled facts that wrap, where this was one prose sentence — `Filters: … . Numerator: … .
+ * Denominator: … . As of … .` — set at body size above all seven charts. A reader after one part
+ * of it had to read the whole thing, and the declaration was louder than the figure it qualifies.
+ *
+ * A caption now, and still ABOVE the chart and never collapsed: the rule says stated *before being
+ * shown*, which a `<details>` would not satisfy. The label takes the darker ink so the eye can
+ * land on `Denominator` without reading the rest.
+ */
+.metric-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--sp-3);
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+.metric-note b {
+  font-weight: 650;
+  color: var(--ink-2);
 }

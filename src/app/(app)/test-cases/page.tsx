@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { QamsRole } from "@prisma/client";
 import { listFeatureOptions, listProductOptions } from "@/domain/catalogue";
 import { listTestCases } from "@/domain/test-cases";
@@ -9,7 +10,14 @@ import { requireSession } from "@/ui/session";
 
 export const dynamic = "force-dynamic";
 
-/** Every role may view test cases (`roles-workflows.md:9`); authoring starts here. */
+/**
+ * Every role may view test cases (`roles-workflows.md:9`); authoring starts here.
+ *
+ * The screen takes the whole viewport (`.shell-main:has(.cases-screen)`). What fills it is a
+ * five-column table over up to fifty rows — homogeneous data people scan and compare, which is
+ * the one shape that reads better the more room it is given. The record screen behind it stops
+ * at 1440px for the opposite reason: an objective is a paragraph.
+ */
 export default async function TestCasesPage({
   searchParams
 }: {
@@ -40,16 +48,21 @@ export default async function TestCasesPage({
   const mayAuthor = auth.role !== QamsRole.QA_TESTER;
 
   return (
-    <>
+    <div className="cases-screen">
       <div className="page-head">
         <h1>Test cases</h1>
         {mayAuthor ? (
-          <Link className="btn" href="/test-cases/new">
-            New draft
+          <Link className="btn btn-icon" href="/test-cases/new">
+            <Plus size={15} aria-hidden /> New draft
           </Link>
         ) : null}
       </div>
-      <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
+      {/* What the list is showing, and the one rule that decides what a reader may do with a
+          row. `.page-banner-lede` rather than `.muted`: this is the screen's own description
+          and stops at a reading measure, where `.muted` is a utility that qualifies rows and
+          counts — and at this screen's width an uncapped `.muted` line would run the whole
+          monitor. */}
+      <p className="page-banner-lede">
         {total} test case{total === 1 ? "" : "s"}
         {query ? ` matching “${query}”` : ""}
         {scopeParts.length > 0 ? ` in ${scopeParts.join(" · ")}` : ""}. Approved content is
@@ -74,6 +87,6 @@ export default async function TestCasesPage({
             : "No test cases yet. A QA Engineer or Lead adds them."
         }
       />
-    </>
+    </div>
   );
 }

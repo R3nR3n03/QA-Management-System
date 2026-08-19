@@ -1,14 +1,5 @@
 import Link from "next/link";
-import {
-  CalendarClock,
-  ChevronRight,
-  CircleCheck,
-  CirclePlay,
-  CircleSlash,
-  CircleX,
-  ClipboardList,
-  Play
-} from "lucide-react";
+import { CalendarClock, ChevronRight, CircleCheck, Inbox, ListChecks, Play } from "lucide-react";
 import { ExecutionLifecycleState, type ExecutionOutcome } from "@prisma/client";
 import { ExecutionStateChip, OutcomeChip } from "./chips";
 import { formatMinute, outcomeBreakdown, type StampFormat } from "./format";
@@ -17,6 +8,9 @@ import { hrefWith, readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "./paging";
 import { RefreshButton } from "./refresh-button";
+// The row marks live in their own module because `/executions` lists the same records and needs
+// them too — a general list must not import from the tester's front door.
+import { OutcomeMark, StateMark } from "./row-mark";
 import { UrlSelectFilter } from "./toolbar";
 import type { ProductOption } from "./case-table";
 
@@ -109,50 +103,6 @@ function lastEvent(row: WorkRowData): { verb: string; at: Date } {
 function scopeWord(product: string, feature: string): string {
   if (product !== "" && feature !== "") return "product and feature";
   return product !== "" ? "product" : "feature";
-}
-
-/** The tone marker beside a row. Colour repeats the chip, never replaces it. */
-function StateMark({ state }: { state: ExecutionLifecycleState }) {
-  const started = state === ExecutionLifecycleState.IN_PROGRESS;
-  return (
-    <span className="work-mark" data-tone={started ? "progress" : "planned"} aria-hidden>
-      {started ? <CirclePlay size={18} /> : <ClipboardList size={18} />}
-    </span>
-  );
-}
-
-/**
- * The same marker for a finished run, keyed to its outcome.
- *
- * It replaces the edge stripe these rows used to carry. Both said the outcome in colour,
- * and 12px apart that was one signal spent twice; the marker is also what lines the recap's
- * titles up with the queue's above it, so the two lists read as one column of runs rather
- * than two lists that happen to be stacked. Decorative for the same reason `StateMark` is —
- * the chip beside it carries the word.
- *
- * A null result should not occur on a finalized run, and the row omits its chip when it
- * does. The marker goes neutral to match: a green tick for an outcome nobody recorded would
- * be the one case where this says something the chip does not.
- */
-function OutcomeMark({ outcome }: { outcome: ExecutionOutcome | null }) {
-  if (outcome === null) {
-    return (
-      <span className="work-mark" aria-hidden>
-        <ClipboardList size={18} />
-      </span>
-    );
-  }
-  return (
-    <span className="work-mark" data-tone={outcome.toLowerCase()} aria-hidden>
-      {outcome === "FAIL" ? (
-        <CircleX size={18} />
-      ) : outcome === "BLOCKED" ? (
-        <CircleSlash size={18} />
-      ) : (
-        <CircleCheck size={18} />
-      )}
-    </span>
-  );
 }
 
 /**
@@ -322,10 +272,35 @@ export function WorkQueue({
             ) : tab === ExecutionLifecycleState.IN_PROGRESS ? (
               <p>You have no run in progress.</p>
             ) : (
-              <p>
-                Nothing is waiting on you right now.{" "}
-                <Link href="/executions">Browse all executions</Link>
-              </p>
+              /*
+               * The one branch that gets the FURNISHED empty state, and it is a third case the
+               * `.empty` note did not have: not "nothing has happened yet" (the deployment may be
+               * full of runs), and not "a filter matched nothing" (there is no filter — this is
+               * the whole open queue). It is "there is genuinely nothing here for you, and the
+               * next step is somewhere else".
+               *
+               * Furnishing is honest precisely because that step exists. The rule it has to clear
+               * is "dressing a dead end up with a medallion and a call to action offers a way
+               * forward that does not exist" — here the way forward is a real screen, and this is
+               * the front door of a QA Tester's day, which one grey sentence is a thin answer for.
+               *
+               * An inbox and not a tick: `--pass` is what policy grades, and a green tick on a
+               * screen whose rows carry pass/fail marks would read as a result rather than as an
+               * empty queue. The three filtered branches above keep the bare sentence.
+               */
+              <>
+                <span className="medallion medallion-lg medallion-sq empty-mark" aria-hidden>
+                  <Inbox size={22} strokeWidth={1.9} aria-hidden />
+                </span>
+                <p className="empty-title">Nothing is waiting on you right now</p>
+                <p>
+                  A run appears here the moment somebody assigns one to you. Everything you have
+                  already finished stays on the executions screen.
+                </p>
+                <Link className="btn btn-icon" href="/executions">
+                  <ListChecks size={15} aria-hidden /> Browse all executions
+                </Link>
+              </>
             )
           }
         />
@@ -335,7 +310,7 @@ export function WorkQueue({
             const event = lastEvent(row);
             const started = row.state === ExecutionLifecycleState.IN_PROGRESS;
             return (
-              <li key={row.id} className="list-row work-row">
+              <li key={row.id} className="list-row">
                 <StateMark state={row.state} />
                 <div className="row-main">
                   <div className="cluster">
@@ -367,7 +342,7 @@ export function WorkQueue({
                     <JiraNote issueKey={row.jiraIssueKey} configured={jiraConfigured} />
                   </div>
                 </div>
-                <span className="muted work-when">
+                <span className="muted row-when">
                   <CalendarClock size={13} aria-hidden />
                   {event.verb}{" "}
                   <time dateTime={event.at.toISOString()}>{formatMinute(event.at, stampFormat)}</time>
@@ -376,7 +351,7 @@ export function WorkQueue({
                     does. Same destination as the title, so it leaves the tab order:
                     50 rows would otherwise be 100 stops to reach 50 places. */}
                 <Link
-                  className="btn work-cta"
+                  className="btn row-cta"
                   href={`/executions/${row.id}`}
                   aria-label={`${started ? "Continue" : "Start"} ${row.businessId}`}
                   tabIndex={-1}
@@ -434,7 +409,7 @@ export function FinalizedRecap({
   return (
     <section className="work-done">
       <div className="page-head work-done-head">
-        <span className="work-mark" data-tone="done" aria-hidden>
+        <span className="row-mark" data-tone="done" aria-hidden>
           <CircleCheck size={18} />
         </span>
         <div className="page-head-text">
@@ -460,7 +435,7 @@ export function FinalizedRecap({
             return (
               // The same four-part row the queue above uses — mark, record, when, action —
               // so the two lists read as one column rather than two shapes.
-              <li key={row.id} className="list-row work-row">
+              <li key={row.id} className="list-row">
                 <OutcomeMark outcome={row.result} />
                 <div className="row-main">
                   <div className="cluster">
@@ -491,7 +466,7 @@ export function FinalizedRecap({
                     in the same place on both lists, instead of trailing the chips on one
                     and sitting at the row's end on the other. */}
                 {row.finalizedAt ? (
-                  <span className="muted work-when">
+                  <span className="muted row-when">
                     <CalendarClock size={13} aria-hidden />
                     Finalized{" "}
                     <time dateTime={row.finalizedAt.toISOString()}>
@@ -500,7 +475,7 @@ export function FinalizedRecap({
                   </span>
                 ) : null}
                 <Link
-                  className="btn btn-secondary btn-sm work-cta"
+                  className="btn btn-secondary btn-sm row-cta"
                   href={`/executions/${row.id}`}
                   aria-label={`View ${row.businessId}`}
                   tabIndex={-1}

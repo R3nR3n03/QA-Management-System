@@ -19,8 +19,11 @@ import { DisconnectJiraForm } from "./jira-disconnect";
  *
  * `hero` is the band that OPENS `/account`: accent edge, the connection drawn beside it, and
  * the room to say what a connection is for to somebody who has never made one. `card` is the
- * same panel with the decoration off, for `/admin/integrations`, where it is the middle of
- * three cards and an illustrated one would read as a different kind of thing.
+ * same panel with the decoration off, for `/admin/integrations`, where it sits in the rail
+ * beside the deployment's own panels — it is the one thing on that screen that is not about the
+ * deployment, and an illustrated band there would make the aside the loudest thing on a screen
+ * whose subject is somewhere else. The artwork is also sized as a share of a full-width band
+ * (`min(420px, 34%)`), which a 420px rail has no room for.
  *
  * Only presentation differs. The state, the copy and the control are one implementation, so
  * a change to what disconnecting does still lands on both screens at once.

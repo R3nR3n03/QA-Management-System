@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { ExecutionLifecycleState } from "@prisma/client";
 import { listFeatureOptions, listProductOptions } from "@/domain/catalogue";
 import { listExecutionsWithCase } from "@/domain/executions";
@@ -17,7 +18,14 @@ function stateFilter(raw: string): ExecutionLifecycleState[] | undefined {
   return match ? [match] : undefined;
 }
 
-/** Every role may view executions (`roles-workflows.md:9`) and plan one (`:13`). */
+/**
+ * Every role may view executions (`roles-workflows.md:9`) and plan one (`:13`).
+ *
+ * The screen takes the whole viewport (`.shell-main:has(.runs-screen)`), following My work rather
+ * than `/test-cases`: these are `.list-row`s, so the return on width is a stamp that stops
+ * wrapping and a title that stops folding into a two-word column. The record screen behind it
+ * stops at 1440px, where a run's evidence is read.
+ */
 export default async function ExecutionsPage({
   searchParams
 }: {
@@ -47,14 +55,17 @@ export default async function ExecutionsPage({
   const scopeParts = [productName, featureName].filter(Boolean);
 
   return (
-    <>
+    <div className="runs-screen">
       <div className="page-head">
         <h1>Executions</h1>
-        <Link className="btn" href="/executions/new">
-          Plan execution
+        <Link className="btn btn-icon" href="/executions/new">
+          <Plus size={15} aria-hidden /> Plan execution
         </Link>
       </div>
-      <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
+      {/* `.page-banner-lede` and not `.muted`: this is the screen's own description and stops at
+          a reading measure. As a `.muted` line it ran the full width, which this screen no longer
+          caps. */}
+      <p className="page-banner-lede">
         {total} execution{total === 1 ? "" : "s"}
         {query ? ` matching “${query}”` : ""}
         {/* "covering" not "in": a run belongs to no product or feature of its own, it
@@ -97,6 +108,6 @@ export default async function ExecutionsPage({
         jiraConfigured={jiraConnectionStatus().connected}
         stampFormat={viewerStampFormat(auth)}
       />
-    </>
+    </div>
   );
 }
