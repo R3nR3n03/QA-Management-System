@@ -1263,3 +1263,41 @@ export async function executionDetail(executionId: string) {
     }
   });
 }
+
+/**
+ * How many recent runs are offered as a starting point for a selection of test cases.
+ *
+ * Executions accumulate without bound, so this cannot be "all of them": a dropdown holding
+ * three years of runs is not a control. The screens that use it say when the list is capped
+ * rather than presenting a truncated one as complete.
+ */
+export const RECENT_RUN_LIMIT = 50;
+
+/**
+ * Recent runs with the ids of the cases they cover, newest first.
+ *
+ * For a screen that offers "start from a run" as a shortcut to a set of test cases. It
+ * carries only what such a control needs — how a person recognises a run, and which cases
+ * it covers — deliberately not `listExecutionsWithCase`, whose per-case select and tester
+ * context exist for rendering a record list and would be paid for on every option here.
+ *
+ * No role gate: every role may view executions (`docs/roles-workflows.md:9`), the same
+ * reasoning as `listAssignableTesters`. It exposes nothing a run row does not already show.
+ *
+ * The case ids are exactly what the run covers TODAY. A caller offering them as a
+ * preselection has to intersect them against whatever it can actually offer — a case may
+ * have been revised or retired since the run was planned — and report the difference
+ * rather than dropping it in silence.
+ */
+export async function listRecentRunsWithCaseIds() {
+  return prisma.testExecution.findMany({
+    select: {
+      id: true,
+      businessId: true,
+      purpose: true,
+      cases: { select: { testCaseId: true } }
+    },
+    orderBy: { createdAt: "desc" },
+    take: RECENT_RUN_LIMIT
+  });
+}

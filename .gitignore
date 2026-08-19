@@ -40,3 +40,14 @@ pnpm-debug.log*
 # misc
 .cache/
 .turbo/
+
+# cypress artifacts — runs produce these, the suite is the source of truth
+cypress/screenshots/
+cypress/videos/
+cypress/downloads/
+cypress/.seed.json
+
+# Claude Code: skills under .claude/skills/ are shared and tracked; everything the
+# tool writes while running is per-machine and is not
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

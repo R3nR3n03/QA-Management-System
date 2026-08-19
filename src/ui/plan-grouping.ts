@@ -24,6 +24,12 @@ export type PlanCandidate = {
   requirementBusinessId: string;
   moduleName: string;
   featureName: string;
+  /**
+   * The case's latest automation check and how many it has ever had, or null when it has
+   * none. Read-only context a row displays — deliberately absent from `haystack()` below,
+   * so the needle cannot filter by it; see the picker's own automation indicator.
+   */
+  automation?: { outcome: string; count: number } | null;
 };
 
 /**

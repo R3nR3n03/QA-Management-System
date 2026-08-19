@@ -38,12 +38,24 @@ Every rejected request returns HTTP `422` with stable error code, field path, an
 - Where the defect's product names a Jira project, raising a defect raises the Jira issue and every subsequent transition of that defect is reported on it. Neither is part of the defect's transaction: a Jira failure never fails the create or the transition, and never returns an error to the caller. The outcome is recorded against the defect and shown on its screen.
 - A product's Jira project key is optional and is set in the Catalogue by a role that may administer the catalogue. It is letters and digits starting with a letter, at least two characters, and is stored upper-cased; anything else is `ID_INVALID` on `jiraProjectKey`. Blank and absent both mean the product raises no bugs — clearing the field is how that is switched off, and is never an error. Omitting the field from an update leaves it unchanged, so an edit that says nothing about Jira can never silently disconnect a product.
 
+## Automation check rules
+
+- A **check** is one automation spec's observation of one test case at one instant. It reports; it does not claim. Only a person finalizing an execution claims that a test case passed, and a check never becomes, creates, or alters an execution.
+- Check outcomes are `Passed`, `Failed`, `Errored`, and `Skipped`. There is no `Blocked`: blocking is a person stating they could not proceed and requires a block reason, which no spec can supply. `Errored` is distinct from `Failed` — a failure is the software under test disagreeing with an expectation, an error is the spec never reaching one — and collapsing the two reports a broken spec as broken software.
+- A check is never edited. It carries no business ID and no version, and is append-only on the same rule as execution history.
+- QAMS stores no binding between a test case and the spec that checks it. A spec names the test case business ID it covers, in its test name or that test's class name; QAMS resolves that ID when results are ingested. An ID resolving to nothing is `REFERENCE_NOT_FOUND` on that row and a test naming none at all is reported as declaring no test case; neither creates a check, and neither stops the rest of the file being ingested.
+- A test-case revision inherits no coverage from the case it revises. A revision states different expected behaviour, so a spec must be pointed at the revision deliberately. Nothing follows a revision automatically, because a check recorded against expectations nobody re-verified is worse than no check at all.
+- Checks are ingested from a JUnit XML results file uploaded by a role that may administer the system. Ingestion validates and reports per row like any import, and creates, updates, or transitions nothing else — no test case, no execution, no defect.
+- Re-uploading a results file produces new checks. There is no `SKIPPED_UNCHANGED` and no reconciliation path: a check is an observation of one instant and is never the same observation twice.
+- A check never contributes to an execution's result, an RTM link, a release-readiness figure, or a dashboard count. See "Traceability and reporting rules".
+
 ## Traceability and reporting rules
 
 - Every Approved test case must link to exactly one Requirement. A requirement can have multiple test cases.
 - The system permits an RTM link without a defect; it does not infer that an unlinked requirement is covered.
 - Dashboard calculations exclude Retired products and Retired test cases. Execution and defect metrics must state filters, numerator, denominator, and as-of time before being shown.
 - No percentage, readiness threshold, or defect ageing target is defined by this knowledge base. Return `POLICY_NOT_DEFINED` rather than calculate or recommend one.
+- Automation checks are excluded from every figure defined here. They are observations rather than decisions, and no readiness or coverage number counts one. A metric that reports checks is a new metric carrying its own stated filters, numerator, and denominator — never a changed number behind an existing label.
 
 ## Import rules
 

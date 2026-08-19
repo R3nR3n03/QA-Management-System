@@ -1,0 +1,17 @@
+{
+  "//": "Cypress code is typechecked separately from the app, and both are gates (npm run typecheck runs each in turn). The split exists because Cypress ships global `describe`/`it`/`expect` from its bundled Mocha and Chai: pulling those into the app's program would put a second, incompatible `expect` in scope for 75 Vitest files. The root tsconfig therefore excludes this directory and this config owns it.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["cypress", "node"],
+    "lib": ["dom", "dom.iterable", "es2022"],
+    "isolatedModules": true,
+    "noEmit": true,
+    "incremental": false,
+    "jsx": "preserve",
+    "paths": {
+      "@/*": ["../src/*"]
+    }
+  },
+  "include": ["**/*.ts", "../cypress.config.ts"],
+  "exclude": []
+}

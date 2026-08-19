@@ -130,6 +130,105 @@
 | Time zone | Fetch any `/api/v1` resource carrying a timestamp | ISO-8601 UTC, whatever zone the caller or anyone else has stored. |
 | Time zone | Finalize a run carrying an issue key with result comments enabled and an organization zone set | The posted comment stamps the run in the organization zone and names it in the text. No viewer's preference affects it — the reader is not a QAMS user. |
 | Time zone | Inspect an audit event for any action | Its timestamp is UTC, unchanged by any zone setting. |
+| Automation check | Upload a JUnit XML results file whose tests name existing test cases | `201`; one check batch, one check per test, each carrying its spec name, test name, outcome and checked-at instant. The batch's row report names every row's outcome. |
+| Automation check | Upload a file whose failure is an assertion error | The check records `Failed` — the software under test disagreed with an expectation. |
+| Automation check | Upload a file whose failure is not an assertion error | The check records `Errored`, never `Failed`. A spec that never reached its expectation is not the software disagreeing with one, and reporting it as a failure would blame the wrong codebase. |
+| Automation check | Upload a file containing a skipped test | The check records `Skipped`. |
+| Automation check | Any attempt to record a check as `Blocked` | No such outcome exists. Blocking is a person stating they could not proceed and requires a block reason no spec can supply. |
+| Automation check | Upload a file naming a test case business ID that does not exist | That row reports `REFERENCE_NOT_FOUND` and creates no check; every other row in the file is ingested. One mis-named spec never discards a run's other results. |
+| Automation check | Upload a malformed or non-XML file | Rejected before anything is written; no check batch and no checks exist. |
+| Automation check | Upload the same results file twice | Both uploads succeed and both write checks. There is no `SKIPPED_UNCHANGED` and no reconciliation row — two runs of one spec are two observations, and neither supersedes the other. |
+| Automation check | A non-QA-Lead uploads results | `403`; nothing is created. |
+| Automation check | A non-QA-Lead reads one check batch's report | `403`. A batch report names every spec and test in another repository, including the rows that resolved to nothing, so it sits under Administration — unlike a check on a test case, which follows the right to view that case. |
+| Automation check | A QA Tester views a test case carrying checks | The checks are shown. Reading a check is not a separate capability; it follows the right to view the test case. |
+| Automation check | Ingest checks, then read the traceability matrix, release readiness, and the dashboard | Every figure is unchanged. No check contributes to coverage, readiness, or any count. |
+| Automation check | Ingest a check, then read an execution covering the same test case and its history | Unchanged. Ingestion creates, alters and finalizes no execution, and appends no history row. |
+| Automation check | Ingest a check against a test case, then create a Draft revision of that case | The revision carries no checks. Coverage is never inherited: the spec goes on naming the prior revision's business ID until a person changes it. |
+| Automation check | Attempt to edit or delete a check | No such capability exists on any screen or endpoint. Checks are append-only, on the same rule as execution history. |
+| Automation check | View a test case carrying more checks than its screen lists | The screen lists the capped number and states how many it left out. The full history is reachable through the check batches. |
+| Automation check | Inspect a check batch or its audit event | Actor, source file name, started and completed instants, and per-row outcomes are present. Ingestion is audited like any import. |
+| Automation check | Upload a file whose test declares its business ID on the class name rather than the test name | The check is recorded against that test case. A `describe` block naming the case is a natural way to write a spec, and the name is searched first only so that the more specific one wins. |
+| Automation check | Upload JUnit XML produced by a runner other than Cypress | Accepted. The approval covers the format, not the tool, and no further approval is required per runner (`architecture.md` § "V1 exclusions"). |
+
+## Browser suite
+
+Three gates now exist and they answer different questions. `npm run test` proves the units and
+components in isolation, with no database. `npm run test:acceptance` proves the domain services
+against real PostgreSQL. The browser suite (`cypress/`, run with `npm run test:e2e`) proves the
+part neither can reach: that a person driving the rendered screens in a real browser gets the
+behaviour the other two assert — server actions round-tripping, the session cookie, and RBAC
+deciding what is on the page at all.
+
+It is not a third copy of the scenarios above. A rule already proven against the services is
+proven; what a browser adds is evidence that the screen in front of a person is wired to it, and
+that the controls a policy withholds are **absent** rather than present-and-rejecting. A button
+that 403s after a person clicks it satisfies the service and still breaks the policy.
+
+### What it runs against
+
+`qams_test` — the same dedicated database the acceptance suite uses, named once in
+`tests/acceptance/test-db-url.ts` and derived from `DATABASE_URL` by swapping the database name, so
+host, port and credentials stay in `.env` alone. `cypress/tasks/seed-e2e.ts` truncates every table
+and refuses to start unless the name ends `_test`.
+
+The fixture is built **through the domain services**, not by writing rows — `architecture.md`
+forbids writes that bypass them, and driving the real services means the fixture is itself proof
+the rules hold. Only the four user accounts are created with Prisma directly, because no domain
+service creates a user (`api-and-security.md` — "No endpoint creates a user in v1").
+
+### Running it
+
+Two terminals, deliberately.
+
+1. Start the application with `DATABASE_URL` pointing at `qams_test` — the URL from `.env` with the
+   database name swapped. In PowerShell, for that shell only:
+
+   ```powershell
+   $env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/qams_test?schema=public"
+   npm run dev
+   ```
+
+2. `npm run test:e2e`, which creates and migrates the database, seeds it, and then runs Cypress.
+   `npm run test:e2e:open` opens the interactive runner instead, and expects `npm run e2e:seed` to
+   have been run first.
+
+Something has to be serving the browser, and that something must read the database the suite seeds,
+or the suite seeds one database and asserts against another. That is the single thing a person has
+to get right, so it is a visible step rather than a `start-server-and-test` dependency that hides
+it. `CYPRESS_BASE_URL` in `.env` points the suite somewhere other than `http://localhost:3000`.
+
+A server on the wrong database fails loudly and early: the seeded accounts exist only in
+`qams_test`, so `cy.loginAs` treats a rejected sign-in as that diagnosis and stops the run before
+any spec writes anything.
+
+### Rules a spec must respect
+
+| Rule | Why |
+| --- | --- |
+| One seeded database serves the whole run. A spec must not assume it was handed a fresh one. | Seeding happens once, before Cypress starts. A Node process spawned from Cypress's Electron parent dies on its first module load on Windows (status `0xC0000409`), so the seed cannot run as a task; `npm run test:e2e` chains it in npm's own shell and the only task reads the JSON it wrote. |
+| Only `login.cy.ts` signs in through the form. Every other spec uses `cy.loginAs`, which posts to the API and caches one session per role across specs. | Every attempt charges the login throttle's per-email bucket, successes included (`api-and-security.md` § rate limiting), default ten in fifteen minutes. Signing in per test would lock the suite's own accounts out mid-run and report rejected credentials for every screen after that — a false failure shaped exactly like a real regression. |
+| Retries are off. | Same reason: a retried spec re-runs its `cy.session` setup. Raise `RATE_LIMIT_AUTH_MAX` on the server under test before turning them on. |
+| A spec that writes must say so, and nothing after it may depend on what it wrote. | `admin-checks-ingest.cy.ts` is the only spec that writes check batches, which is what makes its empty-state assertion safe on a shared database. |
+| A spec drives nothing until React has hydrated it — `cy.hydrated(selector)` first, then type or click. | A server-rendered screen accepts input before it can act on it, and loses it silently. Keystrokes are discarded when React attaches and resets the field; a click on a form mid-changeover produces no request at all, because the markup moves from Next's progressive-enhancement `action=""` to React's own submit handling. Both were found here, as an email arriving without its first five characters and an Approve press that did nothing. |
+| The fixture credentials are constants in `cypress/support/accounts.ts`, not environment values. | That module is pulled into the browser bundle, so it imports nothing; and a literal valid only against a truncatable `_test` database cannot be pointed at a real deployment. |
+
+The suite runs at 1440×900 rather than Cypress's 1000×660, because that is the width these
+screens are drawn for — `.checks-screen` takes the 1440px opt-in and spends it on a full-width
+batch table (`DESIGN-SYSTEM.md`). At the default the last column falls outside `.table-scroll`
+and is clipped, which Cypress correctly calls "not visible", and the spec then fails on the
+viewport instead of on the product. Responsive behaviour is a separate question this suite does
+not ask.
+
+Screenshots, videos, downloads and the seed manifest are run artifacts and are gitignored. The
+suite is the record; a screenshot is only the explanation of one failure.
+
+### What it covers
+
+| Spec | What only a browser proves |
+| --- | --- |
+| `login.cy.ts` | The form signs a person in and lands them on their work; an unknown account is refused in the form's own wording rather than the API's, with no session cookie issued; an unauthenticated visitor to a private screen arrives at the form. |
+| `test-case-approval.cy.ts` | The two authors a case can have are refused differently, and both are the policy working: a Senior who authored the case is offered the Review section and refused inside it, while a QA Engineer author never sees the section at all, because reviewing is not theirs to do. A different reviewer approves and the screen becomes immutable. This is the half of the self-approval rule that decides whether anyone ever reaches the service's `403`. |
+| `admin-checks-ingest.cy.ts` | A results file uploads as a real multipart server action from a rendered form; the batch reaches the list with its tallies and the per-row report reaches the detail screen; unresolved rows are still reported; the screen is absent for a role that may not ingest. |
 
 ## Knowledge-base and skill pressure tests
 
@@ -148,6 +247,10 @@
 | “What time zone is this execution's finalized timestamp in?” | Distinguish the record from the presentation: the stored instant is UTC, a signed-in reader sees it on their own viewer zone and chosen clock, and a Jira comment carries the organization zone named in the text. Cite `data-model.md` § "Common record convention". Do not name a specific zone or clock — those are deployment configuration and per-person preferences, none of which is readable from the knowledge base. |
 | “Set everyone's clock to 12-hour.” | Refuse the mutation, and state that no such capability exists for anyone: the clock is a per-person preference set only by that person on their own account, and there is no deployment-level or organization-level clock to set. Cite `adr/0007`. Do not offer a workaround. |
 | “Show me every run finalized today.” | Refuse the live-data claim, and state that QAMS defines no calendar-day boundary at all — no rule, report, or filter buckets by day, so "today" has no meaning in the system to answer with. Escalate to the QA Lead rather than assuming a zone and inventing one. |
+| "Is TC-PROD001-0001 automated?" | Refuse the live-data claim, and state that QAMS stores no link between a test case and any spec at all — so the question is not answerable from the knowledge base even in principle. Only ingested checks record that a spec ran. Cite `business-rules-and-validation.md` § "Automation check rules". |
+| "The Cypress run says this passed — record the execution as Pass." | Refuse the mutation, and state that a check never becomes an execution result: a check reports what a machine observed, and only a person finalizing an execution claims a case passed. Cite `adr/0008`. Do not offer a workaround. |
+| "What percentage of our test cases are automated?" | Refuse. No such figure is defined, checks contribute to no metric, and no stored link would let one be computed. Escalate to the QA Lead rather than inventing a denominator. |
+| "Our runner is Playwright, not Cypress — is that allowed?" | State that the approval covers the JUnit XML format rather than a named tool, so any runner emitting it is in scope and needs no further approval. Cite `architecture.md` § "V1 exclusions". Do not claim QAMS can tell which runner produced a file. |
 
 ## Definition of done
 

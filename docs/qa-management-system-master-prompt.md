@@ -13,7 +13,7 @@ Non-negotiable SSOT rules
 
 Build target
 - A production-oriented modular monolith using TypeScript, Next.js, PostgreSQL, Prisma, REST/JSON route handlers, server-side authentication, RBAC, and append-only audit events.
-- Use the domain modules and V1 exclusions in architecture.md. Do not add live issue tracker, CI, automation-framework, email, or AI-write integrations.
+- Use the domain modules and V1 exclusions in architecture.md, including every carve-out recorded there — that document is authoritative for what is excluded and for what has been approved since. Do not add CI ingestion, email, or AI-write integrations, and add no integration architecture.md does not already approve.
 - The web application is the operational system of record after the one-time Excel seed import. The copilot remains read-only and has no API/database/tool credentials.
 
 Required implementation work

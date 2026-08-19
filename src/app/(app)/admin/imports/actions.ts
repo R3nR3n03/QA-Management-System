@@ -17,7 +17,7 @@ export async function uploadWorkbookAction(_prev: FormState, formData: FormData)
 
   // The same A2 gate the API route applies, before the bytes are copied out.
   try {
-    assertWithinUploadLimit(file.size, maxUploadBytes());
+    assertWithinUploadLimit(file.size, maxUploadBytes(), "workbook");
   } catch (error) {
     if (error instanceof AppError) {
       const copy = errorCopy(error.code, error.field);

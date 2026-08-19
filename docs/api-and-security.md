@@ -13,7 +13,7 @@ Base path: `/api/v1`. JSON requests and responses use camelCase. Collection endp
 | Execution | `GET/POST /executions` (create takes `testCaseIds[]` — one or more Approved cases selected together), `PATCH /executions/{id}` (reassigns the tester; only while Planned), `POST /executions/{id}/start`, `POST /executions/{id}/finalize` (takes per-case `results[]` covering every case exactly once), `GET /executions/{id}/history` |
 | Defects | `GET/POST /defects`, `GET/PATCH /defects/{id}` (only while New), `POST /defects/{id}/transition` |
 | Traceability/reporting | `GET/POST /rtm-links`, `GET /dashboard`, `GET /release-readiness?productId=&release=&environment=` (advisory report only; no endpoint records the QA Lead's readiness decision in v1) |
-| Administration | `POST /imports/workbook`, `GET /imports/{id}`, `GET/POST/PATCH /controlled-values` (POST adds a value to one of the three documented catalogues; PATCH toggles `active`; values are never renamed or deleted), `POST /users`, `PATCH /users/{id}` (either profile fields — displayName/email — or `active`, never both in one request), `GET/PATCH /users/{id}/role`, `POST /users/{id}/password` (QA Lead sets a new password for someone else's account, for when they cannot supply their current one; revokes every session they hold; refused for the caller's own account — use `POST /users/me/password` instead). There is no user list or user delete endpoint; deactivation via `active` is the only removal path. |
+| Administration | `POST /imports/workbook`, `GET /imports/{id}`, `GET/POST/PATCH /controlled-values` (POST adds a value to one of the three documented catalogues; PATCH toggles `active`; values are never renamed or deleted), `POST /users`, `PATCH /users/{id}` (either profile fields — displayName/email — or `active`, never both in one request), `GET/PATCH /users/{id}/role`, `POST /users/{id}/password` (QA Lead sets a new password for someone else's account, for when they cannot supply their current one; revokes every session they hold; refused for the caller's own account — use `POST /users/me/password` instead). There is no user list or user delete endpoint; deactivation via `active` is the only removal path. `POST /check-batches` uploads one JUnit XML results file and returns a Check Batch; `GET /check-batches/{id}` returns its row report. |
 
 Every mutation routes through its domain service; direct ORM calls from route handlers are prohibited. The `transition` endpoints accept only the documented target state and required supporting fields; they never accept an arbitrary state patch.
 
@@ -46,7 +46,7 @@ Display preferences are a presentation concern and apply only to what a person i
 - Validate JSON shape, scalar lengths, enums, and IDs at the request boundary; re-check business rules in services.
 - Store secrets in deployment-managed environment variables. Never commit them, return them from APIs, or include them in audit logs.
 - Sanitize displayed rich text as plain text in v1. Evidence is recorded as a reference string only; binary-upload storage is not defined in v1.
-- Rate limit authentication and import endpoints. Exact limits are deployment policy and are not defined here.
+- Rate limit authentication and import endpoints, including automation check ingestion. Exact limits are deployment policy and are not defined here.
 - Store outbound-integration credentials encrypted at rest under a deployment-managed key. They are never returned by the API, rendered in a screen, logged, or written to an audit event — the same rule the password hash already carries.
 
 ## Jira execution sync interface
@@ -94,6 +94,16 @@ Every attempt outcome, including the failure reason, is readable on the defect i
 ## Workbook import interface
 
 `POST /imports/workbook` accepts one `.xlsx` file and returns an Import Run. It validates structure, stages rows, executes the dependency order in `excel-source-map.md`, and returns a report. Reconciliation-required rows remain uncommitted until a QA Lead explicitly resolves them through a documented follow-up operation.
+
+## Automation check ingestion interface
+
+`POST /check-batches` accepts one JUnit XML results file and returns a Check Batch with a per-row report, in the shape `POST /imports/workbook` already returns. It is restricted to the role that may administer the system (`roles-workflows.md`).
+
+Each `<testcase>` is resolved to a QAMS test case by the business ID its name declares, or failing that its class name — a `describe` block naming the case is a natural way to write a spec and is not worth refusing. A row whose ID resolves to nothing is reported `REFERENCE_NOT_FOUND` and creates no check; other rows in the same file are unaffected, because one mis-named spec must not discard a whole run's results. A malformed file is rejected before anything is written.
+
+The endpoint writes **checks only**. It creates no test case, starts or finalizes no execution, raises no defect, and writes no trace link — there is no request shape that would let it, and no parameter enabling it. Re-posting the same file is not idempotent and is not meant to be: it records a second set of observations, which is what a second run is.
+
+Checks carry no credential material and no evidence contents. A failure reason is the runner's message, stored as plain text under the same sanitization rule as every other displayed string.
 
 ## AI boundary
 

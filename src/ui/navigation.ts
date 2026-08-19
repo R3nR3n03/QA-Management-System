@@ -145,6 +145,13 @@ export const NAV: readonly NavItem[] = [
     basis: "roles-workflows.md:16"
   },
   {
+    href: "/admin/checks",
+    label: "Automation checks",
+    group: "Administration",
+    roles: LEAD_ONLY,
+    basis: "roles-workflows.md - upload automation check results, QA Lead only"
+  },
+  {
     href: "/admin/integrations",
     label: "Integrations",
     group: "Administration",

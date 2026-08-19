@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     // multipart payload into memory, so a check after it has already paid the cost
     // this limit exists to avoid. Content-Length includes multipart overhead, making
     // this marginally conservative — immaterial against an MB-scale limit.
-    assertWithinUploadLimit(headerContentLength(request.headers.get("content-length")), limit);
+    assertWithinUploadLimit(headerContentLength(request.headers.get("content-length")), limit, "workbook");
 
     const form = await request.formData();
     const file = form.get("file");
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     // SECOND, because the header above is a hint, not a guarantee: a chunked request
     // sends no Content-Length at all, and a supplied one need not be honest. This is
     // the check that actually holds.
-    assertWithinUploadLimit(file.size, limit);
+    assertWithinUploadLimit(file.size, limit, "workbook");
 
     const bytes = await file.arrayBuffer();
     // The QA-Lead gate now lives in createImportRun, where api-and-security.md:38
