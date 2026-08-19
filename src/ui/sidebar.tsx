@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentType
+} from "react";
 import {
   Bug,
   ChevronsLeft,
@@ -34,7 +41,7 @@ import { useStoredPref } from "./stored-pref";
  * before (`src/ui/navigation.ts` is still the single source of screens) — this file
  * only changes how the rail LOOKS and is operated:
  *
- *   - searchable (filter-as-you-type, Escape clears)
+ *   - searchable (filter-as-you-type, Ctrl/Cmd+K reaches it, Escape clears)
  *   - collapsible to an icon rail on desktop, persisted per browser
  *   - active page indicated by aria-current, styled from it (never a class alone)
  *   - live badges: open assigned runs on "My work", cases awaiting review on "Review"
@@ -97,6 +104,29 @@ function matches(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/*
+ * Which modifier this reader's platform prints on a keyboard shortcut.
+ *
+ * `useSyncExternalStore` and not an effect that calls `setModKey`: the platform is an external
+ * system read during render, the server snapshot below is what keeps hydration clean, and there
+ * is no cascading setState — which is the whole reason `react-hooks/set-state-in-effect` exists.
+ * `useStoredPref` is the same shape over `localStorage`, and it records why the read has to work
+ * this way.
+ *
+ * Hoisted for the reason that file gives: an arrow in a component body is a new identity every
+ * render, and this component re-renders on every keystroke in its own search box.
+ *
+ * The platform never changes mid-session, so `subscribe` attaches nothing and the store settles
+ * after one read. `navigator.platform` is deprecated but is the only honest answer where it is
+ * still populated; the userAgent covers the browsers that have dropped it.
+ */
+const subscribeToNothing = () => () => {};
+const readModKey = () =>
+  /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent) ? "⌘" : "Ctrl";
+/* Windows and Linux are the server's guess, and the client's first render agrees with it, so a
+   reader on either sees no repaint. A Mac corrects itself once, after hydration. */
+const serverModKey = () => "Ctrl";
+
 export function Sidebar({
   groups,
   badges,
@@ -114,12 +144,58 @@ export function Sidebar({
   const [themePref, setThemePref] = useStoredPref(THEME_KEY, "system");
   const collapsed = collapsedPref === "1";
   const theme: Theme = themePref === "light" || themePref === "dark" ? themePref : "system";
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  /* Set when the shortcut fires against a COLLAPSED rail: the box is not rendered there, so the
+     focus has to wait for the expand to commit. A ref and not state — nothing renders from it. */
+  const focusOnExpand = useRef(false);
+  const modKey = useSyncExternalStore(subscribeToNothing, readModKey, serverModKey);
 
   // DOM side effect only — no state changes — so the stored choice takes effect on
   // mount and on every switch.
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  /**
+   * Ctrl/Cmd+K reaches the navigation search from anywhere on the page.
+   *
+   * Both modifiers are accepted rather than branching on the platform: the handler cannot be
+   * wrong about which key this reader pressed, and neither browser binds the other one.
+   *
+   * It stands down while focus is in a field someone is typing in. Two reasons, and the second
+   * is the real one: a nav shortcut must never eat a keystroke aimed at a form, and Ctrl+K is
+   * macOS's own kill-line inside a text field, which this would otherwise silently break. WCAG
+   * 2.2 SC 2.1.4 does not reach a shortcut that requires a modifier, so nothing here needs an
+   * opt-out — but a shortcut that steals typing would still be wrong.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "k" && event.key !== "K") return;
+      if (!event.metaKey && !event.ctrlKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && target !== searchRef.current) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) return;
+      }
+      event.preventDefault();
+      if (searchRef.current) {
+        searchRef.current.focus();
+        searchRef.current.select();
+        return;
+      }
+      focusOnExpand.current = true;
+      setCollapsedPref("0");
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [setCollapsedPref]);
+
+  // The second half of the collapsed case: the box exists now, so it can take focus.
+  useEffect(() => {
+    if (collapsed || !focusOnExpand.current) return;
+    focusOnExpand.current = false;
+    searchRef.current?.focus();
+  }, [collapsed]);
 
   /**
    * Collapsing clears the needle. The search box only renders while expanded, so a
@@ -195,6 +271,7 @@ export function Sidebar({
         <div className="rail-search">
           <Search size={14} aria-hidden className="rail-search-icon" />
           <input
+            ref={searchRef}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -203,6 +280,9 @@ export function Sidebar({
             }}
             placeholder="Find a screen…"
             aria-label="Search navigation"
+            /* Both, because the handler accepts both. This is what makes the shortcut
+               discoverable to a reader who never sees the printed `<kbd>`. */
+            aria-keyshortcuts="Control+K Meta+K"
           />
           {query ? (
             <button
@@ -213,7 +293,15 @@ export function Sidebar({
             >
               <X size={13} aria-hidden />
             </button>
-          ) : null}
+          ) : (
+            /* Hidden once there is a needle, where the Clear button takes the slot — and where a
+               shortcut that reaches a box already focused is not worth the width. `aria-hidden`
+               because `aria-keyshortcuts` above already tells assistive tech the same thing, in
+               the form it expects. */
+            <kbd className="rail-kbd" aria-hidden>
+              {modKey} K
+            </kbd>
+          )}
         </div>
       ) : null}
 

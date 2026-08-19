@@ -150,6 +150,86 @@
 | Automation check | Upload a file whose test declares its business ID on the class name rather than the test name | The check is recorded against that test case. A `describe` block naming the case is a natural way to write a spec, and the name is searched first only so that the more specific one wins. |
 | Automation check | Upload JUnit XML produced by a runner other than Cypress | Accepted. The approval covers the format, not the tool, and no further approval is required per runner (`architecture.md` § "V1 exclusions"). |
 
+## Browser suite
+
+Three gates now exist and they answer different questions. `npm run test` proves the units and
+components in isolation, with no database. `npm run test:acceptance` proves the domain services
+against real PostgreSQL. The browser suite (`cypress/`, run with `npm run test:e2e`) proves the
+part neither can reach: that a person driving the rendered screens in a real browser gets the
+behaviour the other two assert — server actions round-tripping, the session cookie, and RBAC
+deciding what is on the page at all.
+
+It is not a third copy of the scenarios above. A rule already proven against the services is
+proven; what a browser adds is evidence that the screen in front of a person is wired to it, and
+that the controls a policy withholds are **absent** rather than present-and-rejecting. A button
+that 403s after a person clicks it satisfies the service and still breaks the policy.
+
+### What it runs against
+
+`qams_test` — the same dedicated database the acceptance suite uses, named once in
+`tests/acceptance/test-db-url.ts` and derived from `DATABASE_URL` by swapping the database name, so
+host, port and credentials stay in `.env` alone. `cypress/tasks/seed-e2e.ts` truncates every table
+and refuses to start unless the name ends `_test`.
+
+The fixture is built **through the domain services**, not by writing rows — `architecture.md`
+forbids writes that bypass them, and driving the real services means the fixture is itself proof
+the rules hold. Only the four user accounts are created with Prisma directly, because no domain
+service creates a user (`api-and-security.md` — "No endpoint creates a user in v1").
+
+### Running it
+
+Two terminals, deliberately.
+
+1. Start the application with `DATABASE_URL` pointing at `qams_test` — the URL from `.env` with the
+   database name swapped. In PowerShell, for that shell only:
+
+   ```powershell
+   $env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/qams_test?schema=public"
+   npm run dev
+   ```
+
+2. `npm run test:e2e`, which creates and migrates the database, seeds it, and then runs Cypress.
+   `npm run test:e2e:open` opens the interactive runner instead, and expects `npm run e2e:seed` to
+   have been run first.
+
+Something has to be serving the browser, and that something must read the database the suite seeds,
+or the suite seeds one database and asserts against another. That is the single thing a person has
+to get right, so it is a visible step rather than a `start-server-and-test` dependency that hides
+it. `CYPRESS_BASE_URL` in `.env` points the suite somewhere other than `http://localhost:3000`.
+
+A server on the wrong database fails loudly and early: the seeded accounts exist only in
+`qams_test`, so `cy.loginAs` treats a rejected sign-in as that diagnosis and stops the run before
+any spec writes anything.
+
+### Rules a spec must respect
+
+| Rule | Why |
+| --- | --- |
+| One seeded database serves the whole run. A spec must not assume it was handed a fresh one. | Seeding happens once, before Cypress starts. A Node process spawned from Cypress's Electron parent dies on its first module load on Windows (status `0xC0000409`), so the seed cannot run as a task; `npm run test:e2e` chains it in npm's own shell and the only task reads the JSON it wrote. |
+| Only `login.cy.ts` signs in through the form. Every other spec uses `cy.loginAs`, which posts to the API and caches one session per role across specs. | Every attempt charges the login throttle's per-email bucket, successes included (`api-and-security.md` § rate limiting), default ten in fifteen minutes. Signing in per test would lock the suite's own accounts out mid-run and report rejected credentials for every screen after that — a false failure shaped exactly like a real regression. |
+| Retries are off. | Same reason: a retried spec re-runs its `cy.session` setup. Raise `RATE_LIMIT_AUTH_MAX` on the server under test before turning them on. |
+| A spec that writes must say so, and nothing after it may depend on what it wrote. | `admin-checks-ingest.cy.ts` is the only spec that writes check batches, which is what makes its empty-state assertion safe on a shared database. |
+| A spec drives nothing until React has hydrated it — `cy.hydrated(selector)` first, then type or click. | A server-rendered screen accepts input before it can act on it, and loses it silently. Keystrokes are discarded when React attaches and resets the field; a click on a form mid-changeover produces no request at all, because the markup moves from Next's progressive-enhancement `action=""` to React's own submit handling. Both were found here, as an email arriving without its first five characters and an Approve press that did nothing. |
+| The fixture credentials are constants in `cypress/support/accounts.ts`, not environment values. | That module is pulled into the browser bundle, so it imports nothing; and a literal valid only against a truncatable `_test` database cannot be pointed at a real deployment. |
+
+The suite runs at 1440×900 rather than Cypress's 1000×660, because that is the width these
+screens are drawn for — `.checks-screen` takes the 1440px opt-in and spends it on a full-width
+batch table (`DESIGN-SYSTEM.md`). At the default the last column falls outside `.table-scroll`
+and is clipped, which Cypress correctly calls "not visible", and the spec then fails on the
+viewport instead of on the product. Responsive behaviour is a separate question this suite does
+not ask.
+
+Screenshots, videos, downloads and the seed manifest are run artifacts and are gitignored. The
+suite is the record; a screenshot is only the explanation of one failure.
+
+### What it covers
+
+| Spec | What only a browser proves |
+| --- | --- |
+| `login.cy.ts` | The form signs a person in and lands them on their work; an unknown account is refused in the form's own wording rather than the API's, with no session cookie issued; an unauthenticated visitor to a private screen arrives at the form. |
+| `test-case-approval.cy.ts` | The two authors a case can have are refused differently, and both are the policy working: a Senior who authored the case is offered the Review section and refused inside it, while a QA Engineer author never sees the section at all, because reviewing is not theirs to do. A different reviewer approves and the screen becomes immutable. This is the half of the self-approval rule that decides whether anyone ever reaches the service's `403`. |
+| `admin-checks-ingest.cy.ts` | A results file uploads as a real multipart server action from a rendered form; the batch reaches the list with its tallies and the per-row report reaches the detail screen; unresolved rows are still reported; the screen is absent for a role that may not ingest. |
+
 ## Knowledge-base and skill pressure tests
 
 | Prompt | Required behavior |

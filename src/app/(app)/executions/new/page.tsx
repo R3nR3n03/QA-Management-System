@@ -85,7 +85,8 @@ export default async function PlanExecutionPage({
               requirementId: c.requirementId,
               requirementBusinessId: c.requirement.businessId,
               moduleName: c.module.name,
-              featureName: c.feature.name
+              featureName: c.feature.name,
+              automation: c.checks[0] ? { outcome: c.checks[0].outcome, count: c._count.checks } : null
             }))}
             products={products.map((p) => ({ id: p.id, businessId: p.businessId, name: p.name }))}
             testers={testers.map((t) => ({

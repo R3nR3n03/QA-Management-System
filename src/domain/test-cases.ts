@@ -113,6 +113,14 @@ export async function listTestCases(options: TestCaseListOptions = {}) {
  *
  * Unpaged on purpose: the picker's selection has to survive filtering, so it holds the
  * whole candidate set. The screen bounds what it RENDERS.
+ *
+ * Carries each case's latest automation check and how many it has ever had — read-only
+ * context for whoever is picking, never a filter and never a claim: a check reports what a
+ * spec saw, it is not evidence a case was verified (ADR-0008), and nothing here counts
+ * toward coverage or readiness (`business-rules-and-validation.md` § "Automation check
+ * rules"). One case with zero checks is the common case, so `checks` comes back empty
+ * rather than null for it — callers read an empty array as "nothing to show", the same rule
+ * `openExecutionCountsByTester` documents for a missing `groupBy` key.
  */
 export async function listApprovedCandidates() {
   return prisma.testCase.findMany({
@@ -128,7 +136,13 @@ export async function listApprovedCandidates() {
       requirementId: true,
       module: { select: { name: true } },
       feature: { select: { name: true, businessId: true } },
-      requirement: { select: { businessId: true } }
+      requirement: { select: { businessId: true } },
+      _count: { select: { checks: true } },
+      checks: {
+        orderBy: [{ checkedAt: "desc" }, { createdAt: "desc" }],
+        take: 1,
+        select: { outcome: true }
+      }
     },
     orderBy: { businessId: "asc" }
   });

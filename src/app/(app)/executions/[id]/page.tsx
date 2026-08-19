@@ -204,6 +204,7 @@ export default async function ExecutionPage({
   // reader had to re-find those cases by hand on the planning screen. This carries them
   // across as a preselection; `/executions/new` still decides what may actually be
   // planned (only Approved cases are offered, and `createExecution` re-checks that).
+  const coveredCaseIds = execution.cases.map((covered) => covered.testCase.id);
   const rerunCaseIds =
     execution.state === ExecutionLifecycleState.FINALIZED
       ? execution.cases
@@ -237,6 +238,19 @@ export default async function ExecutionPage({
             href={`/executions/new?cases=${rerunCaseIds.join(",")}&from=${execution.id}`}
           >
             Plan a rerun of {rerunCaseIds.length} case{rerunCaseIds.length === 1 ? "" : "s"}
+          </Link>
+        ) : null}
+        {auth.role === QamsRole.QA_LEAD && coveredCaseIds.length > 0 ? (
+          /* A preselection, never an instruction — the picker on the other side
+             intersects these against what is still Approved and says what it dropped.
+             Lead-only because the screen it opens is: an affordance appears only where
+             it works. */
+          <Link
+            className="btn btn-secondary"
+            href={`/admin/checks/naming-contract?cases=${coveredCaseIds.join(",")}`}
+          >
+            Naming contract for {coveredCaseIds.length} case
+            {coveredCaseIds.length === 1 ? "" : "s"}
           </Link>
         ) : null}
       </div>

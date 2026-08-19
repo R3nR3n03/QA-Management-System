@@ -5,6 +5,7 @@ import {
   ExecutionOutcome,
   TestCaseLifecycleState
 } from "@prisma/client";
+import { CHECK_OUTCOME_LABEL, CHECK_OUTCOME_TONE } from "./check-outcome";
 
 /**
  * State reads before text does. Each chip carries a colour AND a stripe AND a word,
@@ -79,13 +80,6 @@ export function OutcomeChip({ outcome }: { outcome: ExecutionOutcome }) {
   return <span className={`state${tone}`}>{OUTCOME_LABEL[outcome]}</span>;
 }
 
-const CHECK_OUTCOME_LABEL: Record<CheckOutcome, string> = {
-  PASSED: "Passed",
-  FAILED: "Failed",
-  ERRORED: "Errored",
-  SKIPPED: "Skipped"
-};
-
 /**
  * What one automation spec observed. Deliberately NOT `OutcomeChip`: that one reports what
  * a person claimed on finalizing a run, and these two must never be mistaken for each other
@@ -96,13 +90,5 @@ const CHECK_OUTCOME_LABEL: Record<CheckOutcome, string> = {
  * place a person actually reads it.
  */
 export function CheckOutcomeChip({ outcome }: { outcome: CheckOutcome }) {
-  const tone =
-    outcome === CheckOutcome.PASSED
-      ? " state-pass"
-      : outcome === CheckOutcome.FAILED
-        ? " state-fail"
-        : outcome === CheckOutcome.ERRORED
-          ? " state-blocked"
-          : "";
-  return <span className={`state${tone}`}>{CHECK_OUTCOME_LABEL[outcome]}</span>;
+  return <span className={CHECK_OUTCOME_TONE[outcome] ?? "state"}>{CHECK_OUTCOME_LABEL[outcome]}</span>;
 }

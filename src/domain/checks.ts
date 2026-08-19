@@ -201,7 +201,16 @@ export async function listCheckBatches(actorRole: QamsRole, options: PageRequest
   ensureRole([...RoleSets.canAdmin], actorRole);
   return runPaged(
     options,
-    (window) => prisma.checkBatch.findMany({ orderBy: { startedAt: "desc" }, ...window }),
+    // The uploader's name comes with the row so the list can say who carried a file in — the
+    // one person a batch records, and NOT someone who verified anything (see `CheckBatch` in
+    // the schema). Selected rather than included whole: the list has no use for their role,
+    // status or credentials, and a screen cannot leak a field it was never handed.
+    (window) =>
+      prisma.checkBatch.findMany({
+        orderBy: { startedAt: "desc" },
+        include: { actor: { select: { displayName: true } } },
+        ...window
+      }),
     () => prisma.checkBatch.count()
   );
 }
@@ -243,4 +252,27 @@ export async function listChecksForTestCase(testCaseId: string, limit: number = 
     prisma.check.count({ where: { testCaseId } })
   ]);
   return { checks, total };
+}
+
+/**
+ * The checks one batch actually wrote, for the screen that renders its row report.
+ *
+ * The report in `reportJson` names the check each row produced but not the test case it
+ * landed on, and not the runner's failure reason — both live on the `Check` row. Rather
+ * than widen the stored report (which would leave every batch ingested before today
+ * without them), the screen joins on `checkId`, which every CREATED row has always
+ * carried. Old batches therefore gain the link and the reason too.
+ *
+ * Gated like `getCheckBatch` and for the same reason: this is about the upload rather
+ * than about any one test case, which `docs/api-and-security.md` places under
+ * Administration. Deliberately NOT folded into `getCheckBatch` — that function is what
+ * `GET /api/v1/check-batches/{id}` returns, and changing its shape would change a
+ * documented API surface for the sake of a screen.
+ */
+export async function listChecksForBatch(batchId: string, actorRole: QamsRole) {
+  ensureRole([...RoleSets.canAdmin], actorRole);
+  return prisma.check.findMany({
+    where: { checkBatchId: batchId },
+    select: { id: true, testCaseId: true, failureReason: true }
+  });
 }

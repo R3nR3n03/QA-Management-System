@@ -183,7 +183,11 @@ export default async function TestCasePage({ params }: { params: Promise<{ id: s
         </>
       ) : null}
 
-      <ChecksPanel testCaseId={testCase.id} stampFormat={stampFormat} />
+      <ChecksPanel
+        testCaseId={testCase.id}
+        stampFormat={stampFormat}
+        canOpenBatch={auth.role === QamsRole.QA_LEAD}
+      />
     </>
   );
 }
