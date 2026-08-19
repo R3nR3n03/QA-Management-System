@@ -109,6 +109,12 @@ const TEXT: Pair[] = [
   { fg: "--pass", bg: "--surface", where: ".run-stat-pass dd" },
   { fg: "--fail", bg: "--surface", where: ".run-stat-fail dd" },
   { fg: "--blocked", bg: "--surface", where: ".run-stat-blocked dd" },
+  // And bare on the inset surface: the check batch head's tally slots sit in a
+  // `--surface-2` trough (`.tally-slot`) and tone their value the same way. Held to
+  // 4.5:1 rather than the 3:1 the 20px value would be allowed, for the same reason.
+  { fg: "--pass", bg: "--surface-2", where: ".tally-slot[data-tone=pass] .tally-n" },
+  { fg: "--fail", bg: "--surface-2", where: ".tally-slot[data-tone=fail] .tally-n" },
+  { fg: "--blocked", bg: "--surface-2", where: ".tally-slot[data-tone=blocked] .tally-n" },
   { fg: "--ink", bg: "--fail-wash", where: ".notice strong", large: true }
 ];
 
@@ -185,6 +191,7 @@ describe("the control-boundary token is wired to the controls", () => {
     [".field input", "text, textarea and select inputs"],
     [".btn-secondary", "the outlined button"],
     [".select-filter", "the list dropdown filter"],
+    [".dropzone", "the automation results drop target"],
     [".list-toolbar", "the list search field"],
     [".rail-search", "the sidebar search field"],
     [".case-pick", "a case row that opens its result dialog"],
