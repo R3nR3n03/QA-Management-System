@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 import type { TestCaseLifecycleState } from "@prisma/client";
 import { TestCaseStateChip } from "./chips";
 import { ListEmpty } from "./list-empty";
@@ -14,6 +13,28 @@ export type ProductOption = { id: string; businessId: string; name: string };
 /**
  * The one way a list of test cases renders, so `/test-cases`, `/my-work/drafts` and
  * `/review` stay visually identical.
+ *
+ * ## A table, not a list of rows
+ *
+ * These were `.list-row`s: the ID and the state chip on one line, the title on the next, and
+ * `high priority · major severity` on a third. Five homogeneous fields, and two of them
+ * appended to each other as a sentence — so a Critical/Blocker case read exactly like a
+ * Low/Trivial one, and nothing could be scanned down the page. Fifty of those rows ran a page
+ * and a half deep, and every pixel of a wide screen went to empty margin beside three short
+ * lines.
+ *
+ * That is precisely the failure that moved the check batch list off `.list-row`
+ * (`DESIGN-SYSTEM.md`, Data table: "a tally appended to the timestamp… the column could not be
+ * scanned"), and the fix is the same one: the words become `<th>`s and the values become cells
+ * under them. Every column but `Title` hugs its content (`.tight`), so the title — the only
+ * column that gains from room — takes all the slack a wide screen provides.
+ *
+ * The trailing `View` button went with the rows. In a three-line block it was the only thing
+ * that looked clickable; in a table the ID and the title are the two leftmost columns, the row
+ * carries a hover wash, and a sixth column holding a control that goes exactly where the title
+ * already goes is chrome. It was `tabIndex={-1}` — deliberately outside the tab order, since 50
+ * rows would otherwise be 100 stops — so no keyboard path is lost. Same call the batch list
+ * makes.
  *
  * ## Server component
  *
@@ -34,7 +55,30 @@ export type CaseRow = {
   lifecycleState: TestCaseLifecycleState;
   priority: string;
   severity: string;
+  /**
+   * Who wrote it. Only read when a caller passes `viewerUserId` — see that prop for why the
+   * review queue needs it and the other two lists do not. Required rather than optional so the
+   * marking cannot silently do nothing on a list whose rows happen not to carry it.
+   */
+  authorUserId: string;
 };
+
+/**
+ * A field the row does not carry.
+ *
+ * Present, visibly empty, never absent: a blank cell in the middle of a table reads as a
+ * rendering fault. The dash is `aria-hidden` with the word beside it in `.sr-only`, because a
+ * screen reader announcing "em dash" down a column is worse than one saying "none" — the same
+ * call `.num-none` makes about a zero.
+ */
+function Absent() {
+  return (
+    <span className="muted">
+      <span aria-hidden>—</span>
+      <span className="sr-only">None</span>
+    </span>
+  );
+}
 
 export function CaseTable({
   rows,
@@ -43,6 +87,9 @@ export function CaseTable({
   pathname,
   params,
   emptyText,
+  caption = "Test cases",
+  showState = true,
+  viewerUserId,
   pageSize = PAGE_SIZE,
   queryKey = "q",
   pageKey = "page",
@@ -61,6 +108,32 @@ export function CaseTable({
   pathname: string;
   params: ListSearchParams | undefined;
   emptyText: string;
+  /**
+   * What the table is called in a screen reader's table list. The default speaks for
+   * `/test-cases`; a screen that is already scoped should name its scope, on the same reasoning
+   * `productEmptyText` records — an unnamed table and a table named for a list it is not are
+   * both worse than one sentence of truth.
+   */
+  caption?: string;
+  /**
+   * Whether the lifecycle state earns a column.
+   *
+   * `false` for a list already scoped to ONE state — the review queue, where every row said
+   * `In Review` and a column repeating the same word down the page is the noise `.week-bar` and
+   * the batch list's chip bag both record. `/my-work/drafts` keeps it: it is scoped to two
+   * states, so the column tells a reader which of them each row is in, which is the difference
+   * between a case they can still edit and one they cannot.
+   */
+  showState?: boolean;
+  /**
+   * The signed-in user, when this list must say which rows are the viewer's OWN work.
+   *
+   * Set on the review queue and nowhere else. That screen's lede states the rule — an author
+   * cannot approve their own case (`roles-workflows.md:26`) — and the list gave no way to tell
+   * which rows it applied to, so a reviewer found out by opening one. Comparing an id the page
+   * already holds costs no query.
+   */
+  viewerUserId?: string;
   pageSize?: number;
   queryKey?: string;
   pageKey?: string;
@@ -184,42 +257,77 @@ export function CaseTable({
             }
           />
         ) : (
-          <ul className="row-list">
-            {rows.map((row) => (
-              <li key={row.id} className="list-row">
-                <div className="row-main">
-                  <div className="cluster">
-                    <span className="bid">{row.businessId}</span>
-                    <TestCaseStateChip state={row.lifecycleState} />
-                  </div>
-                  {/* The title is the click target, matching ExecutionList: it is the
-                      widest thing in the row and the thing the reader is already looking
-                      at. Before this, cases and defects were the only lists where
-                      clicking the title did nothing. */}
-                  <div className="row-title">
-                    <Link className="row-link" href={`/test-cases/${row.id}`}>
-                      {row.title}
-                    </Link>
-                  </div>
-                  <div className="muted">
-                    {row.priority || "no"} priority · {row.severity || "no"} severity
-                  </div>
-                </div>
-                {/* Same destination as the title, so it leaves the tab order: 50 rows
-                    would otherwise be 100 tab stops to reach 50 places. The label names
-                    the record, or a screen reader's link list is 50 identical "View"s. */}
-                <Link
-                  className="btn btn-secondary btn-sm"
-                  href={`/test-cases/${row.id}`}
-                  aria-label={`View ${row.businessId}`}
-                  tabIndex={-1}
-                >
-                  View
-                  <ChevronRight size={14} aria-hidden />
-                </Link>
-              </li>
-            ))}
-          </ul>
+          /* COLUMN ORDER: what identifies the case, then what it is, then the three fields a
+             reader narrows or triages by. `Title` sits second because it is the click target
+             and the widest column — putting it last would leave the row's own name at the far
+             edge of a screen that may be 1900px wide. */
+          <div className="table-scroll">
+            <table className="data-table">
+              {/* Without a name this announces as an unnamed table in a screen reader's
+                  table list. */}
+              <caption className="sr-only">{caption}</caption>
+              <thead>
+                <tr>
+                  <th scope="col" className="tight">
+                    ID
+                  </th>
+                  <th scope="col">Title</th>
+                  {showState ? (
+                    <th scope="col" className="tight">
+                      State
+                    </th>
+                  ) : null}
+                  <th scope="col" className="tight">
+                    Priority
+                  </th>
+                  <th scope="col" className="tight">
+                    Severity
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    {/* A `<td>` and not a `<th scope="row">`: `.data-table th` is styled and
+                        stickied for a COLUMN heading and would mangle a row header — the rule
+                        the batch report already records. */}
+                    {/* Two cells share this column: the ID people quote, and — on the review
+                        queue only — the mark saying the row is the viewer's own. */}
+                    <td className="tight">
+                      <span className="bid">{row.businessId}</span>
+                      {/* The rows this viewer wrote, marked where they are identified.
+                          Neutral `.state` and never `--blocked`: the graded tones belong to
+                          what policy grades, and "you wrote this" is a fact about authorship,
+                          not an outcome — the same rule the role chip on `/account` follows.
+                          Only a handful of rows carry it, which is what makes it the right
+                          loudness: those are the ones a reviewer should pass over. */}
+                      {viewerUserId !== undefined && row.authorUserId === viewerUserId ? (
+                        <span className="state case-mine">Yours</span>
+                      ) : null}
+                    </td>
+                    {/* The title is the click target, matching ExecutionList: it is the widest
+                        thing in the row and the thing the reader is already looking at. */}
+                    <td>
+                      <Link className="row-link case-title" href={`/test-cases/${row.id}`}>
+                        {row.title}
+                      </Link>
+                    </td>
+                    {showState ? (
+                      <td className="tight">
+                        <TestCaseStateChip state={row.lifecycleState} />
+                      </td>
+                    ) : null}
+                    {/* Words, not chips. Priority and severity are controlled values with no
+                        tone of their own — `docs/business-rules-and-validation.md` grades
+                        nothing by them — and a column of coloured pills would read as a verdict
+                        on each case. The heading names the field; the cell is its value. */}
+                    <td className="tight">{row.priority || <Absent />}</td>
+                    <td className="tight">{row.severity || <Absent />}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         <Pager
           total={total}

@@ -152,9 +152,10 @@ export function StepsEditor({
 
       {rows.map((row, index) => (
         <div key={row.key} className="steps-row">
-          <span className="steps-index" style={{ minWidth: 20, textAlign: "right" }}>
-            {index + 1}
-          </span>
+          {/* The width and the alignment are `.steps-row .steps-index`'s, not this element's —
+              they exist so the Action field does not shift between step 9 and step 10, which is
+              a layout rule and not something one call site decides. */}
+          <span className="steps-index">{index + 1}</span>
           <label className="field">
             <span>Action</span>
             <input
@@ -185,7 +186,7 @@ export function StepsEditor({
         </div>
       ))}
 
-      <div className="row" style={{ marginTop: "var(--sp-2)" }}>
+      <div className="row steps-commit">
         <button
           type="button"
           className="btn btn-secondary"
@@ -198,7 +199,7 @@ export function StepsEditor({
           {pending ? "Saving…" : "Save steps"}
         </button>
       </div>
-      <p className="hint muted" style={{ marginTop: "var(--sp-2)" }}>
+      <p className="hint muted">
         Steps are replaced as a whole and renumbered 1…n in the order shown.
       </p>
     </form>
@@ -225,15 +226,15 @@ export function LifecycleButton({
   const [state, formAction, pending] = useActionState<FormState, FormData>(action, null);
 
   return (
-    <form action={formAction} style={{ marginBottom: "var(--sp-3)" }}>
+    /* No bottom margin of its own. This renders as the only thing in a card ("Submit for
+       review") and as the first of two halves in another ("Review"), and in the first case a
+       trailing margin is dead space at the card's edge — so the space between this and whatever
+       follows belongs to that card, not to the form (`.review-alt`). */
+    <form action={formAction} className="lifecycle-form">
       <input type="hidden" name="testCaseId" value={testCaseId} />
       <input type="hidden" name="version" value={version} />
       <FormNotice state={state} id={noticeId(LIFECYCLE_FORM_ID)} />
-      {warning ? (
-        <p className="why" style={{ marginBottom: "var(--sp-3)" }}>
-          {warning}
-        </p>
-      ) : null}
+      {warning ? <p className="why">{warning}</p> : null}
       <button className="btn" type="submit" disabled={pending}>
         {pending ? "Working…" : label}
       </button>
@@ -271,7 +272,7 @@ export function RetireForm({ testCaseId, version }: { testCaseId: string; versio
   const bad = (field: string) => fieldClass(state, field);
 
   return (
-    <form action={formAction}>
+    <form action={formAction} className="lifecycle-form">
       <input type="hidden" name="testCaseId" value={testCaseId} />
       <input type="hidden" name="version" value={version} />
       <FormNotice state={state} id={noticeId(RETIRE_FORM_ID)} />
@@ -279,7 +280,9 @@ export function RetireForm({ testCaseId, version }: { testCaseId: string; versio
         <span>Retirement reason</span>
         <textarea name="retirementReason" rows={2} required disabled={pending} {...fieldProps(state, "retirementReason", RETIRE_FORM_ID)} />
       </label>
-      <p className="why" style={{ marginBottom: "var(--sp-3)" }}>
+      {/* Spaced by `.lifecycle-form > .why`, the same rule the submit and approve forms use:
+          consequence, then the control that accepts it. */}
+      <p className="why">
         <strong>Retiring preserves the case.</strong> Historical executions keep referencing it; it
         simply stops counting as active.
       </p>

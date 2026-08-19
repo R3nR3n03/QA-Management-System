@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { CalendarClock, ChevronRight } from "lucide-react";
 import type { DefectLifecycleState, ExecutionLifecycleState, ExecutionOutcome } from "@prisma/client";
 import { DefectStatusChip, ExecutionStateChip, OutcomeChip } from "./chips";
 import { formatMinute, outcomeBreakdown, type StampFormat } from "./format";
@@ -7,6 +7,7 @@ import { ListEmpty } from "./list-empty";
 import { hrefWith, readParam, type ListSearchParams } from "./list-params";
 import { Pager } from "./pager";
 import { PAGE_SIZE, PAGE_SIZE_OPTIONS } from "./paging";
+import { RunMark } from "./row-mark";
 import { UrlFilterToolbar, UrlSelectFilter } from "./toolbar";
 import type { ProductOption } from "./case-table";
 
@@ -211,7 +212,22 @@ export function ExecutionList({
             const breakdown =
               row.caseBusinessIds.length > 1 ? outcomeBreakdown(row.caseResults) : "";
             return (
+              /*
+               * The MARKED four-part row — mark, record, when, action — which is the shape My
+               * work's queue already gave these same records. Two lists of executions in one
+               * product read as one thing now rather than as two shapes.
+               *
+               * What that fixed is not only consistency. The row's facts were one line of five:
+               * covered cases, the outcome breakdown, the tester, the verb and stamp of the last
+               * event, and the Jira key — read as a sentence, which is the run-on `.data-table`
+               * exists to end, and unscannable down a page of fifty. The stamp has a slot of its
+               * own now (`.row-when`), which also aligns it down the list, and the mark aligns
+               * every row's record at the same x.
+               */
               <li key={row.id} className="list-row">
+                {/* Keyed to the outcome on a finished run and to the state on an open one —
+                    the same axis the row's chips choose. See `row-mark.tsx`. */}
+                <RunMark state={row.state} result={row.result} />
                 <div className="row-main">
                   <div className="cluster">
                     <span className="bid">{row.businessId}</span>
@@ -231,14 +247,12 @@ export function ExecutionList({
                       {row.purpose}
                     </Link>
                   </div>
-                  <div className="muted">
+                  <div className="muted row-facts">
                     <span className="bid">{row.caseBusinessIds[0]}</span>
                     {row.caseBusinessIds.length > 1 ? ` +${row.caseBusinessIds.length - 1} more` : ""}
                     {breakdown ? ` (${breakdown})` : ""}
                     {" · "}
                     {row.testerName}
-                    {" · "}
-                    {event.verb} <time dateTime={event.at.toISOString()}>{formatMinute(event.at, stampFormat)}</time>
                     {/* The Jira issue, last in the line and text rather than a link. The
                         row's one click target is its title — the reason the row is not a
                         stretched link and the reason "View" is skipped in the tab order.
@@ -255,11 +269,20 @@ export function ExecutionList({
                     ) : null}
                   </div>
                 </div>
+                {/* Out of the facts line and into the slot it shares with My work's rows, so
+                    the stamp lands in the same place on both lists and aligns down this one.
+                    The verb travels with the date because the slot means a different event per
+                    row, and a bare date would leave the reader guessing which. */}
+                <span className="muted row-when">
+                  <CalendarClock size={13} aria-hidden />
+                  {event.verb}{" "}
+                  <time dateTime={event.at.toISOString()}>{formatMinute(event.at, stampFormat)}</time>
+                </span>
                 {/* The same destination as the title, so it is skipped in the tab order:
                     50 rows would otherwise be 100 tab stops to reach 50 places. It stays a
                     real link for the pointer, and keeps the affordance visible. */}
                 <Link
-                  className="btn btn-secondary btn-sm"
+                  className="btn btn-secondary btn-sm row-cta"
                   href={`/executions/${row.id}`}
                   aria-label={`View ${row.businessId}`}
                   tabIndex={-1}

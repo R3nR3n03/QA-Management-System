@@ -40,9 +40,14 @@ export default async function NewTestCasePage({
     controlled.filter((v) => v.catalogue === catalogue && v.active).map((v) => v.value);
 
   return (
+    /* No width opt-in here, deliberately, where the list beside it is uncapped and the record
+       screen takes 1440px. This screen is one form of four sections; widening it would widen the
+       controls, and a 660px `<select>` is harder to use than a 320px one (`/account`'s rule). */
     <>
-      <h1>New test case</h1>
-      <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
+      <div className="page-head">
+        <h1>New test case</h1>
+      </div>
+      <p className="page-banner-lede">
         {revises
           ? "This draft revises an approved case; the link is recorded on creation."
           : "Created in Draft, visible to every role, editable until submitted for review."}

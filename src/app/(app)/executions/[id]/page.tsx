@@ -216,7 +216,15 @@ export default async function ExecutionPage({
       : [];
 
   return (
-    <>
+    /* The screen takes the 1440px opt-in (`.shell-main:has(.run-screen)`). At 1040px `.run-head`
+       was fitting four stage cards and a six-value tally into 992px, and `.detail-cols` under it
+       was giving a filterable, paged list of covered cases 650px with a 340px aside pressed
+       against it. Not the viewport, which the LIST beside it takes: this column is where a run's
+       evidence is read, and `.case-said` stops at 68ch either way.
+
+       `.run-screen` also owns the rhythm, so the head, the facts line, the stage band and the
+       columns carry no margins of their own — the shape `.case-screen` records. */
+    <div className="run-screen">
       <Breadcrumbs trail={[{ href: "/executions", label: "Executions" }]} here={execution.businessId} />
 
       {/* The record's identity is its business ID — the thing people quote, search and
@@ -263,7 +271,9 @@ export default async function ExecutionPage({
           a key and never see it again, and nobody could read it off a Finalized run at all.
           It belongs here instead: an attribute of the record, in every lifecycle state, for
           every role that may view the run. */}
-      <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
+      {/* `.run-facts` rather than a bare `.muted` with an inline margin: `.run-screen` owns the
+          rhythm, and the line stops at a measure so it does not run the width of the screen. */}
+      <p className="muted run-facts">
         {/* What the run covers. It moved off the lede when the purpose took that slot, and
             it is a fact about the run like the assignee and the Jira task, so it reads in
             the same line as them. */}
@@ -396,11 +406,11 @@ export default async function ExecutionPage({
         />
       ) : (
       <div className="detail-cols">
-        <div>
-          <div className="row" style={{ marginBottom: "var(--sp-3)" }}>
-            <h2 style={{ margin: 0, flex: 1 }}>
-              {single ? "Covered case" : `Covered cases (${execution.cases.length})`}
-            </h2>
+        {/* `.run-cases` owns the spacing between the heading, the view strip and the list, which
+            was three inline `marginBottom`s and a `style={{ margin: 0, flex: 1 }}` on the h2. */}
+        <div className="run-cases">
+          <div className="row">
+            <h2>{single ? "Covered case" : `Covered cases (${execution.cases.length})`}</h2>
             {/* The same >5 rule the record lists use. Its own key, and it resets this
                 list's page — not the record lists' `q`/`page`. */}
             {execution.cases.length > 5 ? (
@@ -414,12 +424,7 @@ export default async function ExecutionPage({
           </div>
 
           {showViews ? (
-            <div
-              className="seg"
-              role="group"
-              aria-label="Filter covered cases by outcome"
-              style={{ marginBottom: "var(--sp-3)" }}
-            >
+            <div className="seg" role="group" aria-label="Filter covered cases by outcome">
               {OUTCOME_VIEWS.map((view) => (
                 <Link
                   key={view.value}
@@ -502,8 +507,10 @@ export default async function ExecutionPage({
                         to live in the 340px rail, which repeated every case ID a second
                         time and put the outcome and its reason a column apart. */}
                     {covered.actualResult ? <p className="case-said">{covered.actualResult}</p> : null}
+                    {/* Spaced by `.case-item > .why` — the reason sits under the evidence it
+                        qualifies, and `.why` carries no margin of its own. */}
                     {covered.blockReason ? (
-                      <p className="why" style={{ marginTop: "var(--sp-2)" }}>
+                      <p className="why">
                         <strong>Blocked:</strong> {covered.blockReason}
                       </p>
                     ) : null}
@@ -613,6 +620,6 @@ export default async function ExecutionPage({
         </aside>
       </div>
       )}
-    </>
+    </div>
   );
 }

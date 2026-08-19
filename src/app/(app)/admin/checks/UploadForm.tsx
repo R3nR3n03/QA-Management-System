@@ -20,10 +20,11 @@ const INPUT_ID = "check-results-file";
  *
  * ## Why the control is a drop target and not the browser's own widget
  *
- * `.checks-screen` takes the 1440px opt-in because, as `DESIGN-SYSTEM.md` puts it, "the form
+ * `.checks-screen` takes the whole viewport because, as `DESIGN-SYSTEM.md` puts it, "the form
  * is the work" — and the form was then the platform's ~200px file button inside a card with
  * 900px to spend. The file being handed over has almost always just been dragged out of a CI
- * artifacts folder, so dragging it is the gesture to support.
+ * artifacts folder, so dragging it is the gesture to support, and the zone is a panel with real
+ * height rather than a 70px row because that is the shape a person aims a dragged file at.
  *
  * The real `<input type="file">` is still here, still the thing that submits, and still
  * focusable — only visually hidden inside the `<label>` (`.dropzone`). Nothing is
@@ -116,12 +117,20 @@ export function UploadForm({ maxLabel }: { maxLabel: string }) {
            * mark beside an ingest form would read as "this passed" on the one screen whose
            * whole subject is checks passing and failing — the same trap `.fact-list` records
            * about a column of ticks. The icon changes; the tone does not.
+           *
+           * It DOES change rank. Empty, the zone is a panel a person aims a file at and this is
+           * the first mark in it, which is `.medallion-lg`'s job (the same call `.page-banner`
+           * makes). Holding a file it is a row identifying a specimen, where a 52px disc beside
+           * a file name is the loudest thing in a card that has already been filled in.
            */}
-          <span className="medallion medallion-sq" aria-hidden>
+          <span
+            className={held ? "medallion medallion-sq" : "medallion medallion-lg medallion-sq"}
+            aria-hidden
+          >
             {held ? (
               <FileText size={19} strokeWidth={1.9} aria-hidden />
             ) : (
-              <Upload size={19} strokeWidth={1.9} aria-hidden />
+              <Upload size={24} strokeWidth={1.9} aria-hidden />
             )}
           </span>
           {held ? (
@@ -149,14 +158,22 @@ export function UploadForm({ maxLabel }: { maxLabel: string }) {
           ID — <span className="bid">TC-SAMPLE-0001</span> — in the test name or its class name.
         </span>
       </div>
-      <p className="why" style={{ marginBottom: "var(--sp-4)" }}>
-        <strong>A check reports; it never claims.</strong> Ingesting results records what the run
-        observed. It starts and finalizes no execution, raises no defect, and moves no coverage,
-        readiness or dashboard figure.
-      </p>
-      <button className="btn btn-icon" type="submit" disabled={pending}>
-        <Upload size={15} aria-hidden /> {pending ? "Ingesting…" : "Ingest results"}
-      </button>
+      {/*
+       * The qualifier and the commit on one line, so the sentence is what the eye crosses on the
+       * way to the button. Stacked, the band stopped at its 52ch and left the rest of a wide card
+       * empty beside it — see `.ingest-commit`, which wraps the two back apart when the column is
+       * too narrow to hold both.
+       */}
+      <div className="ingest-commit">
+        <p className="why">
+          <strong>A check reports; it never claims.</strong> Ingesting results records what the run
+          observed. It starts and finalizes no execution, raises no defect, and moves no coverage,
+          readiness or dashboard figure.
+        </p>
+        <button className="btn btn-icon" type="submit" disabled={pending}>
+          <Upload size={15} aria-hidden /> {pending ? "Ingesting…" : "Ingest results"}
+        </button>
+      </div>
     </form>
   );
 }

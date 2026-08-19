@@ -61,9 +61,14 @@ export default async function PlanExecutionPage({
   const defaultPurpose = from === "" ? "" : ((await executionPurpose(from)) ?? "");
 
   return (
+    /* No width opt-in, where the list is uncapped and the record screen takes 1440px. This is one
+       form with a case picker in it; widening it would widen the controls, and `/account`'s rule
+       says a 660px `<select>` is harder to use than a 320px one. */
     <>
-      <h1>Plan an execution</h1>
-      <p className="muted" style={{ marginBottom: "var(--sp-4)" }}>
+      <div className="page-head">
+        <h1>Plan an execution</h1>
+      </div>
+      <p className="page-banner-lede">
         A planned run starts in Planned and waits in the assigned tester&rsquo;s queue.
       </p>
       <div className="card">
